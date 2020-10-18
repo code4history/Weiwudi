@@ -1,0 +1,32 @@
+{
+  "name": "tilecacheserviceworker",
+  "version": "1.0.0",
+  "description": "Service worker for tile cache",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "": ""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/code4history/TileCacheServiceWorker.git"
+  },
+  "keywords": [
+    "Service",
+    "Worker",
+    "Tile",
+    "Cache"
+  ],
+  "author": "Kohei Otsuka",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/code4history/TileCacheServiceWorker/issues"
+  },
+  "homepage": "https://github.com/code4history/TileCacheServiceWorker#readme",
+  "dependencies": {
+    "gulp": "^4.0.2",
+    "gulp-cli": "^2.3.0",
+    "workbox-build": "^5.1.4",
+    "workbox-cli": "^5.1.4"
+  }
+}
