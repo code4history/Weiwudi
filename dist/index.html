@@ -1,0 +1,28 @@
+<html>
+<body>
+aaaabbbb
+</body>
+<script>
+    async function run() {
+        if ('serviceWorker' in navigator) {
+            try {
+                const reg = await navigator.serviceWorker.register('./sw.js', {scope: './'});
+                console.log('Registration succeeded. Scope is ' + reg.scope);
+                try {
+                    const pong = await fetch('https://tilecache.example.com/api/ping');
+                    if (pong) {
+                        const res = await fetch('https://tilecache.example.com/api/add?mapID=piyo&foo=bar');
+                        res.text().then(txt => console.log(txt));
+                    }
+                } catch (err) {
+                    console.log(err);
+                }
+            } catch(err) {
+                // registration failed
+                console.log('Registration failed with ' + err);
+            }
+        }
+    }
+    run();
+</script>
+</html>
