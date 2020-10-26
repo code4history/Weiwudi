@@ -11,8 +11,12 @@ aaaabbbb
                 try {
                     const pong = await fetch('https://tilecache.example.com/api/ping');
                     if (pong) {
-                        const res = await fetch('https://tilecache.example.com/api/add?mapID=piyo&foo=bar');
+                        const res = await fetch('https://tilecache.example.com/api/add?mapID=piyo&type=xyz&width=255&height=1024&url=http://hoge.com/hoge/hoge');
                         res.text().then(txt => console.log(txt));
+                        const res2 = await fetch('https://tilecache.example.com/api/add?mapID=hoge&type=wmts&minLat=35.0&maxLat=35.1&minLng=135.0&maxLng=135.1&minZoom=17&maxZoom=18&url=http://hoge.com/hoge/hoge');
+                        res2.text().then(txt => console.log(txt));
+                        const res3 = await fetch('https://tilecache.example.com/api/add?mapID=fuga&type=wmts&minZoom=17&maxZoom=18&url=http://hoge.com/hoge/hoge');
+                        res3.text().then(txt => console.log(txt));
                     }
                 } catch (err) {
                     console.log(err);
