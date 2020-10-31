@@ -12,7 +12,7 @@
  */
 
 importScripts("https://storage.googleapis.com/workbox-cdn/releases/5.1.4/workbox-sw.js");
-importScripts("./example.js");
+importScripts("./tilecache_sw.js");
 
 workbox.core.skipWaiting();
 

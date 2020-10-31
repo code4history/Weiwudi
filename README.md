@@ -5,7 +5,7 @@ Service worker for tile cache
 Call this js with workbox in your service worker.
 ```js
 importScripts("https://storage.googleapis.com/workbox-cdn/releases/5.1.4/workbox-sw.js");
-importScripts("./example.js");
+importScripts("./tilecache_sw.js");
 ```
 
 ## API Spec

@@ -2,6 +2,7 @@
     "use strict";
     const MERC_MAX = 20037508.342789244;
     const dbCache = {};
+    let fetchAllBlocker;
     const extractTemplate = (template, z, x, y) => {
         const result = template.replace('{z}', z)
             .replace('{x}', x)
@@ -115,11 +116,11 @@
             };
         });
     };
-    const getItem = async (db, table, key) => {
+    const getItem = async (db, table, key, dry) => {
         return new Promise((resolve, reject) => {
             const tx = db.transaction([table], 'readonly');
             const store = tx.objectStore(table);
-            const getReq = store.get(key);
+            const getReq = dry ? store.getKey(key) : store.get(key);
             getReq.onsuccess = function(e) {
             };
             getReq.onerror = function(e) {
@@ -192,22 +193,22 @@
             }
         }
     };
-    const getImage = async (mapID, z, x, y) => {
+    const getImage = async (mapID, z, x, y, noOutput) => {
         const db = await getDB('mapTileListDB');
         const setting = await getItem(db, 'mapSetting', mapID);
         if (!setting) return `Error: MapID "${mapID}" not found`;
-        let out;
-        if (z < setting.minZoom || z > setting.maxZoom) out = true;
+        let outExtent;
+        if (z < setting.minZoom || z > setting.maxZoom) outExtent = true;
         else {
             const minXatZ = Math.floor(setting.minX / Math.pow(2, setting.maxZoom - z));
             const maxXatZ = Math.floor(setting.maxX / Math.pow(2, setting.maxZoom - z));
             const minYatZ = Math.floor(setting.minY / Math.pow(2, setting.maxZoom - z));
             const maxYatZ = Math.floor(setting.maxY / Math.pow(2, setting.maxZoom - z));
-            if (x < minXatZ || x > maxXatZ || y < minYatZ || y > maxYatZ) out = true;
+            if (x < minXatZ || x > maxXatZ || y < minYatZ || y > maxYatZ) outExtent = true;
         }
         let headers;
         let blob;
-        if (out) {
+        if (outExtent) {
             headers = {
                 'content-type': 'image/png'
             };
@@ -218,7 +219,7 @@
                 'AAAAAAAAAAAAABgBDwABHHIJwwAAAABJRU5ErkJggg==', headers['content-type']);
         } else {
             const cacheDB = await getDB(`mapTileListDB_${mapID}`);
-            const cached = await getItem(cacheDB, 'tileCache', `${z}_${x}_${y}`);
+            const cached = await getItem(cacheDB, 'tileCache', `${z}_${x}_${y}`, noOutput);
             if (!cached) {
                 const url = extractTemplate(setting.url, z, x, y);
                 const resp = await fetch(url);//'https://b.tile.openstreetmap.org/17/116339/51358.png');
@@ -229,15 +230,12 @@
                     headers: headers,
                     blob: blob
                 });
-                return new Response(blob, {
-                    headers: new Headers(headers)
-                });
-            } else {
+            } else if (!noOutput) {
                 headers = cached.headers;
                 blob = cached.blob;
             }
         }
-        return new Response(blob, {
+        return noOutput ? undefined : new Response(blob, {
             headers: new Headers(headers)
         });
     };
@@ -260,11 +258,18 @@
             if (allTasks.length != setting.totalTile) console.log('Number of tiles is different');
             let subTasks = allTasks.splice(0, 5);
             while (subTasks.length) {
+                //Alive check
+                const checkClient = await self.clients.get(client.id);
+                if (!checkClient) {
+                    fetchAllBlocker = undefined;
+                    return;
+                }
                 const promises = subTasks.map((task) => {
-                    return getImage(setting.mapID, task[0], task[1], task[2]);
+                    return getImage(setting.mapID, task[0], task[1], task[2], true);
                 });
                 await Promise.all(promises);
                 processed += promises.length;
+                fetchAllBlocker.count = processed;
                 const done = Math.floor(processed * 100 / setting.totalTile);
                 const done5 = Math.floor(done / 5) * 5;
                 if (done5 != percent) {
@@ -275,10 +280,12 @@
                 }
                 subTasks = allTasks.splice(0, 5);
             }
+            fetchAllBlocker = undefined;
             client.postMessage({
                 message: `Fetched all tiles of ${setting.mapID}`
             });
         } catch(e) {
+            fetchAllBlocker = undefined;
             client.postMessage({
                 message: `Fetching stopped: ${setting.mapID} ${processed} / ${setting.totalTile}`
             });
@@ -415,8 +422,15 @@
                         const setting = await getItem(db, 'mapSetting', query.mapID);
                         if (!setting) retVal = `Error: MapID "${query.mapID}" not found`;
                         else if (!setting.totalTile) retVal = `Error: Map "${query.mapID}" cannot fetch all tiles`;
-                        else {
+                        else if (fetchAllBlocker) {
+                            retVal = `Error: Another fetching process is running: "${fetchAllBlocker.mapID}" (${fetchAllBlocker.count} / ${fetchAllBlocker.total})`;
+                        } else {
                             setTimeout(() => {
+                                fetchAllBlocker = {
+                                    mapID: query.mapID,
+                                    total: setting.totalTile,
+                                    count: 0
+                                };
                                 fetchAll(client, setting);
                             }, 1);
                             retVal = `Fetching task start: ${query.mapID}`;
