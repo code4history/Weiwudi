@@ -99,14 +99,25 @@
         return new Promise((resolve, reject) => {
             const tx = db.transaction([table], 'readonly');
             const store = tx.objectStore(table);
-            const countReq = store.count();
-            countReq.onsuccess = function(e) {
+            const cursorReq = store.openCursor();
+            let count = 0;
+            let size = 0;
+            cursorReq.onsuccess = function(e) {
+                const cursor = cursorReq.result;
+                if (cursor) {
+                    count++;
+                    size = size + cursor.value.blob.size;
+                    cursor.continue();
+                }
             };
-            countReq.onerror = function(e) {
+            cursorReq.onerror = function(e) {
                 reject(e);
             };
             tx.oncomplete = function(e) {
-                resolve(countReq.result);
+                resolve({
+                    count: count,
+                    size: size
+                });
             };
             tx.onabort = function(e) {
                 reject(e);
@@ -179,6 +190,27 @@
             };
         });
     };
+    const getAllKeys = async (db, table) => {
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction([table], 'readwrite');
+            const store = tx.objectStore(table);
+            const getReq = store.getAllKeys();
+            getReq.onsuccess = function(e) {
+            };
+            getReq.onerror = function(e) {
+                reject(e);
+            };
+            tx.oncomplete = function(e) {
+                resolve(getReq.result);
+            };
+            tx.onabort = function(e) {
+                reject(e);
+            };
+            tx.onerror = function(e) {
+                reject(e);
+            };
+        });
+    };
     const handlerCb = async ({url, request, event, params}) => {
         const client = event.clientId ? await self.clients.get(event.clientId) : undefined;
         const matched = url.pathname.match(/^\/api\/([\w\d]+)(?:\/(.+))?$/);
@@ -194,17 +226,19 @@
         }
     };
     const getImage = async (mapID, z, x, y, noOutput) => {
+        let outExtent;
         const db = await getDB('mapTileListDB');
         const setting = await getItem(db, 'mapSetting', mapID);
-        if (!setting) return `Error: MapID "${mapID}" not found`;
-        let outExtent;
-        if (z < setting.minZoom || z > setting.maxZoom) outExtent = true;
-        else {
-            const minXatZ = Math.floor(setting.minX / Math.pow(2, setting.maxZoom - z));
-            const maxXatZ = Math.floor(setting.maxX / Math.pow(2, setting.maxZoom - z));
-            const minYatZ = Math.floor(setting.minY / Math.pow(2, setting.maxZoom - z));
-            const maxYatZ = Math.floor(setting.maxY / Math.pow(2, setting.maxZoom - z));
-            if (x < minXatZ || x > maxXatZ || y < minYatZ || y > maxYatZ) outExtent = true;
+        if (!noOutput) {
+            if (!setting) return `Error: MapID "${mapID}" not found`;
+            if (z < setting.minZoom || z > setting.maxZoom) outExtent = true;
+            else {
+                const minXatZ = Math.floor(setting.minX / Math.pow(2, setting.maxZoom - z));
+                const maxXatZ = Math.floor(setting.maxX / Math.pow(2, setting.maxZoom - z));
+                const minYatZ = Math.floor(setting.minY / Math.pow(2, setting.maxZoom - z));
+                const maxYatZ = Math.floor(setting.maxY / Math.pow(2, setting.maxZoom - z));
+                if (x < minXatZ || x > maxXatZ || y < minYatZ || y > maxYatZ) outExtent = true;
+            }
         }
         let headers;
         let blob;
@@ -222,7 +256,7 @@
             const cached = await getItem(cacheDB, 'tileCache', `${z}_${x}_${y}`, noOutput);
             if (!cached) {
                 const url = extractTemplate(setting.url, z, x, y);
-                const resp = await fetch(url);//'https://b.tile.openstreetmap.org/17/116339/51358.png');
+                const resp = await fetch(url);
                 headers = [...resp.headers.entries()].reduce((obj, e) => ({...obj, [e[0]]: e[1]}), {});
                 blob = await resp.blob();
                 await putItem(cacheDB, 'tileCache', {
@@ -242,6 +276,8 @@
     const fetchAll = async (client, setting) => {
         let processed = 0;
         let percent = 0;
+        const db = await getDB(`mapTileListDB_${setting.mapID}`);
+        const allKeys = await getAllKeys(db, 'tileCache');
         try {
             const allTasks = [];
             for (let z = setting.minZoom; z <= setting.maxZoom; z++) {
@@ -265,6 +301,7 @@
                     return;
                 }
                 const promises = subTasks.map((task) => {
+                    if (allKeys.indexOf(`${task[0]}_${task[1]}_${task[2]}`) >= 0) return;
                     return getImage(setting.mapID, task[0], task[1], task[2], true);
                 });
                 await Promise.all(promises);
@@ -394,11 +431,11 @@
                         if (!setting) retVal = `Error: MapID "${query.mapID}" not found`;
                         else {
                             const cacheDB = await getDB(`mapTileListDB_${query.mapID}`);
-                            const count = await countDB(cacheDB, 'tileCache');
-                            const ret = {
-                                count: count
-                            };
-                            if (setting.totalTile) ret.total = setting.totalTile;
+                            const ret = await countDB(cacheDB, 'tileCache');
+                            if (setting.totalTile) {
+                                ret.total = setting.totalTile;
+                                ret.percent = Math.floor(ret.count / ret.total * 100);
+                            }
                             retVal = new Response(JSON.stringify(ret), {
                                 headers: new Headers({
                                     'content-type': 'application/json'

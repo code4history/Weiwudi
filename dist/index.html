@@ -16,8 +16,8 @@ aaaabbbb
                     res3.text().then(txt => console.log(txt));
                     const res4 = await fetch('https://tilecache.example.com/api/delete?mapID=fuga');
                     res4.text().then(txt => console.log(txt));
-                    const res5 = await fetch('https://tilecache.example.com/api/clean?mapID=hoge');
-                    res5.text().then(txt => console.log(txt));
+                    //const res5 = await fetch('https://tilecache.example.com/api/clean?mapID=hoge');
+                    //res5.text().then(txt => console.log(txt));
                     document.querySelector('body').insertAdjacentHTML('beforeend', '<img src="https://tilecache.example.com/api/cache/hoge/18/229448/103745">');
                     const res6 = await fetch('https://tilecache.example.com/api/fetchAll?mapID=hoge');
                     res6.text().then(txt => console.log(txt));
