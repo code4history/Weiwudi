@@ -1,16 +1,16 @@
-import Weiwu from '../../src/weiwu';
+import Weiwudi from '../../src/weiwudi';
 
 async function run() {
-    await Weiwu.registerSW('./sw.js', {scope: './'});
+    await Weiwudi.registerSW('./sw.js', {scope: './'});
 
-    const map1 = await Weiwu.registerMap('piyo', {
+    const map1 = await Weiwudi.registerMap('piyo', {
         type: 'xyz',
         width: 255,
         height: 1024,
         url: 'http://hoge.com/hoge/hoge'
     });
     console.log(map1);
-    const map2 = await Weiwu.registerMap('hoge', {
+    const map2 = await Weiwudi.registerMap('hoge', {
         type: 'wmts',
         minLat: 35.0,
         maxLat: 35.1,
@@ -21,7 +21,7 @@ async function run() {
         url: 'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png'
     });
     console.log(map2);
-    const map3 = await Weiwu.registerMap('fuga', {
+    const map3 = await Weiwudi.registerMap('fuga', {
         type: 'wmts',
         minZoom: 17,
         maxZoom: 18,
