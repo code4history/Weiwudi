@@ -10,9 +10,8 @@
  * and re-run your build process.
  * See https://goo.gl/2aRDsh
  */
-
 importScripts("https://storage.googleapis.com/workbox-cdn/releases/5.1.4/workbox-sw.js");
-importScripts("./tilecache_sw.js");
+importScripts("../../src/weiwu_sw.js");
 
 workbox.core.skipWaiting();
 

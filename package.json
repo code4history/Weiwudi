@@ -1,15 +1,16 @@
 {
-  "name": "tilecacheserviceworker",
-  "version": "1.0.0",
+  "name": "Weiwu",
+  "version": "0.1.0",
   "description": "Service worker for tile cache",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "workbox": "workbox injectManifest"
+    "workbox": "workbox injectManifest",
+    "webpack": "webpack"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/code4history/TileCacheServiceWorker.git"
+    "url": "git+https://github.com/code4history/Weiwu.git"
   },
   "keywords": [
     "Service",
@@ -20,12 +21,19 @@
   "author": "Kohei Otsuka",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/code4history/TileCacheServiceWorker/issues"
+    "url": "https://github.com/code4history/Weiwu/issues"
   },
-  "homepage": "https://github.com/code4history/TileCacheServiceWorker#readme",
-  "dependencies": {
-    "gulp": "^4.0.2",
-    "gulp-cli": "^2.3.0",
+  "homepage": "https://github.com/code4history/Weiwu#readme",
+  "devDependencies": {
+    "@babel/cli": "^7.12.7",
+    "@babel/core": "^7.12.7",
+    "@babel/polyfill": "^7.12.1",
+    "@babel/preset-env": "^7.12.7",
+    "@babel/register": "^7.12.1",
+    "babel-loader": "^8.2.1",
+    "core-js": "^3.7.0",
+    "webpack": "^5.6.0",
+    "webpack-cli": "^4.2.0",
     "workbox-build": "^5.1.4",
     "workbox-cli": "^5.1.4"
   }

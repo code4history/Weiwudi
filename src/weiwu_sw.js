@@ -227,7 +227,7 @@
     };
     const getImage = async (mapID, z, x, y, noOutput) => {
         let outExtent;
-        const db = await getDB('mapTileListDB');
+        const db = await getDB('Weiwu');
         const setting = await getItem(db, 'mapSetting', mapID);
         if (!noOutput) {
             if (!setting) return `Error: MapID "${mapID}" not found`;
@@ -252,7 +252,7 @@
                 'r+4ICgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'+
                 'AAAAAAAAAAAAABgBDwABHHIJwwAAAABJRU5ErkJggg==', headers['content-type']);
         } else {
-            const cacheDB = await getDB(`mapTileListDB_${mapID}`);
+            const cacheDB = await getDB(`Weiwu_${mapID}`);
             const cached = await getItem(cacheDB, 'tileCache', `${z}_${x}_${y}`, noOutput);
             if (!cached) {
                 const url = extractTemplate(setting.url, z, x, y);
@@ -276,7 +276,7 @@
     const fetchAll = async (client, setting) => {
         let processed = 0;
         let percent = 0;
-        const db = await getDB(`mapTileListDB_${setting.mapID}`);
+        const db = await getDB(`Weiwu_${setting.mapID}`);
         const allKeys = await getAllKeys(db, 'tileCache');
         try {
             const allTasks = [];
@@ -312,19 +312,32 @@
                 if (done5 != percent) {
                     percent = done5;
                     client.postMessage({
-                        message: `Proceeding the tile fetching: ${setting.mapID} ${done}% (${processed} / ${setting.totalTile})`
+                        type: 'proceed',
+                        message: `Proceeding the tile fetching: ${setting.mapID} ${done}% (${processed} / ${setting.totalTile})`,
+                        percent: done,
+                        processed,
+                        total: setting.totalTile,
+                        mapID: setting.mapID
                     });
                 }
                 subTasks = allTasks.splice(0, 5);
             }
             fetchAllBlocker = undefined;
             client.postMessage({
-                message: `Fetched all tiles of ${setting.mapID}`
+                type: 'finish',
+                message: `Fetched all tiles of ${setting.mapID}`,
+                total: setting.totalTile,
+                mapID: setting.mapID
             });
         } catch(e) {
             fetchAllBlocker = undefined;
             client.postMessage({
-                message: `Fetching stopped: ${setting.mapID} ${processed} / ${setting.totalTile}`
+                type: 'stop',
+                message: `Fetching stopped: ${setting.mapID} ${processed} / ${setting.totalTile}`,
+                reason: e,
+                processed,
+                total: setting.totalTile,
+                mapID: setting.mapID
             });
         }
     }
@@ -342,11 +355,26 @@
                 case 'ping':
                     retVal = 'Implemented';
                     break;
+                case 'info':
+                    retVal = checkAttributes(query, ['mapID']);
+                    if (!retVal) {
+                        const db = await getDB('Weiwu', 'mapSetting', 'mapID');
+                        const setting = await getItem(db, 'mapSetting', query.mapID);
+                        if (!setting) retVal = `Error: MapID "${query.mapID}" not found`;
+                        else {
+                            retVal = new Response(JSON.stringify(setting), {
+                                headers: new Headers({
+                                    'content-type': 'application/json'
+                                })
+                            });
+                        }
+                    }
+                    break;
                 case 'add':
-                    const db = await getDB('mapTileListDB', 'mapSetting', 'mapID');
+                    const db = await getDB('Weiwu', 'mapSetting', 'mapID');
                     retVal = checkAttributes(query, ['mapID','type', 'url']);
                     if (!retVal) {
-                        query.tileSize = query.tileSize || 256;
+                        query.tileSize = parseInt(query.tileSize || 256);
                         switch (query.type) {
                             case 'xyz':
                                 retVal = checkAttributes(query, ['width', 'height']);
@@ -402,14 +430,18 @@
                             }
                         }
                         await putItem(db, 'mapSetting', query);
-                        await getDB(`mapTileListDB_${query.mapID}`, 'tileCache', 'z_x_y');
-                        retVal = `Added: ${query.mapID}`;
+                        await getDB(`Weiwu_${query.mapID}`, 'tileCache', 'z_x_y');
+                        retVal = new Response(JSON.stringify(query), {
+                            headers: new Headers({
+                                'content-type': 'application/json'
+                            })
+                        });
                     }
                     break;
                 case 'clean':
                     retVal = checkAttributes(query, ['mapID']);
                     if (!retVal) {
-                        const cacheDB = await getDB(`mapTileListDB_${query.mapID}`);
+                        const cacheDB = await getDB(`Weiwu_${query.mapID}`);
                         await cleanDB(cacheDB, 'tileCache');
                         retVal = `Cleaned: ${query.mapID}`;
                     }
@@ -417,8 +449,8 @@
                 case 'delete':
                     retVal = checkAttributes(query, ['mapID']);
                     if (!retVal) {
-                        await deleteDB(`mapTileListDB_${query.mapID}`);
-                        const db = await getDB('mapTileListDB');
+                        await deleteDB(`Weiwu_${query.mapID}`);
+                        const db = await getDB('Weiwu');
                         await deleteItem(db, 'mapSetting', query.mapID);
                         retVal = `Deleted: ${query.mapID}`;
                     }
@@ -426,11 +458,11 @@
                 case 'stats':
                     retVal = checkAttributes(query, ['mapID']);
                     if (!retVal) {
-                        const db = await getDB('mapTileListDB');
+                        const db = await getDB('Weiwu');
                         const setting = await getItem(db, 'mapSetting', query.mapID);
                         if (!setting) retVal = `Error: MapID "${query.mapID}" not found`;
                         else {
-                            const cacheDB = await getDB(`mapTileListDB_${query.mapID}`);
+                            const cacheDB = await getDB(`Weiwu_${query.mapID}`);
                             const ret = await countDB(cacheDB, 'tileCache');
                             if (setting.totalTile) {
                                 ret.total = setting.totalTile;
@@ -455,7 +487,7 @@
                 case 'fetchAll':
                     retVal = checkAttributes(query, ['mapID']);
                     if (!retVal) {
-                        const db = await getDB('mapTileListDB');
+                        const db = await getDB('Weiwu');
                         const setting = await getItem(db, 'mapSetting', query.mapID);
                         if (!setting) retVal = `Error: MapID "${query.mapID}" not found`;
                         else if (!setting.totalTile) retVal = `Error: Map "${query.mapID}" cannot fetch all tiles`;
@@ -484,5 +516,5 @@
         if (retVal) return retVal;
     };
 
-    self.workbox.routing.registerRoute(/^https?:\/\/tilecache.example.com/, handlerCb, 'GET');
+    self.workbox.routing.registerRoute(/^https?:\/\/weiwu.example.com/, handlerCb, 'GET');
 }();
