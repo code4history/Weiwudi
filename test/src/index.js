@@ -30,7 +30,7 @@ async function run() {
     console.log(map3);
     await map3.remove();
 
-    /*await map2.clean();
+    await map2.clean();
     map2.addEventListener('proceed', (e) => {
         console.log(e);
     });
@@ -40,9 +40,9 @@ async function run() {
     map2.addEventListener('stop', (e) => {
         console.log(e);
     });
-    await map2.fetchAll();*/
+    await map2.fetchAll();
 
-    map1.addEventListener('proceed', (e) => {
+    /*map1.addEventListener('proceed', (e) => {
         console.log(e);
     });
     map1.addEventListener('finish', (e) => {
@@ -51,7 +51,7 @@ async function run() {
     map1.addEventListener('stop', (e) => {
         console.log(e);
     });
-    await map1.fetchAll();
+    await map1.fetchAll();*/
 
     const stats = await map2.stats();
     console.log(stats);

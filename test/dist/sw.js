@@ -11,7 +11,7 @@
  * See https://goo.gl/2aRDsh
  */
 importScripts("https://storage.googleapis.com/workbox-cdn/releases/5.1.4/workbox-sw.js");
-importScripts("https://cdn.jsdelivr.net/npm/weiwudi@0.0.3/src/weiwudi_sw.js");
+importScripts("https://cdn.jsdelivr.net/npm/weiwudi@0.0.4/src/weiwudi_sw.js");
 //importScripts("../../src/weiwudi_sw.js");
 
 workbox.core.skipWaiting();
@@ -23,5 +23,5 @@ workbox.core.clientsClaim();
  * requests for URLs in the manifest.
  * See https://goo.gl/S9QRab
  */
-workbox.precaching.precacheAndRoute([{"revision":"facefd90c1afb4b4d3532487b8216f30","url":"index.js"},{"revision":"ed68dd0d2ba66aff280ecbf39ced2ba5","url":"index.html"}], {});
+workbox.precaching.precacheAndRoute([{"revision":"49da15c34837fc362c195b62a4193195","url":"index.js"},{"revision":"ed68dd0d2ba66aff280ecbf39ced2ba5","url":"index.html"}], {});
 workbox.routing.registerRoute(/(?:maps\/.+\.json|pwa\/.+|pois\/.+\.json|apps\/.+\.json|tmbs\/.+_menu\.jpg|img\/.+\.(?:png|jpg))$/, new workbox.strategies.StaleWhileRevalidate({ "cacheName":"resourcesCache", plugins: [new workbox.expiration.ExpirationPlugin({ maxAgeSeconds: 86400, purgeOnQuotaError: false })] }), 'GET');

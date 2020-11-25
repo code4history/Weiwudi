@@ -280,6 +280,7 @@
                             headers = [...resp.headers.entries()].reduce((obj, e) => ({...obj, [e[0]]: e[1]}), {});
                             blob = await resp.blob();
                         }
+                        if (fetchAllBlocker) fetchAllBlocker.error++;
                     }
                 } catch(e) {
                     if (cached) {
@@ -289,6 +290,7 @@
                         status = 404;
                         statusText = 'Not Found';
                     }
+                    if (fetchAllBlocker) fetchAllBlocker.error++;
                 }
             } else if (!noOutput) {
                 headers = cached.headers;
@@ -303,6 +305,7 @@
     };
     const fetchAll = async (client, setting) => {
         let processed = 0;
+        let error = 0;
         let percent = 0;
         const db = await getDB(`Weiwudi_${setting.mapID}`);
         const allKeys = await getAllKeys(db, 'tileCache');
@@ -344,18 +347,21 @@
                         message: `Proceeding the tile fetching: ${setting.mapID} ${done}% (${processed} / ${setting.totalTile})`,
                         percent: done,
                         processed,
+                        error: fetchAllBlocker.error,
                         total: setting.totalTile,
                         mapID: setting.mapID
                     });
                 }
                 subTasks = allTasks.splice(0, 5);
             }
+            const error = fetchAllBlocker.error;
             fetchAllBlocker = undefined;
             client.postMessage({
                 type: 'finish',
-                message: `Fetched all tiles of ${setting.mapID}`,
+                message: `Fetched all tiles of ${setting.mapID}${error ? ` with ${error} error cases` : ''}`,
                 total: setting.totalTile,
-                mapID: setting.mapID
+                mapID: setting.mapID,
+                error
             });
         } catch(e) {
             fetchAllBlocker = undefined;
@@ -526,7 +532,8 @@
                                 fetchAllBlocker = {
                                     mapID: query.mapID,
                                     total: setting.totalTile,
-                                    count: 0
+                                    count: 0,
+                                    error: 0
                                 };
                                 fetchAll(client, setting);
                             }, 1);
