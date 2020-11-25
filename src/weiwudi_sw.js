@@ -240,8 +240,10 @@
                 if (x < minXatZ || x > maxXatZ || y < minYatZ || y > maxYatZ) outExtent = true;
             }
         }
-        let headers;
+        let headers = {};
         let blob;
+        let status = 200;
+        let statusText = 'OK';
         if (outExtent) {
             headers = {
                 'content-type': 'image/png'
@@ -254,22 +256,48 @@
         } else {
             const cacheDB = await getDB(`Weiwudi_${mapID}`);
             const cached = await getItem(cacheDB, 'tileCache', `${z}_${x}_${y}`, noOutput);
-            if (!cached) {
+            const nowEpoch = new Date().getTime();
+            if (!cached || !cached.epoch || nowEpoch - cached.epoch > 86400000) {
                 const url = extractTemplate(setting.url, z, x, y);
-                const resp = await fetch(url);
-                headers = [...resp.headers.entries()].reduce((obj, e) => ({...obj, [e[0]]: e[1]}), {});
-                blob = await resp.blob();
-                await putItem(cacheDB, 'tileCache', {
-                    'z_x_y': `${z}_${x}_${y}`,
-                    headers: headers,
-                    blob: blob
-                });
+                try {
+                    const resp = await fetch(url);
+                    if (resp.ok) {
+                        headers = [...resp.headers.entries()].reduce((obj, e) => ({...obj, [e[0]]: e[1]}), {});
+                        blob = await resp.blob();
+                        await putItem(cacheDB, 'tileCache', {
+                            'z_x_y': `${z}_${x}_${y}`,
+                            headers: headers,
+                            blob: blob,
+                            epoch: nowEpoch
+                        });
+                    } else {
+                        if (cached) {
+                            headers = cached.headers;
+                            blob = cached.blob;
+                        } else {
+                            status = resp.status;
+                            statusText = resp.statusText;
+                            headers = [...resp.headers.entries()].reduce((obj, e) => ({...obj, [e[0]]: e[1]}), {});
+                            blob = await resp.blob();
+                        }
+                    }
+                } catch(e) {
+                    if (cached) {
+                        headers = cached.headers;
+                        blob = cached.blob;
+                    } else {
+                        status = 404;
+                        statusText = 'Not Found';
+                    }
+                }
             } else if (!noOutput) {
                 headers = cached.headers;
                 blob = cached.blob;
             }
         }
         return noOutput ? undefined : new Response(blob, {
+            status,
+            statusText,
             headers: new Headers(headers)
         });
     };

@@ -7,7 +7,7 @@ async function run() {
         type: 'xyz',
         width: 255,
         height: 1024,
-        url: 'http://hoge.com/hoge/hoge'
+        url: 'http://hogehogehogehoge.com/hoge/hoge'
     });
     console.log(map1);
     const map2 = await Weiwudi.registerMap('hoge', {
@@ -30,7 +30,7 @@ async function run() {
     console.log(map3);
     await map3.remove();
 
-    await map2.clean();
+    /*await map2.clean();
     map2.addEventListener('proceed', (e) => {
         console.log(e);
     });
@@ -40,7 +40,18 @@ async function run() {
     map2.addEventListener('stop', (e) => {
         console.log(e);
     });
-    await map2.fetchAll();
+    await map2.fetchAll();*/
+
+    map1.addEventListener('proceed', (e) => {
+        console.log(e);
+    });
+    map1.addEventListener('finish', (e) => {
+        console.log(e);
+    });
+    map1.addEventListener('stop', (e) => {
+        console.log(e);
+    });
+    await map1.fetchAll();
 
     const stats = await map2.stats();
     console.log(stats);
