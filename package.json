@@ -1,8 +1,8 @@
 {
   "name": "weiwudi",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Service worker for tile cache",
-  "main": "index.js",
+  "main": "src/weiwudi.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "workbox": "workbox injectManifest",
@@ -32,8 +32,8 @@
     "@babel/register": "^7.12.1",
     "babel-loader": "^8.2.1",
     "core-js": "^3.7.0",
-    "webpack": "^5.6.0",
-    "webpack-cli": "^4.2.0",
+    "webpack": "^4.41.6",
+    "webpack-cli": "^3.3.11",
     "workbox-build": "^5.1.4",
     "workbox-cli": "^5.1.4"
   }
