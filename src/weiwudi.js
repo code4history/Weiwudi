@@ -53,12 +53,21 @@ export default class Weiwudi extends EventTarget {
         if (!swChecked) throw('Weiwudi service worker is not implemented.');
         let text;
         try {
-            const queries = ['type', 'url', 'width', 'height', 'tileSize', 'minZoom', 'maxZoom', 'maxLng', 'maxLat', 'minLng', 'minLat'].reduce((prev, key) => {
-                if (typeof options[key] !== 'undefined') prev[key] = options[key];
-                return prev;
-            }, { mapID });
+            const p = ['type', 'url', 'width', 'height', 'tileSize', 'minZoom', 'maxZoom', 'maxLng', 'maxLat', 'minLng', 'minLat'].reduce((p, key) => {
+                if (typeof options[key] !== 'undefined') {
+                    if (options[key] instanceof Array) {
+                        options[key].map((val) => {
+                            p.append(key, val);
+                        });
+                    } else {
+                        p.append(key, options[key]);
+                    }
+                }
+                return p;
+            }, new URLSearchParams());
+            p.append('mapID', mapID);
             const url = new URL(`${BASEURL}add`);
-            url.search = new URLSearchParams(queries);
+            url.search = p;
             const res = await fetch(url.href);
             text = await res.text();
         } catch(e) {
@@ -67,7 +76,6 @@ export default class Weiwudi extends EventTarget {
         if (text.match(/^Error: /)) {
             throw(text);
         }
-        console.log(text);
         return new Weiwudi(mapID, JSON.parse(text));
     }
 

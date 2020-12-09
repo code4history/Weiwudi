@@ -1,6 +1,6 @@
 {
   "name": "weiwudi",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "description": "Service worker for tile cache",
   "main": "src/weiwudi.js",
   "scripts": {

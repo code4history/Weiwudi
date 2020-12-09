@@ -18,7 +18,7 @@ async function run() {
         maxLng: 135.1,
         minZoom: 17,
         maxZoom: 18,
-        url: 'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png'
+        url: ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png','https://b.tile.openstreetmap.org/{z}/{x}/{y}.png']
     });
     console.log(map2);
     const map3 = await Weiwudi.registerMap('fuga', {

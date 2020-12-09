@@ -215,7 +215,12 @@
         const client = event.clientId ? await self.clients.get(event.clientId) : undefined;
         const matched = url.pathname.match(/^\/api\/([\w\d]+)(?:\/(.+))?$/);
         if (matched) {
-            const query = [...url.searchParams.entries()].reduce((obj, e) => ({...obj, [e[0]]: e[1]}), {});
+            const query = [...url.searchParams.entries()].reduce((obj, e) => {
+                const values = url.searchParams.getAll(e[0]);
+                if (values.length === 1) obj[e[0]] = values[0];
+                else obj[e[0]] = values;
+                return obj;
+            }, {});
             const apiName = matched[1];
             const restPath = matched[2];
             let res = await apiFunc(apiName, query, restPath, client);
@@ -258,7 +263,10 @@
             const cached = await getItem(cacheDB, 'tileCache', `${z}_${x}_${y}`, noOutput);
             const nowEpoch = new Date().getTime();
             if (!cached || !cached.epoch || nowEpoch - cached.epoch > 86400000) {
-                const url = extractTemplate(setting.url, z, x, y);
+                const template = setting.url instanceof Array ?
+                    setting.url[Math.floor(Math.random() * setting.url.length)] :
+                    setting.url;
+                const url = extractTemplate(template, z, x, y);
                 try {
                     const resp = await fetch(url);
                     if (resp.ok) {
