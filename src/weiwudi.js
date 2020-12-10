@@ -1,6 +1,7 @@
 "use strict";
 
 const BASEURL = 'https://weiwudi.example.com/api/';
+let swChecking;
 let swChecked;
 
 class WeiwudiEvent extends Event {
@@ -46,11 +47,20 @@ export default class Weiwudi extends EventTarget {
     }
 
     static async swCheck() {
-        swChecked = await fetch(`${BASEURL}ping`);
+        if (swChecked != null) return swChecked;
+        if (!swChecking) swChecking = async () => {
+            try {
+                swChecked = !!(await fetch(`${BASEURL}ping`));
+            } catch(e) {
+                swChecked = false;
+            }
+            return swChecked;
+        };
+        return swChecking;
     }
 
     static async registerMap(mapID, options) {
-        if (!swChecked) throw('Weiwudi service worker is not implemented.');
+        if (!(await Weiwudi.swCheck())) throw('Weiwudi service worker is not implemented.');
         let text;
         try {
             const p = ['type', 'url', 'width', 'height', 'tileSize', 'minZoom', 'maxZoom', 'maxLng', 'maxLat', 'minLng', 'minLat'].reduce((p, key) => {
@@ -80,7 +90,7 @@ export default class Weiwudi extends EventTarget {
     }
 
     static async retrieveMap(mapID) {
-        if (!swChecked) throw('Weiwudi service worker is not implemented.');
+        if (!(await Weiwudi.swCheck())) throw('Weiwudi service worker is not implemented.');
         let text;
         try {
             const res = await fetch(`${BASEURL}info?mapID=${mapID}`);
@@ -96,7 +106,7 @@ export default class Weiwudi extends EventTarget {
     }
 
     static async removeMap(mapID) {
-        if (!swChecked) throw('Weiwudi service worker is not implemented.');
+        if (!(await Weiwudi.swCheck())) throw('Weiwudi service worker is not implemented.');
         let text;
         try {
             const res = await fetch(`${BASEURL}delete?mapID=${mapID}`);
@@ -110,7 +120,6 @@ export default class Weiwudi extends EventTarget {
     }
 
     constructor(mapID, attrs) {
-        if (!swChecked) throw('Weiwudi service worker is not implemented.');
         super();
         if (!mapID) throw('MapID is necessary.');
         this.mapID = mapID;
