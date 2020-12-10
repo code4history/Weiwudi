@@ -236,13 +236,13 @@
         const setting = await getItem(db, 'mapSetting', mapID);
         if (!noOutput) {
             if (!setting) return `Error: MapID "${mapID}" not found`;
-            if (z < setting.minZoom || z > setting.maxZoom) outExtent = true;
+            if (z < setting.minZoom || z > setting.maxZoom) outExtent = 'zoom';
             else {
                 const minXatZ = Math.floor(setting.minX / Math.pow(2, setting.maxZoom - z));
                 const maxXatZ = Math.floor(setting.maxX / Math.pow(2, setting.maxZoom - z));
                 const minYatZ = Math.floor(setting.minY / Math.pow(2, setting.maxZoom - z));
                 const maxYatZ = Math.floor(setting.maxY / Math.pow(2, setting.maxZoom - z));
-                if (x < minXatZ || x > maxXatZ || y < minYatZ || y > maxYatZ) outExtent = true;
+                if (x < minXatZ || x > maxXatZ || y < minYatZ || y > maxYatZ) outExtent = 'extent';
             }
         }
         let headers = {};
@@ -250,14 +250,19 @@
         let status = 200;
         let statusText = 'OK';
         if (outExtent) {
-            headers = {
-                'content-type': 'image/png'
-            };
-            blob = b64toBlob('iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAMAAABrrFhUAAAAB3RJTUUH3QgIBToaSbAjlwAAABd0'+
-                'RVh0U29mdHdhcmUAR0xEUE5HIHZlciAzLjRxhaThAAAACHRwTkdHTEQzAAAAAEqAKR8AAAAEZ0FN'+
-                'QQAAsY8L/GEFAAAAA1BMVEX///+nxBvIAAAAAXRSTlMAQObYZgAAAFRJREFUeNrtwQEBAAAAgJD+'+
-                'r+4ICgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'+
-                'AAAAAAAAAAAAABgBDwABHHIJwwAAAABJRU5ErkJggg==', headers['content-type']);
+            if (outExtent === 'zoom') {
+                status = 404;
+                statusText = 'Not Found';
+            } else {
+                headers = {
+                    'content-type': 'image/png'
+                };
+                blob = b64toBlob('iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAMAAABrrFhUAAAAB3RJTUUH3QgIBToaSbAjlwAAABd0'+
+                    'RVh0U29mdHdhcmUAR0xEUE5HIHZlciAzLjRxhaThAAAACHRwTkdHTEQzAAAAAEqAKR8AAAAEZ0FN'+
+                    'QQAAsY8L/GEFAAAAA1BMVEX///+nxBvIAAAAAXRSTlMAQObYZgAAAFRJREFUeNrtwQEBAAAAgJD+'+
+                    'r+4ICgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'+
+                    'AAAAAAAAAAAAABgBDwABHHIJwwAAAABJRU5ErkJggg==', headers['content-type']);
+            }
         } else {
             const cacheDB = await getDB(`Weiwudi_${mapID}`);
             const cached = await getItem(cacheDB, 'tileCache', `${z}_${x}_${y}`, noOutput);
