@@ -544,7 +544,7 @@
                     }
                     break;
                 case 'cache':
-                    const matched = restPath.match(/^([\d\w]+)\/(\d+)\/(\d+)\/(\d+)$/);
+                    const matched = restPath.match(/^([^\/]+)\/(\d+)\/(\d+)\/(\d+)$/);
                     if (matched) {
                         retVal = await getImage(matched[1], parseInt(matched[2]), parseInt(matched[3]), parseInt(matched[4]));
                     } else {
