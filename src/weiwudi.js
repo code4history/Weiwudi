@@ -190,4 +190,18 @@ export default class Weiwudi extends EventTarget {
         await Weiwudi.removeMap(this.mapID);
         this.release();
     }
+
+    async cancel() {
+        let text;
+        this.checkAspect();
+        try {
+            const res = await fetch(`${BASEURL}cancel?mapID=${this.mapID}`);
+            text = await res.text();
+        } catch(e) {
+            throw(e);
+        }
+        if (text.match(/^Error: /)) {
+            throw(text);
+        }
+    }
 }

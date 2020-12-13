@@ -42,6 +42,13 @@ async function run() {
     });
     await map2.fetchAll();
 
+    setTimeout(async () => {
+        map2.addEventListener('canceled', (e) => {
+            console.log(e);
+        });
+        await map2.cancel();
+    }, 2000);
+
     /*map1.addEventListener('proceed', (e) => {
         console.log(e);
     });

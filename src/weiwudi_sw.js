@@ -344,6 +344,15 @@
                     fetchAllBlocker = undefined;
                     return;
                 }
+                if (fetchAllBlocker.cancel) {
+                    fetchAllBlocker = undefined;
+                    client.postMessage({
+                        type: 'canceled',
+                        message: `Fetching tile of ${setting.mapID} is canceled`,
+                        mapID: setting.mapID
+                    });
+                    return;
+                }
                 const promises = subTasks.map((task) => {
                     if (allKeys.indexOf(`${task[0]}_${task[1]}_${task[2]}`) >= 0) return;
                     return getImage(setting.mapID, task[0], task[1], task[2], true);
@@ -487,7 +496,9 @@
                     break;
                 case 'clean':
                     retVal = checkAttributes(query, ['mapID']);
-                    if (!retVal) {
+                    if (fetchAllBlocker && fetchAllBlocker.mapID == query.mapID) {
+                        retVal = `Error: ${query.mapID} is under fetching process. Please cancel it first`;
+                    } else if (!retVal) {
                         const cacheDB = await getDB(`Weiwudi_${query.mapID}`);
                         await cleanDB(cacheDB, 'tileCache');
                         retVal = `Cleaned: ${query.mapID}`;
@@ -495,13 +506,23 @@
                     break;
                 case 'delete':
                     retVal = checkAttributes(query, ['mapID']);
-                    if (!retVal) {
+                    if (fetchAllBlocker && fetchAllBlocker.mapID == query.mapID) {
+                        retVal = `Error: ${query.mapID} is under fetching process. Please cancel it first`;
+                    } else if (!retVal) {
                         await deleteDB(`Weiwudi_${query.mapID}`);
                         const db = await getDB('Weiwudi');
                         await deleteItem(db, 'mapSetting', query.mapID);
                         retVal = `Deleted: ${query.mapID}`;
                     }
                     break;
+                case 'cancel':
+                    retVal = checkAttributes(query, ['mapID']);
+                    if (fetchAllBlocker && fetchAllBlocker.mapID == query.mapID) {
+                        fetchAllBlocker.cancel = true;
+                        retVal = `Fetching process of ${fetchAllBlocker.mapID} is canceled`;
+                    } else {
+                        retVal = `Error: There are no fetching process of ${query.mapID}`;
+                    }
                 case 'stats':
                     retVal = checkAttributes(query, ['mapID']);
                     if (!retVal) {
