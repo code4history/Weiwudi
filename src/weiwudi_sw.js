@@ -447,12 +447,11 @@
                                 }
                                 break;
                             case 'wmts':
-                                retVal = checkAttributes(query, ['minZoom', 'maxZoom']);
                                 if (!retVal) {
                                     const lng2MercX = (lng) => { return 6378137 * lng * Math.PI / 180 };
                                     const lat2MercY = (lat) => { return 6378137 * Math.log(Math.tan(Math.PI / 360 * (90 + lat))) };
-                                    query.maxZoom = parseInt(query.maxZoom);
-                                    query.minZoom = parseInt(query.minZoom);
+                                    if (query.maxZoom) query.maxZoom = parseInt(query.maxZoom);
+                                    if (query.minZoom) query.minZoom = parseInt(query.minZoom);
                                     if (query.maxLng && query.minLng && query.maxLat && query.minLat) {
                                         query.maxLng = parseFloat(query.maxLng);
                                         query.minLng = parseFloat(query.minLng);
@@ -474,7 +473,7 @@
                         }
                     }
                     if (!retVal) {
-                        if (!checkAttributes(query, ['maxX', 'minX', 'maxY', 'minY'])) {
+                        if (!checkAttributes(query, ['maxX', 'minX', 'maxY', 'minY', 'minZoom', 'maxZoom'])) {
                             query.totalTile = 0;
                             const calcTileCoord = (atMaxZoom, zoom) => { return Math.floor(atMaxZoom / Math.pow(2, query.maxZoom - zoom)) };
                             for (let z = query.minZoom; z <= query.maxZoom; z++) {
