@@ -16,24 +16,12 @@ export default class Weiwudi extends EventTarget {
         if ('serviceWorker' in navigator) {
             try {
                 const reg = await navigator.serviceWorker.register(sw, swOptions);
+                //console.log('Service Worker Registered');
 
-                // A wild service worker has appeared in reg.installing and maybe in waiting!
-                const newWorker = reg.installing;
-                const waitingWoker = reg.waiting;
-
-                if (newWorker) {
-                    if (newWorker.state === 'activated' && !waitingWoker) {
-                        // reload to avoid skipWaiting and clients.claim()
-                        window.location.reload();
-                    }
-                    newWorker.addEventListener('statechange', (e) => {
-                        // newWorker.state has changed
-                        if (newWorker.state === 'activated' && !waitingWoker) {
-                            // reload to avoid skipWaiting and clients.claim()
-                            window.location.reload();
-                        }
-                    });
-                }
+                reg.onupdatefound = () => {
+                    //console.log('Found Service Worker update');
+                    reg.update();
+                };
 
                 await Weiwudi.swCheck();
 
