@@ -35,16 +35,16 @@ export default class Weiwudi extends EventTarget {
     }
 
     static async swCheck() {
-        if (swChecked != null) return swChecked;
-        if (!swChecking) swChecking = async () => {
+        if (swChecked !== undefined) return swChecked;
+        if (swChecking === undefined) swChecking = new Promise(async (res, rej) => {
             try {
                 swChecked = await fetch(`${BASEURL}ping`);
                 swChecked = !!swChecked;
             } catch(e) {
                 swChecked = false;
             }
-            return swChecked;
-        };
+            res(swChecked);
+        });
         return swChecking;
     }
 

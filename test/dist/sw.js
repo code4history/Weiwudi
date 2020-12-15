@@ -23,5 +23,5 @@ workbox.core.clientsClaim();
  * requests for URLs in the manifest.
  * See https://goo.gl/S9QRab
  */
-workbox.precaching.precacheAndRoute([{"revision":"4c8ddca540a46f3b444b50ca616f0b66","url":"index.js"},{"revision":"ed68dd0d2ba66aff280ecbf39ced2ba5","url":"index.html"}], {});
+workbox.precaching.precacheAndRoute([{"revision":"779f10566b522fa2b8a62f06bbc9853f","url":"index.js"},{"revision":"ed68dd0d2ba66aff280ecbf39ced2ba5","url":"index.html"}], {});
 workbox.routing.registerRoute(/(?:maps\/.+\.json|pwa\/.+|pois\/.+\.json|apps\/.+\.json|tmbs\/.+_menu\.jpg|img\/.+\.(?:png|jpg))$/, new workbox.strategies.StaleWhileRevalidate({ "cacheName":"resourcesCache", plugins: [new workbox.expiration.ExpirationPlugin({ maxAgeSeconds: 86400, purgeOnQuotaError: false })] }), 'GET');
