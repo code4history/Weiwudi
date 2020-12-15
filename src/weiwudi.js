@@ -38,7 +38,8 @@ export default class Weiwudi extends EventTarget {
         if (swChecked != null) return swChecked;
         if (!swChecking) swChecking = async () => {
             try {
-                swChecked = !!(await fetch(`${BASEURL}ping`));
+                swChecked = await fetch(`${BASEURL}ping`);
+                swChecked = !!swChecked;
             } catch(e) {
                 swChecked = false;
             }
@@ -48,7 +49,8 @@ export default class Weiwudi extends EventTarget {
     }
 
     static async registerMap(mapID, options) {
-        if (!(await Weiwudi.swCheck())) throw('Weiwudi service worker is not implemented.');
+        const swCheck = await Weiwudi.swCheck();
+        if (!swCheck) throw('Weiwudi service worker is not implemented.');
         let text;
         try {
             const p = ['type', 'url', 'width', 'height', 'tileSize', 'minZoom', 'maxZoom', 'maxLng', 'maxLat', 'minLng', 'minLat'].reduce((p, key) => {
@@ -78,7 +80,8 @@ export default class Weiwudi extends EventTarget {
     }
 
     static async retrieveMap(mapID) {
-        if (!(await Weiwudi.swCheck())) throw('Weiwudi service worker is not implemented.');
+        const swCheck = await Weiwudi.swCheck();
+        if (!swCheck) throw('Weiwudi service worker is not implemented.');
         let text;
         try {
             const res = await fetch(`${BASEURL}info?mapID=${mapID}`);
@@ -94,7 +97,8 @@ export default class Weiwudi extends EventTarget {
     }
 
     static async removeMap(mapID) {
-        if (!(await Weiwudi.swCheck())) throw('Weiwudi service worker is not implemented.');
+        const swCheck = await Weiwudi.swCheck();
+        if (!swCheck) throw('Weiwudi service worker is not implemented.');
         let text;
         try {
             const res = await fetch(`${BASEURL}delete?mapID=${mapID}`);
