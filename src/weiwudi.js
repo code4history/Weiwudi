@@ -4,12 +4,20 @@ const BASEURL = 'https://weiwudi.example.com/api/';
 let swChecking;
 let swChecked;
 
-class WeiwudiEvent extends Event {
-    constructor(type, parameter, eventInitDict) {
-        super(type, eventInitDict);
-        this.parameter = parameter;
+(function () {
+    if (typeof window.CustomEvent === 'function') return false;
+
+    function CustomEvent(event, params) {
+        params = params || { bubbles: false, cancelable: false, detail: undefined };
+        var evt = document.createEvent('CustomEvent');
+        evt.initCustomEvent(event, params.bubbles, params.cancelable, params.detail);
+        return evt;
     }
-}
+
+    CustomEvent.prototype = window.Event.prototype;
+
+    window.CustomEvent = CustomEvent;
+})();
 
 class EventTarget {
     constructor() {
@@ -158,7 +166,7 @@ export default class Weiwudi extends EventTarget {
         this.listener = (e) => {
             const eventMapID = e.data.mapID;
             if (eventMapID !== mapID) return;
-            this.dispatchEvent(new WeiwudiEvent(e.data.type, e.data));
+            this.dispatchEvent(new CustomEvent(e.data.type, {detail: e.data}));
         };
         navigator.serviceWorker.addEventListener('message', this.listener);
     }
