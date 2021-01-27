@@ -5,8 +5,11 @@
   "main": "src/weiwudi.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "workbox": "workbox injectManifest",
-    "webpack": "webpack"
+    "build": "webpack --config webpack_config/webpack.config.build.js",
+    "build:webpack:cdn": "webpack --config webpack_config/webpack.config.cdn.js",
+    "build:workbox:cdn": "workbox injectManifest",
+    "build:test:cdn": "npm run build:webpack:cdn && npm run build:workbox:cdn",
+    "build:test:npm": "webpack --config webpack_config/webpack.config.npm.js"
   },
   "repository": {
     "type": "git",
@@ -25,16 +28,22 @@
   },
   "homepage": "https://github.com/code4history/Weiwudi#readme",
   "devDependencies": {
-    "@babel/cli": "^7.12.7",
-    "@babel/core": "^7.12.7",
-    "@babel/polyfill": "^7.12.1",
-    "@babel/preset-env": "^7.12.7",
-    "@babel/register": "^7.12.1",
-    "babel-loader": "^8.2.1",
-    "core-js": "^3.7.0",
+    "@babel/cli": "^7.12.10",
+    "@babel/core": "^7.12.10",
+    "@babel/preset-env": "^7.12.11",
+    "babel-loader": "^8.2.2",
+    "core-js": "^3.8.1",
     "webpack": "^4.41.6",
     "webpack-cli": "^3.3.11",
-    "workbox-build": "^5.1.4",
-    "workbox-cli": "^5.1.4"
+    "workbox-build": "^6.0.2",
+    "workbox-cli": "^6.0.2"
+  },
+  "dependencies": {
+    "workbox-core": "^6.0.2",
+    "workbox-expiration": "^6.0.2",
+    "workbox-precaching": "^6.0.2",
+    "workbox-routing": "^6.0.2",
+    "workbox-strategies": "^6.0.2",
+    "workbox-webpack-plugin": "^6.0.2"
   }
 }

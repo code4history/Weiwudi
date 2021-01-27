@@ -7,7 +7,7 @@ module.exports = {
         'index': './test/src/index.js'
     },
     output: {
-        path: `${__dirname}/test/dist`,
+        path: `${__dirname}/../test/dist_cdn`,
         filename: '[name].js'
     },
     module: {
