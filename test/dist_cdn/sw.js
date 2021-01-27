@@ -10,9 +10,9 @@
  * and re-run your build process.
  * See https://goo.gl/2aRDsh
  */
-importScripts("https://storage.googleapis.com/workbox-cdn/releases/5.1.4/workbox-sw.js");
-//importScripts("https://cdn.jsdelivr.net/npm/weiwudi@0.1.3/lib/weiwudi_sw.js");
-importScripts("../../lib/weiwudi_sw.js");
+importScripts("https://storage.googleapis.com/workbox-cdn/releases/6.0.2/workbox-sw.js");
+importScripts("https://cdn.jsdelivr.net/npm/weiwudi@0.1.3/lib/weiwudi_sw.js");
+//importScripts("../../lib/weiwudi_sw.js");
 
 workbox.core.skipWaiting();
 

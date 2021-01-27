@@ -6,8 +6,8 @@ Service worker for tile cache
 ### Service worker side
 Call this js with workbox in your service worker.
 ```js
-importScripts("https://storage.googleapis.com/workbox-cdn/releases/5.1.4/workbox-sw.js");
-importScripts("https://cdn.jsdelivr.net/npm/weiwudi@0.0.2/src/weiwudi_sw.js");
+importScripts("https://storage.googleapis.com/workbox-cdn/releases/6.0.2/workbox-sw.js");
+importScripts("https://cdn.jsdelivr.net/npm/weiwudi@0.1.3/src/weiwudi_sw.js");
 ```
 
 ### Front logic side
@@ -71,39 +71,5 @@ try {
     // For error cases (E.g. browser doesn't support service worker) 
     ...
 }
-
-
-
-
-
-
-
-
-
-
-```
-
-
-
-
-
-### Ping
-*Request:*
-```
-https://weiwudi.example.com/api/ping
-```
-*Redponse:*
-```
-Implemented
-```
-
-### Add map setting (XYZ)
-*Request:*
-```
-https://weiwudi.example.com/api/add?
-```
-*Redponse:*
-```
-Implemented
 ```
 
