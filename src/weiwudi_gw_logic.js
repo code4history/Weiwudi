@@ -360,20 +360,16 @@ export function Weiwudi_Internal(registerRoute){
         await Promise.all(promises);
         processed += promises.length;
         fetchAllBlocker.count = processed;
-        const done = Math.floor(processed * 100 / setting.totalTile);
-        const done5 = Math.floor(done / 5) * 5;
-        if (done5 != percent) {
-          percent = done5;
-          client.postMessage({
-            type: 'proceed',
-            message: `Proceeding the tile fetching: ${setting.mapID} ${done}% (${processed} / ${setting.totalTile})`,
-            percent: done,
-            processed,
-            error: fetchAllBlocker.error,
-            total: setting.totalTile,
-            mapID: setting.mapID
-          });
-        }
+        percent = Math.floor(processed * 100 / setting.totalTile);
+        client.postMessage({
+          type: 'proceed',
+          message: `Proceeding the tile fetching: ${setting.mapID} ${done}% (${processed} / ${setting.totalTile})`,
+          percent,
+          processed,
+          error: fetchAllBlocker.error,
+          total: setting.totalTile,
+          mapID: setting.mapID
+        });
         subTasks = allTasks.splice(0, 5);
       }
       const error = fetchAllBlocker.error;
