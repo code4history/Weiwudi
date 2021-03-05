@@ -28,4 +28,4 @@ clientsClaim();
  * See https://goo.gl/S9QRab
  */
 precacheAndRoute(self.__WB_MANIFEST, {});
-registerRoute(/(?:maps\/.+\.json|pwa\/.+|pois\/.+\.json|apps\/.+\.json|tmbs\/.+_menu\.jpg|img\/.+\.(?:png|jpg))$/, new StaleWhileRevalidate({ "cacheName":"resourcesCache", plugins: [new ExpirationPlugin({ maxAgeSeconds: 86400, purgeOnQuotaError: false })] }), 'GET');
+registerRoute(/(?:maps\/.+\.json|pwa\/.+|pois\/.+\.json|apps\/.+\.json|tmbs\/.+\.jpg|img\/.+\.(?:png|jpg))$/, new StaleWhileRevalidate({ "cacheName":"resourcesCache", plugins: [new ExpirationPlugin({ maxAgeSeconds: 86400, purgeOnQuotaError: false })] }), 'GET');
