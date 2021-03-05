@@ -363,7 +363,7 @@ export function Weiwudi_Internal(registerRoute){
         percent = Math.floor(processed * 100 / setting.totalTile);
         client.postMessage({
           type: 'proceed',
-          message: `Proceeding the tile fetching: ${setting.mapID} ${done}% (${processed} / ${setting.totalTile})`,
+          message: `Proceeding the tile fetching: ${setting.mapID} ${percent}% (${processed} / ${setting.totalTile})`,
           percent,
           processed,
           error: fetchAllBlocker.error,
