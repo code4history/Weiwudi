@@ -1,4 +1,4 @@
-export default class Weiwudi {
+export default class Weiwudi extends EventTarget {
   constructor(mapID: string, attrs: any);
 
   static registerSW(
@@ -23,7 +23,4 @@ export default class Weiwudi {
   public fetchAll(): Promise<void>;
   public remove(): Promise<void>;
   public cancel(): Promise<void>;
-
-  public addEventListener(type: string, handler: any): void;
-  public removeEventListener(type: string, handler: any): void;
 }
