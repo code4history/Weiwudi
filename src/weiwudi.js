@@ -86,7 +86,7 @@ export default class Weiwudi extends EventTarget {
                     reg.update();
                 };
 
-                await Weiwudi.swCheck();
+                await Weiwudi.swCheck(swOptions.enableMbtiles);
 
                 return reg;
             } catch(e) {
@@ -97,11 +97,11 @@ export default class Weiwudi extends EventTarget {
         }
     }
 
-    static async swCheck() {
+    static async swCheck(enableMbtiles) {
         if (swChecked !== undefined) return swChecked;
         if (swChecking === undefined) swChecking = new Promise(async (res, rej) => {
             try {
-                swChecked = await fetch(`${BASEURL}ping`);
+                swChecked = await fetch(`${BASEURL}ping${enableMbtiles ? "?enableMbtiles=true" : ""}`);
                 swChecked = !!swChecked;
             } catch(e) {
                 swChecked = false;
@@ -116,7 +116,7 @@ export default class Weiwudi extends EventTarget {
         if (!swCheck) throw('Weiwudi service worker is not implemented.');
         let text;
         try {
-            const p = ['type', 'url', 'width', 'height', 'tileSize', 'minZoom', 'maxZoom', 'maxLng', 'maxLat', 'minLng', 'minLat'].reduce((p, key) => {
+            const p = ['type', 'url', 'width', 'height', 'tileSize', 'minZoom', 'maxZoom', 'maxLng', 'maxLat', 'minLng', 'minLat', 'mbtiles'].reduce((p, key) => {
                 if (typeof options[key] !== 'undefined') {
                     if (options[key] instanceof Array) {
                         options[key].map((val) => {

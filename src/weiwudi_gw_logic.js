@@ -1,8 +1,15 @@
+import createSqlWasm from "./sql-wasm-browser";
+//import "./sqlite3.wasm";
+
 export function Weiwudi_Internal(registerRoute){
   "use strict";
   const MERC_MAX = 20037508.342789244;
   const dbCache = {};
   let fetchAllBlocker;
+
+  let sql;
+  let sqlLoader = async () => {};
+
   const extractTemplate = (template, z, x, y) => {
     const result = template.replace('{z}', z)
       .replace('{x}', x)
@@ -29,7 +36,59 @@ export function Weiwudi_Internal(registerRoute){
     const blob = new Blob(byteArrays, {type: contentType});
     return blob;
   };
+
+  const handlerCb = async ({url, request, event, params}) => {
+    await sqlLoader();
+    const client = event.clientId ? await self.clients.get(event.clientId) : undefined;
+    const matched = url.pathname.match(/^\/api\/([\w\d]+)(?:\/(.+))?$/);
+    if (matched) {
+      const query = [...url.searchParams.entries()].reduce((obj, e) => {
+        const values = url.searchParams.getAll(e[0]);
+        if (values.length === 1) obj[e[0]] = values[0];
+        else obj[e[0]] = values;
+        return obj;
+      }, {});
+      const apiName = matched[1];
+      const restPath = matched[2];
+      let res = await apiFunc(apiName, query, restPath, client);
+      if (res) {
+        if (!(res instanceof Response)) res = new Response(res);
+        return res;
+      }
+    }
+  };
+
   const getDB = async (dbname, table, key) => {
+    /* if (sql) {
+      console.log("sql process2");
+      // Create a database
+      var db = new sql.Database();
+      // NOTE: You can also use new sql.Database(data) where
+      // data is an Uint8Array representing an SQLite database file
+
+      // Execute some sql
+      let sqlstr = "CREATE TABLE hello (a int, b char);";
+      sqlstr += "INSERT INTO hello VALUES (0, 'hello');"
+      sqlstr += "INSERT INTO hello VALUES (1, 'world');"
+      db.run(sqlstr); // Run the query without returning anything
+
+      var res = db.exec("SELECT * FROM hello");
+      /*
+      [
+          {columns:['a','b'], values:[[0,'hello'],[1,'world']]}
+      ]
+      * /
+
+      // Prepare an sql statement
+      //var stmt = db.prepare("SELECT * FROM hello WHERE a=:aval AND b=:bval");
+      var stmt = db.prepare("SELECT * FROM hello WHERE a=:aval");
+
+      // Bind values to the parameters and fetch the results of the query
+      //var result = stmt.getAsObject({':aval' : 1, ':bval' : 'world'});
+      var result = stmt.getAsObject({':aval' : 0});
+      console.log(result); // Will print {a:1, b:'world'}
+    }*/
+
     return new Promise((resolve, reject) => {
       try {
         if (dbCache[dbname]) resolve(dbCache[dbname]);
@@ -211,25 +270,6 @@ export function Weiwudi_Internal(registerRoute){
       };
     });
   };
-  const handlerCb = async ({url, request, event, params}) => {
-    const client = event.clientId ? await self.clients.get(event.clientId) : undefined;
-    const matched = url.pathname.match(/^\/api\/([\w\d]+)(?:\/(.+))?$/);
-    if (matched) {
-      const query = [...url.searchParams.entries()].reduce((obj, e) => {
-        const values = url.searchParams.getAll(e[0]);
-        if (values.length === 1) obj[e[0]] = values[0];
-        else obj[e[0]] = values;
-        return obj;
-      }, {});
-      const apiName = matched[1];
-      const restPath = matched[2];
-      let res = await apiFunc(apiName, query, restPath, client);
-      if (res) {
-        if (!(res instanceof Response)) res = new Response(res);
-        return res;
-      }
-    }
-  };
   const getImage = async (mapID, z, x, y, noOutput) => {
     let outExtent;
     const db = await getDB('Weiwudi');
@@ -335,7 +375,7 @@ export function Weiwudi_Internal(registerRoute){
           }
         }
       }
-      if (allTasks.length != setting.totalTile) console.log('Number of tiles is different');
+      if (allTasks.length !== setting.totalTile) console.log('Number of tiles is different');
       let subTasks = allTasks.splice(0, 5);
       while (subTasks.length) {
         //Alive check
@@ -349,7 +389,8 @@ export function Weiwudi_Internal(registerRoute){
           client.postMessage({
             type: 'canceled',
             message: `Fetching tile of ${setting.mapID} is canceled`,
-            mapID: setting.mapID
+            mapID: setting.mapID,
+            method: 'tiles'
           });
           return;
         }
@@ -368,7 +409,8 @@ export function Weiwudi_Internal(registerRoute){
           processed,
           error: fetchAllBlocker.error,
           total: setting.totalTile,
-          mapID: setting.mapID
+          mapID: setting.mapID,
+          method: 'tiles'
         });
         subTasks = allTasks.splice(0, 5);
       }
@@ -379,7 +421,8 @@ export function Weiwudi_Internal(registerRoute){
         message: `Fetched all tiles of ${setting.mapID}${error ? ` with ${error} error cases` : ''}`,
         total: setting.totalTile,
         mapID: setting.mapID,
-        error
+        error,
+        method: 'tiles'
       });
     } catch(e) {
       fetchAllBlocker = undefined;
@@ -389,8 +432,165 @@ export function Weiwudi_Internal(registerRoute){
         reason: e,
         processed,
         total: setting.totalTile,
-        mapID: setting.mapID
+        mapID: setting.mapID,
+        method: 'tiles'
       });
+    }
+  }
+  const fetchMbtiles = async (client, setting) => {
+    let processed = 0;
+    let error = 0;
+    let percent = 0;
+    const db = await getDB(`Weiwudi_${setting.mapID}`);
+    const mbtiles = setting.mbtiles;
+    const resp_h = await fetch(mbtiles, {
+      method: 'HEAD'
+    });
+    try {
+      if (resp_h.status === 200) {
+        const size = resp_h.headers.get('Content-Length');
+        fetchAllBlocker.total = size;
+        fetchAllBlocker.controller = new AbortController();
+
+        const resp_g = await fetch(mbtiles, {
+          signal: fetchAllBlocker.controller.signal
+        });
+        if (resp_g.status === 200) {
+          const body = resp_g.body;
+          const headers = [...resp_g.headers.entries()].reduce((obj, e) => ({...obj, [e[0]]: e[1]}), {});
+          console.log(body);
+          const reader = body.getReader();
+
+          const stream = new ReadableStream({
+            start(controller) {
+              return pump();
+
+              function pump() {
+                return reader.read().then(({ done, value }) => {
+                  if (fetchAllBlocker.cancel) {
+                    controller.abort();
+                    return;
+                  }
+
+                  if (done) {
+                    controller.close();
+                    return;
+                  }
+
+                  processed += value.byteLength;
+                  fetchAllBlocker.count = processed;
+                  const prevPercent = percent;
+                  percent = Math.floor(processed * 100 / fetchAllBlocker.total);
+                  if (prevPercent !== percent) {
+                    console.log(`Percent: ${percent}`);
+
+                    client.postMessage({
+                      type: 'proceed',
+                      message: `Proceeding the mbtiles fetching: ${setting.mapID} ${percent}% (${processed} / ${fetchAllBlocker.total})`,
+                      percent,
+                      processed,
+                      total: fetchAllBlocker.total,
+                      mapID: setting.mapID,
+                      method: 'mbtiles'
+                    });
+                  }
+                  controller.enqueue(value);
+                  return pump();
+                });
+              }
+            }
+          });
+          const resp_a = new Response(stream);
+          const buffer = await resp_a.arrayBuffer();
+          const uint8Arr = new Uint8Array(buffer);
+
+          const mbtiles = new sql.Database(uint8Arr);
+          const meta = mbtiles.exec("SELECT value FROM metadata WHERE name = 'format'");
+          let mimeType;
+          if (meta.length > 0) {
+            const format = meta[0].values[0][0];
+            mimeType = format === 'png' ? 'image/png' :
+              format === 'jpg' ? 'image/jpeg' :
+                format === 'webp' ? 'image/webp' :
+                  format === 'pbf' ? 'application/x-protobuf' : undefined;
+          }
+
+          const res = mbtiles.exec("SELECT * FROM tiles");
+          let z_i = 0, x_i = 1, y_i = 2, d_i = 3;
+          for (let i = 0; i < res[0].columns.length; i++) {
+            switch (res[0].columns[i]) {
+              case "zoom_level":
+                z_i = i;
+                break;
+              case "tile_column":
+                x_i = i;
+                break;
+              case "tile_row":
+                y_i = i;
+                break;
+              case "tile_data":
+                d_i = i;
+                break;
+              default:
+            }
+          }
+          const nowEpoch = new Date().getTime();
+
+          const decoder = new TextDecoder('utf-8');
+          for (let i = 0; i < res[0].values.length; i++) {
+            const value = res[0].values[i];
+            const z = value[z_i];
+            const x = value[x_i];
+            const y = value[y_i];
+            const data = value[d_i];
+            if (!mimeType) {
+              const str = decoder.decode(data.slice(1, 4));
+              mimeType = str === 'PNG' ? 'image/png' : 'image/jpeg';
+              headers['content-type'] = mimeType;
+            }
+            headers['content-length'] = data.byteLength;
+
+            const blob = new Blob([data], {type: mimeType});
+            await putItem(db, 'tileCache', {
+              'z_x_y': `${z}_${x}_${y}`,
+              headers: headers,
+              blob: blob,
+              epoch: nowEpoch
+            });
+          }
+          client.postMessage({
+            type: 'finish',
+            message: `Fetched all tiles of ${setting.mapID}`,
+            total: fetchAllBlocker.total,
+            mapID: setting.mapID,
+            method: 'mbtiles'
+          });
+          fetchAllBlocker = undefined;
+        } else {
+          throw `Error downloading mbtiles of ${setting.mapID}`;
+        }
+      } else {
+        throw `Error downloading mbtiles of ${setting.mapID}`;
+      }
+    } catch(err) {
+      if (fetchAllBlocker.cancel) {
+        fetchAllBlocker = undefined;
+        client.postMessage({
+          type: 'canceled',
+          message: `Fetching mbtiles of ${setting.mapID} is canceled`,
+          mapID: setting.mapID,
+          method: 'mbtiles'
+        });
+      } else {
+        fetchAllBlocker = undefined;
+        client.postMessage({
+          type: 'stop',
+          message: `Fetching stopped: ${setting.mapID}`,
+          reason: err,
+          mapID: setting.mapID,
+          method: 'mbtiles'
+        });
+      }
     }
   }
   const apiFunc = async (apiName, query, restPath, client) => {
@@ -405,6 +605,14 @@ export function Weiwudi_Internal(registerRoute){
     try {
       switch (apiName) {
         case 'ping':
+          if (query.enableMbtiles) {
+            sqlLoader = async function() {
+              return createSqlWasm({ wasmUrl: "./sqlite3.wasm" }).then((sql_) => {
+                sql = sql_;
+                return sql;
+              }).catch(() => {});
+            };
+          }
           retVal = 'Implemented';
           break;
         case 'info':
@@ -491,7 +699,7 @@ export function Weiwudi_Internal(registerRoute){
           break;
         case 'clean':
           retVal = checkAttributes(query, ['mapID']);
-          if (fetchAllBlocker && fetchAllBlocker.mapID == query.mapID) {
+          if (fetchAllBlocker && fetchAllBlocker.mapID === query.mapID) {
             retVal = `Error: ${query.mapID} is under fetching process. Please cancel it first`;
           } else if (!retVal) {
             const cacheDB = await getDB(`Weiwudi_${query.mapID}`);
@@ -501,7 +709,7 @@ export function Weiwudi_Internal(registerRoute){
           break;
         case 'delete':
           retVal = checkAttributes(query, ['mapID']);
-          if (fetchAllBlocker && fetchAllBlocker.mapID == query.mapID) {
+          if (fetchAllBlocker && fetchAllBlocker.mapID === query.mapID) {
             retVal = `Error: ${query.mapID} is under fetching process. Please cancel it first`;
           } else if (!retVal) {
             await deleteDB(`Weiwudi_${query.mapID}`);
@@ -512,8 +720,11 @@ export function Weiwudi_Internal(registerRoute){
           break;
         case 'cancel':
           retVal = checkAttributes(query, ['mapID']);
-          if (fetchAllBlocker && fetchAllBlocker.mapID == query.mapID) {
+          if (fetchAllBlocker && fetchAllBlocker.mapID === query.mapID) {
             fetchAllBlocker.cancel = true;
+            if (fetchAllBlocker.controller) {
+              fetchAllBlocker.controller.abort();
+            }
             retVal = `Fetching process of ${fetchAllBlocker.mapID} is canceled`;
           } else {
             retVal = `Error: There are no fetching process of ${query.mapID}`;
@@ -562,9 +773,11 @@ export function Weiwudi_Internal(registerRoute){
                   mapID: query.mapID,
                   total: setting.totalTile,
                   count: 0,
-                  error: 0
+                  error: 0,
+                  type: setting.mbtiles ? 'bytes' : 'tiles'
                 };
-                fetchAll(client, setting);
+                if (setting.mbtiles && sql) fetchMbtiles(client, setting);
+                else fetchAll(client, setting);
               }, 1);
               retVal = `Fetching task start: ${query.mapID}`;
             }

@@ -36,7 +36,21 @@ module.exports = {
                         ]
                     }
                 }
-            }
+            },
+            /*{
+                test: /\.wasm$/,
+                exclude: /node_modules/,
+                use: {
+                    loader: 'wasm-loader',
+                }
+            }*/
         ]
+    },
+    resolve: {
+        fallback: {
+            fs: false,
+            path: false,
+            crypto: false
+        }
     }
 };

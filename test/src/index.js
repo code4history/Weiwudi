@@ -1,7 +1,7 @@
 import Weiwudi from '../../src/weiwudi';
 
 async function run() {
-    await Weiwudi.registerSW('./sw.js', {scope: './'});
+    await Weiwudi.registerSW('./sw.js', {scope: './', enableMbtiles: true});
 
     const map1 = await Weiwudi.registerMap('piyo', {
         type: 'xyz',
@@ -18,7 +18,8 @@ async function run() {
         maxLng: 135.1,
         minZoom: 17,
         maxZoom: 18,
-        url: ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png','https://b.tile.openstreetmap.org/{z}/{x}/{y}.png']
+        url: ['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png','https://b.tile.openstreetmap.org/{z}/{x}/{y}.png'],
+        mbtiles: 'https://t.tilemap.jp/jcp_maps/himeji.mbtiles'
     });
     console.log(map2);
     const map3 = await Weiwudi.registerMap('fuga', {
@@ -43,11 +44,11 @@ async function run() {
     await map2.fetchAll();
 
     setTimeout(async () => {
-        map2.addEventListener('canceled', (e) => {
+        /*map2.addEventListener('canceled', (e) => {
             console.log(e);
         });
-        await map2.cancel();
-    }, 2000);
+        await map2.cancel();*/
+    }, 6000);
 
     /*map1.addEventListener('proceed', (e) => {
         console.log(e);

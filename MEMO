@@ -1,0 +1,29 @@
+File relationship
+
+Source code
+1-1. src/weiwudi.js *
+       => Loaded by 2-1
+1-2. src/weiwudi_gw.s
+1-3. src/weiwudi_gw_logic.js *
+       => Loaded by 1-2, 1-4
+1-4. src/weiwudi_sw.js *
+       => Compiled to 3-1 through "webpack --config webpack_config/webpack.config.build.js"
+
+Test source code
+2-1. test/src/index.js *
+       => Compiled to 4-1 through "webpack --config webpack_config/webpack.config.cdn.js"
+       => Compiled to 4-3 through "webpack --config webpack_config/webpack.config.npm.js"
+2-2. test/src/sw_cdn.js *
+       => Compiled to 4-2 through "workbox injectManifest"
+2-3. test/src/sw_npm.js *
+       => Compiled to 4-4 through "webpack --config webpack_config/webpack.config.npm.js (injectManifest)"
+
+Compile results for cdn use
+3-1. lib/weiwudi_sw.js *
+       => Loaded by 2-2 through CDN
+
+Test code for compiled results
+4-1. test/dist_cdn/index.js
+4-2. test/dist_cdn/sw.js
+4-3. test/dist_npm/index.js
+4-4. test/dist_npm/sw.js

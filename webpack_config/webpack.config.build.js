@@ -10,6 +10,11 @@ module.exports = {
         path: `${__dirname}/../lib`,
         filename: '[name].js'
     },
+    resolve: {
+        fallback: {
+            path: false
+        }
+    },
     module: {
         rules: [
             {
