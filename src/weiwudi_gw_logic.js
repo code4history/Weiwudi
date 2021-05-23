@@ -1,5 +1,4 @@
 import createSqlWasm from "./sql-wasm-browser";
-//import "./sqlite3.wasm";
 
 export function Weiwudi_Internal(registerRoute){
   "use strict";
@@ -439,7 +438,6 @@ export function Weiwudi_Internal(registerRoute){
   }
   const fetchMbtiles = async (client, setting) => {
     let processed = 0;
-    let error = 0;
     let percent = 0;
     const db = await getDB(`Weiwudi_${setting.mapID}`);
     const mbtiles = setting.mbtiles;
@@ -458,7 +456,6 @@ export function Weiwudi_Internal(registerRoute){
         if (resp_g.status === 200) {
           const body = resp_g.body;
           const headers = [...resp_g.headers.entries()].reduce((obj, e) => ({...obj, [e[0]]: e[1]}), {});
-          console.log(body);
           const reader = body.getReader();
 
           const stream = new ReadableStream({
@@ -482,8 +479,6 @@ export function Weiwudi_Internal(registerRoute){
                   const prevPercent = percent;
                   percent = Math.floor(processed * 100 / fetchAllBlocker.total);
                   if (prevPercent !== percent) {
-                    console.log(`Percent: ${percent}`);
-
                     client.postMessage({
                       type: 'proceed',
                       message: `Proceeding the mbtiles fetching: ${setting.mapID} ${percent}% (${processed} / ${fetchAllBlocker.total})`,
