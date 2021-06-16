@@ -1,4 +1,4 @@
-# Weiwudi (TileCacheServiceWorker)
+# Weiwudi (魏武帝:TileCacheServiceWorker)
 Service worker for tile cache
 
 ## How to use
