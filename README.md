@@ -1,5 +1,6 @@
 # Weiwudi (魏武帝:TileCacheServiceWorker)
-Service worker for tile cache
+Service worker for tile cache.  
+Project name is named from [魏武帝(Weiwudi)](https://zh.wikipedia.org/wiki/%E6%9B%B9%E6%93%8D), who was originally named as 曹操(Cao Cao), and was Chinese warload of the Eastern Han dynasty.
 
 ## How to use
 
