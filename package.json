@@ -1,50 +1,88 @@
 {
-  "name": "weiwudi",
-  "version": "0.1.4",
-  "description": "Service worker for tile cache",
-  "main": "src/weiwudi.js",
-  "types": "index.d.ts",
+  "name": "@c4h/weiwudi",
+  "version": "1.0.0",
+  "description": "Service worker for tile cache with vector tile (MVT) support",
+  "type": "module",
+  "main": "./dist/weiwudi.cjs",
+  "module": "./dist/weiwudi.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/weiwudi.js",
+      "require": "./dist/weiwudi.cjs"
+    },
+    "./sw": {
+      "types": "./dist/weiwudi_sw.d.ts",
+      "import": "./dist/weiwudi_sw.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "README.ja.md"
+  ],
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "webpack --config webpack_config/webpack.config.build.js",
-    "build:webpack:cdn": "webpack --config webpack_config/webpack.config.cdn.js",
-    "build:workbox:cdn": "workbox injectManifest",
-    "build:test:cdn": "npm run build:webpack:cdn && npm run build:workbox:cdn",
-    "build:test:npm": "webpack --config webpack_config/webpack.config.npm.js"
+    "dev": "vite",
+    "build": "npm run typecheck && cross-env BUILD_MODE=package vite build",
+    "typecheck": "tsc --noEmit --allowImportingTsExtensions",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "lint": "eslint src tests",
+    "prepublishOnly": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "version:bump": "node scripts/bump-version.js",
+    "version:sync": "node scripts/sync-version.js",
+    "publish:npm": "node scripts/publish-npm.js",
+    "publish:npm:dry": "node scripts/publish-npm.js --dry-run",
+    "publish:deno": "node scripts/publish-deno.js",
+    "publish:deno:dry": "node scripts/publish-deno.js --dry-run",
+    "publish:all": "node scripts/publish-all.js",
+    "publish:all:dry": "node scripts/publish-all.js --dry-run"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/code4history/Weiwudi.git"
   },
   "keywords": [
-    "Service",
-    "Worker",
-    "Tile",
-    "Cache"
+    "service-worker",
+    "tile",
+    "cache",
+    "vector-tile",
+    "mvt",
+    "mapbox",
+    "workbox"
   ],
-  "author": "Kohei Otsuka",
+  "author": "Code for History",
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/code4history/Weiwudi/issues"
   },
   "homepage": "https://github.com/code4history/Weiwudi#readme",
   "devDependencies": {
-    "@babel/cli": "^7.12.10",
-    "@babel/core": "^7.12.10",
-    "@babel/preset-env": "^7.12.11",
-    "babel-loader": "^8.2.2",
-    "core-js": "^3.8.1",
-    "webpack": "^4.41.6",
-    "webpack-cli": "^3.3.11",
-    "workbox-build": "^6.0.2",
-    "workbox-cli": "^6.0.2"
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.2",
+    "@types/serviceworker": "^0.0.109",
+    "@typescript-eslint/eslint-plugin": "^8.19.0",
+    "@typescript-eslint/parser": "^8.19.0",
+    "@vitest/coverage-v8": "^1.6.0",
+    "cross-env": "^7.0.3",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "jsdom": "^25.0.1",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11",
+    "vite-plugin-dts": "^4.4.0",
+    "vitest": "^1.6.0",
+    "workbox-build": "^7.3.0"
   },
   "dependencies": {
-    "workbox-core": "^6.0.2",
-    "workbox-expiration": "^6.0.2",
-    "workbox-precaching": "^6.0.2",
-    "workbox-routing": "^6.0.2",
-    "workbox-strategies": "^6.0.2",
-    "workbox-webpack-plugin": "^6.0.2"
+    "workbox-core": "^7.3.0",
+    "workbox-expiration": "^7.3.0",
+    "workbox-precaching": "^7.3.0",
+    "workbox-routing": "^7.3.0",
+    "workbox-strategies": "^7.3.0"
   }
 }

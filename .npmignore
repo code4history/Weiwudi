@@ -1,0 +1,50 @@
+# Source files (built files are in dist/)
+src/
+*.ts
+!dist/*.d.ts
+
+# Test files
+tests/
+vitest.config.ts
+coverage/
+
+# Development files
+.eslintrc*
+eslint.config.mjs
+.prettierrc
+tsconfig.json
+tsconfig.build.json
+vite.config.ts
+
+# Deno specific files
+deno.json
+jsr.json
+import_map.json
+
+# Documentation
+*.md
+!README.md
+!README.ja.md
+docs/
+
+# Git and IDE
+.git*
+.vscode/
+.idea/
+
+# CI/CD
+.github/
+
+# Scripts
+scripts/
+
+# Build artifacts
+*.log
+*.tgz
+.DS_Store
+
+# Project specific
+claudelog/
+claudescript/
+webpack_config/
+workbox-config.js

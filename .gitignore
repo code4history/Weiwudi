@@ -80,7 +80,7 @@ typings/
 
 # Nuxt.js build / generate output
 .nuxt
-# dist
+dist/
 
 # Gatsby files
 .cache/
@@ -104,3 +104,15 @@ typings/
 .tern-port
 
 .idea
+
+# Claude settings
+CLAUDE.md
+claudelog/*
+claudescript/*
+
+# yalc
+.yalc
+yalc.lock
+
+# macOS
+.DS_Store

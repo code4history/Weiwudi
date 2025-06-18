@@ -1,0 +1,21 @@
+{
+  "name": "@c4h/weiwudi",
+  "version": "1.0.0",
+  "exports": "./src/index.ts",
+  "description": "Service worker for tile cache with vector tile (MVT) support",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/code4history/Weiwudi.git"
+  },
+  "keywords": [
+    "service-worker",
+    "tile",
+    "cache",
+    "vector-tile",
+    "mvt",
+    "mapbox",
+    "workbox"
+  ],
+  "author": "Code for History"
+}

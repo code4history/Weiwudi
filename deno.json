@@ -1,0 +1,35 @@
+{
+  "name": "@c4h/weiwudi",
+  "version": "1.0.0",
+  "exports": "./src/index.ts",
+  "tasks": {
+    "dev": "deno run --watch src/index.ts",
+    "test": "deno test --allow-read tests/",
+    "fmt": "deno fmt",
+    "lint": "deno lint",
+    "check": "deno check src/index.ts"
+  },
+  "imports": {
+    "workbox-core": "npm:workbox-core@^7.3.0",
+    "workbox-routing": "npm:workbox-routing@^7.3.0",
+    "workbox-strategies": "npm:workbox-strategies@^7.3.0",
+    "workbox-expiration": "npm:workbox-expiration@^7.3.0",
+    "workbox-precaching": "npm:workbox-precaching@^7.3.0"
+  },
+  "compilerOptions": {
+    "strict": true,
+    "lib": ["deno.window", "dom", "deno.worker"]
+  },
+  "fmt": {
+    "lineWidth": 80,
+    "indentWidth": 2,
+    "singleQuote": false,
+    "semiColons": true,
+    "proseWrap": "preserve"
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  }
+}
