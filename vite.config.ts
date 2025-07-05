@@ -25,11 +25,16 @@ const removeTsExtensions = () => {
 
 export default defineConfig({
   base: './',
+  server: {
+    fs: {
+      allow: ['..']
+    }
+  },
   build: isPackageBuild ? {
     lib: {
       entry: {
-        'weiwudi': resolve(__dirname, 'src/index.ts'),
-        'weiwudi_sw': resolve(__dirname, 'src/weiwudi_sw.ts')
+        'weiwudi': resolve(__dirname, 'src/cache-v1/index.ts'),
+        'weiwudi_sw': resolve(__dirname, 'src/cache-v1/sw-entry.ts')
       },
       formats: ['es', 'cjs'],
       fileName: (format, entryName) => {
@@ -39,6 +44,7 @@ export default defineConfig({
     },
     rollupOptions: {
       external: [
+        '@c4h/beatbox',
         'workbox-core',
         'workbox-routing',
         'workbox-strategies',
@@ -48,13 +54,24 @@ export default defineConfig({
     }
   } : {
     outDir: 'dist',
-    emptyOutDir: true
+    emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        'weiwudi-sw': resolve(__dirname, 'src/cache-v1/sw-entry.ts')
+      },
+      output: {
+        entryFileNames: (chunkInfo) => {
+          return chunkInfo.name === 'weiwudi-sw' ? '[name].js' : 'assets/[name]-[hash].js';
+        }
+      }
+    }
   },
   plugins: [
     removeTsExtensions(),
     dts({
       outDir: 'dist',
-      exclude: ['tests', 'node_modules'],
+      exclude: ['tests', 'node_modules', 'e2e'],
       rollupTypes: false,
       skipDiagnostics: true,
       tsconfigPath: './tsconfig.json',

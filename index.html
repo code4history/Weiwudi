@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Weiwudi v1.0.0 テストサイト</title>
+  <link href='https://api.mapbox.com/mapbox-gl-js/v3.5.1/mapbox-gl.css' rel='stylesheet' />
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+    }
+    #map {
+      position: absolute;
+      top: 60px;
+      bottom: 0;
+      width: 100%;
+    }
+    #header {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 60px;
+      background: #333;
+      color: white;
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    #header h1 {
+      margin: 0;
+      font-size: 20px;
+      flex: 1;
+    }
+    #controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    #controls button {
+      padding: 8px 16px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    #controls button:hover {
+      background: #45a049;
+    }
+    #controls button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    #status {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 10px 15px;
+      border-radius: 4px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      font-size: 14px;
+    }
+    #cache-info {
+      position: absolute;
+      top: 80px;
+      right: 20px;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 15px;
+      border-radius: 4px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      font-size: 14px;
+      width: 250px;
+    }
+    #cache-info h3 {
+      margin: 0 0 10px 0;
+      font-size: 16px;
+    }
+    .cache-stat {
+      display: flex;
+      justify-content: space-between;
+      margin: 5px 0;
+    }
+    .progress-bar {
+      width: 100%;
+      height: 20px;
+      background: #f0f0f0;
+      border-radius: 10px;
+      overflow: hidden;
+      margin: 10px 0;
+    }
+    .progress-fill {
+      height: 100%;
+      background: #4CAF50;
+      transition: width 0.3s ease;
+    }
+    select {
+      padding: 6px 10px;
+      font-size: 14px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      background: white;
+    }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <h1>Weiwudi v1.0.0 - ベクタータイル対応キャッシュシステム</h1>
+    <div id="controls">
+      <select id="map-style">
+        <option value="streets-v11">Streets</option>
+        <option value="outdoors-v11">Outdoors</option>
+        <option value="light-v10">Light</option>
+        <option value="dark-v10">Dark</option>
+        <option value="satellite-v9">Satellite</option>
+      </select>
+      <button id="register-btn">キャッシュ登録</button>
+      <button id="fetch-btn">範囲キャッシュ</button>
+      <button id="clear-btn">キャッシュクリア</button>
+      <button id="reload-btn">リロード</button>
+    </div>
+  </div>
+
+  <div id="map"></div>
+  
+  <div id="status">
+    <div>状態: <span id="status-text">初期化中...</span></div>
+  </div>
+
+  <div id="cache-info">
+    <h3>キャッシュ情報</h3>
+    <div class="cache-stat">
+      <span>使用量:</span>
+      <span id="cache-used">0 MB</span>
+    </div>
+    <div class="cache-stat">
+      <span>上限:</span>
+      <span id="cache-quota">500 MB</span>
+    </div>
+    <div class="progress-bar">
+      <div class="progress-fill" id="cache-progress" style="width: 0%"></div>
+    </div>
+    <div class="cache-stat">
+      <span>リソース数:</span>
+      <span id="resource-count">0</span>
+    </div>
+  </div>
+
+  <script src='https://api.mapbox.com/mapbox-gl-js/v3.5.1/mapbox-gl.js'></script>
+  <script type="module">
+    import { register as registerWeiwudi } from './src/cache-v1/index.ts';
+
+    // Mapbox access token (公開用トークンを使用)
+    mapboxgl.accessToken = 'pk.eyJ1IjoiZXhhbXBsZSIsImEiOiJjbGV4YW1wbGUifQ.example';
+
+    let map;
+    let weiwudi;
+
+    // 初期化
+    async function init() {
+      updateStatus('Weiwudiを初期化中...');
+      
+      try {
+        // Weiwudi登録
+        weiwudi = await registerWeiwudi('/weiwudi-sw.js');
+        updateStatus('Service Worker登録完了');
+        
+        // 地図初期化
+        map = new mapboxgl.Map({
+          container: 'map',
+          style: 'mapbox://styles/mapbox/streets-v11',
+          center: [139.7, 35.7], // 東京
+          zoom: 10
+        });
+
+        map.on('load', () => {
+          updateStatus('地図読み込み完了');
+          updateCacheInfo();
+        });
+
+        // イベントリスナー設定
+        setupEventListeners();
+        
+        // 定期的にキャッシュ情報を更新
+        setInterval(updateCacheInfo, 5000);
+        
+      } catch (error) {
+        updateStatus('エラー: ' + error.message, 'error');
+        console.error(error);
+      }
+    }
+
+    // イベントリスナー設定
+    function setupEventListeners() {
+      // スタイル変更
+      document.getElementById('map-style').addEventListener('change', async (e) => {
+        const style = e.target.value;
+        map.setStyle(`mapbox://styles/mapbox/${style}`);
+        updateStatus(`スタイルを${style}に変更`);
+      });
+
+      // キャッシュ登録
+      document.getElementById('register-btn').addEventListener('click', async () => {
+        try {
+          updateStatus('スタイルをキャッシュに登録中...');
+          const styleUrl = map.getStyle().sprite;
+          
+          await weiwudi.register({
+            url: `mapbox://styles/mapbox/${document.getElementById('map-style').value}`,
+            options: {
+              autoRegisterAssets: true
+            }
+          });
+          
+          updateStatus('キャッシュ登録完了');
+          updateCacheInfo();
+        } catch (error) {
+          updateStatus('登録エラー: ' + error.message, 'error');
+        }
+      });
+
+      // 範囲キャッシュ
+      document.getElementById('fetch-btn').addEventListener('click', async () => {
+        try {
+          updateStatus('表示範囲のタイルをキャッシュ中...');
+          const bounds = map.getBounds();
+          const zoom = Math.floor(map.getZoom());
+          
+          // 現在の表示範囲のタイルをフェッチ
+          await weiwudi.fetchAll({
+            bounds: [
+              bounds.getWest(),
+              bounds.getSouth(),
+              bounds.getEast(),
+              bounds.getNorth()
+            ],
+            minZoom: zoom,
+            maxZoom: zoom + 2
+          });
+          
+          updateStatus('範囲キャッシュ完了');
+          updateCacheInfo();
+        } catch (error) {
+          updateStatus('キャッシュエラー: ' + error.message, 'error');
+        }
+      });
+
+      // キャッシュクリア
+      document.getElementById('clear-btn').addEventListener('click', async () => {
+        if (confirm('すべてのキャッシュをクリアしますか？')) {
+          try {
+            updateStatus('キャッシュをクリア中...');
+            await weiwudi.clean();
+            updateStatus('キャッシュクリア完了');
+            updateCacheInfo();
+          } catch (error) {
+            updateStatus('クリアエラー: ' + error.message, 'error');
+          }
+        }
+      });
+
+      // リロード
+      document.getElementById('reload-btn').addEventListener('click', () => {
+        location.reload();
+      });
+    }
+
+    // ステータス更新
+    function updateStatus(message, type = 'info') {
+      const statusEl = document.getElementById('status-text');
+      statusEl.textContent = message;
+      statusEl.style.color = type === 'error' ? '#f44336' : '#333';
+    }
+
+    // キャッシュ情報更新
+    async function updateCacheInfo() {
+      if (!weiwudi) return;
+      
+      try {
+        const usage = await weiwudi.getStorageUsage();
+        
+        // 使用量
+        const usedMB = (usage.used / (1024 * 1024)).toFixed(1);
+        const quotaMB = (usage.quota / (1024 * 1024)).toFixed(0);
+        
+        document.getElementById('cache-used').textContent = `${usedMB} MB`;
+        document.getElementById('cache-quota').textContent = `${quotaMB} MB`;
+        document.getElementById('cache-progress').style.width = `${usage.percentage}%`;
+        document.getElementById('resource-count').textContent = usage.resources || 0;
+        
+        // プログレスバーの色を使用率に応じて変更
+        const progressEl = document.getElementById('cache-progress');
+        if (usage.percentage > 90) {
+          progressEl.style.background = '#f44336';
+        } else if (usage.percentage > 70) {
+          progressEl.style.background = '#ff9800';
+        } else {
+          progressEl.style.background = '#4CAF50';
+        }
+      } catch (error) {
+        console.error('キャッシュ情報取得エラー:', error);
+      }
+    }
+
+    // 初期化実行
+    init();
+  </script>
+</body>
+</html>

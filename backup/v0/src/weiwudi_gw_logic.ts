@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 declare const self: ServiceWorkerGlobalScope;
 
-import type { RouteHandler, RouteMatchCallback } from "workbox-core/types.js";
+import type { RouteHandler, RouteMatchCallback } from "workbox-routing";
 
 interface MapSetting {
   type: 'xyz' | 'wmts';
@@ -36,10 +36,9 @@ interface FetchAllBlocker {
   error: number;
   success: number;
   total: number;
-  clientId?: string;
 }
 
-// const MERC_MAX = 20037508.342789244;
+const MERC_MAX = 20037508.342789244;
 const dbCache: { [key: string]: IDBDatabase } = {};
 let fetchAllBlocker: FetchAllBlocker | undefined;
 const CACHE_DURATION = 86400000; // 24 hours
@@ -72,7 +71,7 @@ function b64toBlob(b64Data: string, contentType = '', sliceSize = 512): Blob {
   return new Blob(byteArrays, { type: contentType });
 }
 
-async function getDB(dbname: string): Promise<IDBDatabase> {
+async function getDB(dbname: string, table?: string, key?: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     try {
       if (dbCache[dbname]) {
@@ -133,7 +132,7 @@ async function cleanDB(db: IDBDatabase, table: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction([table], 'readwrite');
     const store = tx.objectStore(table);
-    store.clear();
+    const clearReq = store.clear();
     
     tx.oncomplete = () => resolve();
     tx.onabort = () => reject(tx.error);
@@ -182,7 +181,7 @@ async function putItem(db: IDBDatabase, table: string, item: any): Promise<void>
   return new Promise((resolve, reject) => {
     const tx = db.transaction([table], 'readwrite');
     const store = tx.objectStore(table);
-    store.put(item);
+    const putReq = store.put(item);
     
     tx.oncomplete = () => resolve();
     tx.onabort = () => reject(tx.error);
@@ -194,9 +193,21 @@ async function deleteItem(db: IDBDatabase, table: string, key: string): Promise<
   return new Promise((resolve, reject) => {
     const tx = db.transaction([table], 'readwrite');
     const store = tx.objectStore(table);
-    store.delete(key);
+    const delReq = store.delete(key);
     
     tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(tx.error);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function getAllKeys(db: IDBDatabase, table: string): Promise<IDBValidKey[]> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([table], 'readonly');
+    const store = tx.objectStore(table);
+    const getReq = store.getAllKeys();
+    
+    tx.oncomplete = () => resolve(getReq.result);
     tx.onabort = () => reject(tx.error);
     tx.onerror = () => reject(tx.error);
   });
@@ -322,14 +333,14 @@ async function getImage(mapID: string, z: number, x: number, y: number, noOutput
   if (fetchAllBlocker) {
     fetchAllBlocker.success++;
     if (self.clients) {
-      const client = fetchAllBlocker.clientId ? await self.clients.get(fetchAllBlocker.clientId) : null;
+      const client = await self.clients.get(fetchAllBlocker.clientId);
       if (client) {
         client.postMessage({
           mapID,
           type: 'progress',
-          success: fetchAllBlocker?.success || 0,
-          error: fetchAllBlocker?.error || 0,
-          total: fetchAllBlocker?.total || 0
+          success: fetchAllBlocker.success,
+          error: fetchAllBlocker.error,
+          total: fetchAllBlocker.total
         });
       }
     }
@@ -405,7 +416,7 @@ function processDefinition(definition: string, mapID: string): string {
     
     // Replace tile URL templates
     if (def.tiles) {
-      def.tiles = def.tiles.map(() => 
+      def.tiles = def.tiles.map((url: string) => 
         `https://weiwudi.example.com/api/cache/${mapID}/{z}/{x}/{y}`
       );
     }
@@ -425,7 +436,7 @@ function processDefinition(definition: string, mapID: string): string {
 }
 
 // Calculate tiles in range for WMTS
-function calculateTilesInRange(_setting: MapSetting, range: any): Array<[number, number, number]> {
+function calculateTilesInRange(setting: MapSetting, range: any): Array<[number, number, number]> {
   const tiles: Array<[number, number, number]> = [];
   
   for (let z = range.minZoom; z <= range.maxZoom; z++) {
@@ -609,7 +620,7 @@ async function apiFunc(apiName: string, query: any, restPath?: string, client?: 
       // Fetch tiles asynchronously
       (async () => {
         for (const [z, x, y] of tiles) {
-          if (fetchAllBlocker && fetchAllBlocker.cancel) break;
+          if (fetchAllBlocker.cancel) break;
           await getImage(mapID, z, x, y, true);
         }
         
@@ -685,7 +696,7 @@ async function apiFunc(apiName: string, query: any, restPath?: string, client?: 
 }
 
 export function Weiwudi_Internal(registerRoute: (match: RouteMatchCallback, handler: RouteHandler) => void): void {
-  const handlerCb: RouteHandler = async ({ url, event }) => {
+  const handlerCb: RouteHandler = async ({ url, request, event }) => {
     const client = (event as FetchEvent).clientId 
       ? await self.clients.get((event as FetchEvent).clientId) 
       : undefined;

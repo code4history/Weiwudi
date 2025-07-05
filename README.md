@@ -21,29 +21,6 @@ Project name is named from [魏武帝(Weiwudi)](https://zh.wikipedia.org/wiki/%E
 npm install @c4h/weiwudi@1.0.0
 ```
 
-### JSR (JavaScript Registry)
-
-```sh
-# For Deno
-deno add @c4h/weiwudi@1.0.0
-
-# For npm/Node.js
-npx jsr add @c4h/weiwudi@1.0.0
-```
-
-### Deno
-
-```typescript
-// Using JSR (recommended)
-import { Weiwudi } from "jsr:@c4h/weiwudi@1.0.0";
-
-// Using deno.json import map
-import { Weiwudi } from "@c4h/weiwudi";
-
-// Or directly from npm
-import { Weiwudi } from "npm:@c4h/weiwudi@1.0.0";
-```
-
 ### Browser (CDN)
 
 ```html

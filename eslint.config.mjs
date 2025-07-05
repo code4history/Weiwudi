@@ -1,7 +1,7 @@
 // @ts-nocheck // TypeScriptの型チェックを無効化
 import js from "@eslint/js";
-import * as tseslint from "@typescript-eslint/eslint-plugin";
-import * as tsParser from "@typescript-eslint/parser";
+import tseslint from "@typescript-eslint/eslint-plugin";
+import tsParser from "@typescript-eslint/parser";
 import prettier from "eslint-config-prettier";
 
 const config = [
@@ -34,6 +34,7 @@ const config = [
       "@typescript-eslint": tseslint
     },
     rules: {
+      ...tseslint.configs.recommended.rules,
       "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/no-unused-vars": ["warn", { 
         "argsIgnorePattern": "^_",

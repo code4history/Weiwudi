@@ -21,29 +21,6 @@
 npm install @c4h/weiwudi@1.0.0
 ```
 
-### JSR (JavaScript Registry)
-
-```sh
-# Deno用
-deno add @c4h/weiwudi@1.0.0
-
-# npm/Node.js用
-npx jsr add @c4h/weiwudi@1.0.0
-```
-
-### Deno
-
-```typescript
-// JSR経由（推奨）
-import { Weiwudi } from "jsr:@c4h/weiwudi@1.0.0";
-
-// deno.jsonのimport map経由
-import { Weiwudi } from "@c4h/weiwudi";
-
-// npmから直接
-import { Weiwudi } from "npm:@c4h/weiwudi@1.0.0";
-```
-
 ### ブラウザ (CDN)
 
 ```html

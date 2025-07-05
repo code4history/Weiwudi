@@ -1,4 +1,5 @@
 import { beforeAll } from 'vitest';
+import 'fake-indexeddb/auto';
 
 // Mock Service Worker API
 beforeAll(() => {

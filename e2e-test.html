@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Weiwudi E2E Test Page</title>
+  <script type="module">
+    // Make Weiwudi available globally for testing
+    import * as Weiwudi from './src/cache-v1/index.ts';
+    window.Weiwudi = Weiwudi;
+  </script>
+</head>
+<body>
+  <div id="test-container">
+    <h1>Weiwudi E2E Test Page</h1>
+    <div id="status">Not initialized</div>
+  </div>
+</body>
+</html>
