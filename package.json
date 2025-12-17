@@ -6,11 +6,9 @@
   "types": "index.d.ts",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "build": "webpack --config webpack_config/webpack.config.build.js",
-    "build:webpack:cdn": "webpack --config webpack_config/webpack.config.cdn.js",
-    "build:workbox:cdn": "workbox injectManifest",
-    "build:test:cdn": "npm run build:webpack:cdn && npm run build:workbox:cdn",
-    "build:test:npm": "webpack --config webpack_config/webpack.config.npm.js"
+    "dev": "vite dev",
+    "build": "vite build -c vite.config.lib.js && vite build -c vite.config.sw.js",
+    "preview": "vite preview"
   },
   "repository": {
     "type": "git",
@@ -29,22 +27,14 @@
   },
   "homepage": "https://github.com/code4history/Weiwudi#readme",
   "devDependencies": {
-    "@babel/cli": "^7.12.10",
-    "@babel/core": "^7.12.10",
-    "@babel/preset-env": "^7.12.11",
-    "babel-loader": "^8.2.2",
-    "core-js": "^3.8.1",
-    "webpack": "^4.41.6",
-    "webpack-cli": "^3.3.11",
-    "workbox-build": "^6.0.2",
-    "workbox-cli": "^6.0.2"
+    "vite": "^7.3.0",
+    "vite-plugin-pwa": "^1.2.0"
   },
   "dependencies": {
     "workbox-core": "^6.0.2",
     "workbox-expiration": "^6.0.2",
     "workbox-precaching": "^6.0.2",
     "workbox-routing": "^6.0.2",
-    "workbox-strategies": "^6.0.2",
-    "workbox-webpack-plugin": "^6.0.2"
+    "workbox-strategies": "^6.0.2"
   }
 }

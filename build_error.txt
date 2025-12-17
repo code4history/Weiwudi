@@ -1,0 +1,21 @@
+
+> weiwudi@0.1.4 build C:\Users\kochi\github\Weiwudi
+> vite build
+
+[36mvite v7.3.0 [32mbuilding client environment for production...[36m[39m
+[32m笨・[39m 0 modules transformed.
+笨・[39m Build failed in 11ms
+error during build:
+[vite-plugin-pwa:build] [plugin vite-plugin-pwa:build] There was an error during the build:
+  Could not resolve entry module "index.html".
+Additionally, handling the error in the 'buildEnd' hook caused the following error:
+  Could not resolve entry module "index.html".
+    at getRollupError (file:///C:/Users/kochi/github/Weiwudi/node_modules/.pnpm/rollup@4.53.5/node_modules/rollup/dist/es/shared/parseAst.js:401:41)
+    at file:///C:/Users/kochi/github/Weiwudi/node_modules/.pnpm/rollup@4.53.5/node_modules/rollup/dist/es/shared/node-entry.js:23390:39
+    at async catchUnfinishedHookActions (file:///C:/Users/kochi/github/Weiwudi/node_modules/.pnpm/rollup@4.53.5/node_modules/rollup/dist/es/shared/node-entry.js:22848:16)
+    at async rollupInternal (file:///C:/Users/kochi/github/Weiwudi/node_modules/.pnpm/rollup@4.53.5/node_modules/rollup/dist/es/shared/node-entry.js:23373:5)
+    at async buildEnvironment (file:///C:/Users/kochi/github/Weiwudi/node_modules/.pnpm/vite@7.3.0_@types+node@25.0.3_terser@5.44.1/node_modules/vite/dist/node/chunks/config.js:33540:12)
+    at async Object.build (file:///C:/Users/kochi/github/Weiwudi/node_modules/.pnpm/vite@7.3.0_@types+node@25.0.3_terser@5.44.1/node_modules/vite/dist/node/chunks/config.js:33899:19)
+    at async Object.buildApp (file:///C:/Users/kochi/github/Weiwudi/node_modules/.pnpm/vite@7.3.0_@types+node@25.0.3_terser@5.44.1/node_modules/vite/dist/node/chunks/config.js:33896:153)
+    at async CAC.<anonymous> (file:///C:/Users/kochi/github/Weiwudi/node_modules/.pnpm/vite@7.3.0_@types+node@25.0.3_terser@5.44.1/node_modules/vite/dist/node/cli.js:629:3)
+窶右LIFECYCLE窶・Command failed with exit code 1.
