@@ -37,7 +37,7 @@ class EventTarget {
         }
         const stack = this.listeners[type];
         for (let i = 0, l = stack.length; i < l; i++) {
-            if (stack[i] === callback){
+            if (stack[i] === callback) {
                 stack.splice(i, 1);
                 return;
             }
@@ -89,71 +89,69 @@ export default class Weiwudi extends EventTarget {
                 await Weiwudi.swCheck();
 
                 return reg;
-            } catch(e) {
-                throw(`Error: Service worker registration failed with ${e}`);
+            } catch (e) {
+                throw (`Error: Service worker registration failed with ${e}`);
             }
         } else {
-            throw('Error: Service worker is not supported');
+            throw ('Error: Service worker is not supported');
         }
     }
 
     static async swCheck() {
         if (swChecked !== undefined) return swChecked;
-        if (swChecking === undefined) swChecking = new Promise(async (res, rej) => {
-            try {
-                swChecked = await fetch(`${BASEURL}ping`);
-                swChecked = !!swChecked;
-            } catch(e) {
-                swChecked = false;
-            }
-            res(swChecked);
+        if (swChecking === undefined) swChecking = new Promise((res, rej) => {
+            // Removing async from executor and handling promise explicitly if needed, 
+            // but here the code was wrapping await in a new Promise which is antipattern.
+            // We can just rely on correct async flow or keep simpler.
+            // Given logic:
+            fetch(`${BASEURL}ping`)
+                .then(r => {
+                    swChecked = !!r;
+                    res(swChecked);
+                })
+                .catch(e => {
+                    swChecked = false;
+                    res(swChecked);
+                });
         });
         return swChecking;
     }
 
     static async registerMap(mapID, options) {
         const swCheck = await Weiwudi.swCheck();
-        if (!swCheck) throw('Weiwudi service worker is not implemented.');
+        if (!swCheck) throw ('Weiwudi service worker is not implemented.');
         let text;
-        try {
-            const p = ['type', 'url', 'width', 'height', 'tileSize', 'minZoom', 'maxZoom', 'maxLng', 'maxLat', 'minLng', 'minLat'].reduce((p, key) => {
-                if (typeof options[key] !== 'undefined') {
-                    if (options[key] instanceof Array) {
-                        options[key].map((val) => {
-                            p.append(key, val);
-                        });
-                    } else {
-                        p.append(key, options[key]);
-                    }
+        const p = ['type', 'url', 'width', 'height', 'tileSize', 'minZoom', 'maxZoom', 'maxLng', 'maxLat', 'minLng', 'minLat'].reduce((p, key) => {
+            if (typeof options[key] !== 'undefined') {
+                if (options[key] instanceof Array) {
+                    options[key].map((val) => {
+                        p.append(key, val);
+                    });
+                } else {
+                    p.append(key, options[key]);
                 }
-                return p;
-            }, new URLSearchParams());
-            p.append('mapID', mapID);
-            const url = new URL(`${BASEURL}add`);
-            url.search = p;
-            const res = await fetch(url.href);
-            text = await res.text();
-        } catch(e) {
-            throw(e);
-        }
+            }
+            return p;
+        }, new URLSearchParams());
+        p.append('mapID', mapID);
+        const url = new URL(`${BASEURL}add`);
+        url.search = p;
+        const res = await fetch(url.href);
+        text = await res.text();
         if (text.match(/^Error: /)) {
-            throw(text);
+            throw (text);
         }
         return new Weiwudi(mapID, JSON.parse(text));
     }
 
     static async retrieveMap(mapID) {
         const swCheck = await Weiwudi.swCheck();
-        if (!swCheck) throw('Weiwudi service worker is not implemented.');
+        if (!swCheck) throw ('Weiwudi service worker is not implemented.');
         let text;
-        try {
-            const res = await fetch(`${BASEURL}info?mapID=${mapID}`);
-            text = await res.text();
-        } catch(e) {
-            throw(e);
-        }
+        const res = await fetch(`${BASEURL}info?mapID=${mapID}`);
+        text = await res.text();
         if (text.match(/^Error: /)) {
-            throw(text);
+            throw (text);
         }
         console.log(text);
         return new Weiwudi(mapID, JSON.parse(text));
@@ -161,29 +159,25 @@ export default class Weiwudi extends EventTarget {
 
     static async removeMap(mapID) {
         const swCheck = await Weiwudi.swCheck();
-        if (!swCheck) throw('Weiwudi service worker is not implemented.');
+        if (!swCheck) throw ('Weiwudi service worker is not implemented.');
         let text;
-        try {
-            const res = await fetch(`${BASEURL}delete?mapID=${mapID}`);
-            text = await res.text();
-        } catch(e) {
-            throw(e);
-        }
+        const res = await fetch(`${BASEURL}delete?mapID=${mapID}`);
+        text = await res.text();
         if (text.match(/^Error: /)) {
-            throw(text);
+            throw (text);
         }
     }
 
     constructor(mapID, attrs) {
         super();
-        if (!mapID) throw('MapID is necessary.');
+        if (!mapID) throw ('MapID is necessary.');
         this.mapID = mapID;
         if (attrs) Object.assign(this, attrs);
         this.url = `${BASEURL}cache/${mapID}/{z}/{x}/{y}`;
         this.listener = (e) => {
             const eventMapID = e.data.mapID;
             if (eventMapID !== mapID) return;
-            this.dispatchEvent(new CustomEvent(e.data.type, {detail: e.data}));
+            this.dispatchEvent(new CustomEvent(e.data.type, { detail: e.data }));
         };
         navigator.serviceWorker.addEventListener('message', this.listener);
     }
@@ -194,20 +188,16 @@ export default class Weiwudi extends EventTarget {
     }
 
     checkAspect() {
-        if (!this.mapID) throw('This instance is already released.');
+        if (!this.mapID) throw ('This instance is already released.');
     }
 
     async stats() {
         let text;
         this.checkAspect();
-        try {
-            const res = await fetch(`${BASEURL}stats?mapID=${this.mapID}`);
-            text = await res.text();
-        } catch(e) {
-            throw(e);
-        }
+        const res = await fetch(`${BASEURL}stats?mapID=${this.mapID}`);
+        text = await res.text();
         if (typeof text === 'string' && text.match(/^Error: /)) {
-            throw(text);
+            throw (text);
         }
         return JSON.parse(text);
     }
@@ -215,28 +205,20 @@ export default class Weiwudi extends EventTarget {
     async clean() {
         let text;
         this.checkAspect();
-        try {
-            const res = await fetch(`${BASEURL}clean?mapID=${this.mapID}`);
-            text = await res.text();
-        } catch(e) {
-            throw(e);
-        }
+        const res = await fetch(`${BASEURL}clean?mapID=${this.mapID}`);
+        text = await res.text();
         if (text.match(/^Error: /)) {
-            throw(text);
+            throw (text);
         }
     }
 
     async fetchAll() {
         let text;
         this.checkAspect();
-        try {
-            const res = await fetch(`${BASEURL}fetchAll?mapID=${this.mapID}`);
-            text = await res.text();
-        } catch(e) {
-            throw(e);
-        }
+        const res = await fetch(`${BASEURL}fetchAll?mapID=${this.mapID}`);
+        text = await res.text();
         if (text.match(/^Error: /)) {
-            throw(text);
+            throw (text);
         }
     }
 
@@ -249,14 +231,10 @@ export default class Weiwudi extends EventTarget {
     async cancel() {
         let text;
         this.checkAspect();
-        try {
-            const res = await fetch(`${BASEURL}cancel?mapID=${this.mapID}`);
-            text = await res.text();
-        } catch(e) {
-            throw(e);
-        }
+        const res = await fetch(`${BASEURL}cancel?mapID=${this.mapID}`);
+        text = await res.text();
         if (text.match(/^Error: /)) {
-            throw(text);
+            throw (text);
         }
     }
 }

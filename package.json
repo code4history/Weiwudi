@@ -4,11 +4,13 @@
   "description": "Service worker for tile cache",
   "main": "src/weiwudi.js",
   "types": "index.d.ts",
+  "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "vite dev",
     "build": "vite build -c vite.config.lib.js && vite build -c vite.config.sw.js",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint": "eslint src"
   },
   "repository": {
     "type": "git",
@@ -27,6 +29,9 @@
   },
   "homepage": "https://github.com/code4history/Weiwudi#readme",
   "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "eslint": "^9.39.2",
+    "globals": "^16.5.0",
     "vite": "^7.3.0",
     "vite-plugin-pwa": "^1.2.0"
   },

@@ -1,4 +1,4 @@
-export function Weiwudi_Internal(registerRoute){
+export function Weiwudi_Internal(registerRoute) {
   "use strict";
   const MERC_MAX = 20037508.342789244;
   const dbCache = {};
@@ -10,7 +10,7 @@ export function Weiwudi_Internal(registerRoute){
       .replace('{-y}', Math.pow(2, z) - y - 1);
     return result;
   };
-  const b64toBlob = (b64Data, contentType='', sliceSize=512) => {
+  const b64toBlob = (b64Data, contentType = '', sliceSize = 512) => {
     const byteCharacters = atob(b64Data);
     const byteArrays = [];
 
@@ -26,7 +26,7 @@ export function Weiwudi_Internal(registerRoute){
       byteArrays.push(byteArray);
     }
 
-    const blob = new Blob(byteArrays, {type: contentType});
+    const blob = new Blob(byteArrays, { type: contentType });
     return blob;
   };
   const getDB = async (dbname, table, key) => {
@@ -37,7 +37,7 @@ export function Weiwudi_Internal(registerRoute){
           const openDB = indexedDB.open(dbname);
           openDB.onupgradeneeded = function (event) {
             const db = event.target.result;
-            db.createObjectStore(table, {keyPath: key});
+            db.createObjectStore(table, { keyPath: key });
           };
           openDB.onsuccess = function (event) {
             const db = event.target.result;
@@ -69,7 +69,7 @@ export function Weiwudi_Internal(registerRoute){
         deleteReq.onerror = function (error) {
           reject(error);
         };
-      } catch(e) {
+      } catch (e) {
         reject(e);
       }
     });
@@ -79,18 +79,18 @@ export function Weiwudi_Internal(registerRoute){
       const tx = db.transaction([table], 'readwrite');
       const store = tx.objectStore(table);
       const clearReq = store.clear();
-      clearReq.onsuccess = function(e) {
+      clearReq.onsuccess = function (e) {
       };
-      clearReq.onerror = function(e) {
+      clearReq.onerror = function (e) {
         reject(e);
       };
-      tx.oncomplete = function(e) {
+      tx.oncomplete = function (e) {
         resolve();
       };
-      tx.onabort = function(e) {
+      tx.onabort = function (e) {
         reject(e);
       };
-      tx.onerror = function(e) {
+      tx.onerror = function (e) {
         reject(e);
       };
     });
@@ -102,7 +102,7 @@ export function Weiwudi_Internal(registerRoute){
       const cursorReq = store.openCursor();
       let count = 0;
       let size = 0;
-      cursorReq.onsuccess = function(e) {
+      cursorReq.onsuccess = function (e) {
         const cursor = cursorReq.result;
         if (cursor) {
           count++;
@@ -110,19 +110,19 @@ export function Weiwudi_Internal(registerRoute){
           cursor.continue();
         }
       };
-      cursorReq.onerror = function(e) {
+      cursorReq.onerror = function (e) {
         reject(e);
       };
-      tx.oncomplete = function(e) {
+      tx.oncomplete = function (e) {
         resolve({
           count: count,
           size: size
         });
       };
-      tx.onabort = function(e) {
+      tx.onabort = function (e) {
         reject(e);
       };
-      tx.onerror = function(e) {
+      tx.onerror = function (e) {
         reject(e);
       };
     });
@@ -132,18 +132,18 @@ export function Weiwudi_Internal(registerRoute){
       const tx = db.transaction([table], 'readonly');
       const store = tx.objectStore(table);
       const getReq = dry ? store.getKey(key) : store.get(key);
-      getReq.onsuccess = function(e) {
+      getReq.onsuccess = function (e) {
       };
-      getReq.onerror = function(e) {
+      getReq.onerror = function (e) {
         reject(e);
       };
-      tx.oncomplete = function(e) {
+      tx.oncomplete = function (e) {
         resolve(getReq.result);
       };
-      tx.onabort = function(e) {
+      tx.onabort = function (e) {
         reject(e);
       };
-      tx.onerror = function(e) {
+      tx.onerror = function (e) {
         reject(e);
       };
     });
@@ -153,18 +153,18 @@ export function Weiwudi_Internal(registerRoute){
       const tx = db.transaction([table], 'readwrite');
       const store = tx.objectStore(table);
       const putReq = store.put(item);
-      putReq.onsuccess = function(e) {
+      putReq.onsuccess = function (e) {
       };
-      putReq.onerror = function(e) {
+      putReq.onerror = function (e) {
         reject(e);
       };
-      tx.oncomplete = function(e) {
+      tx.oncomplete = function (e) {
         resolve();
       };
-      tx.onabort = function(e) {
+      tx.onabort = function (e) {
         reject(e);
       };
-      tx.onerror = function(e) {
+      tx.onerror = function (e) {
         reject(e);
       };
     });
@@ -174,18 +174,18 @@ export function Weiwudi_Internal(registerRoute){
       const tx = db.transaction([table], 'readwrite');
       const store = tx.objectStore(table);
       const delReq = store.delete(key);
-      delReq.onsuccess = function(e) {
+      delReq.onsuccess = function (e) {
       };
-      delReq.onerror = function(e) {
+      delReq.onerror = function (e) {
         reject(e);
       };
-      tx.oncomplete = function(e) {
+      tx.oncomplete = function (e) {
         resolve();
       };
-      tx.onabort = function(e) {
+      tx.onabort = function (e) {
         reject(e);
       };
-      tx.onerror = function(e) {
+      tx.onerror = function (e) {
         reject(e);
       };
     });
@@ -195,23 +195,23 @@ export function Weiwudi_Internal(registerRoute){
       const tx = db.transaction([table], 'readwrite');
       const store = tx.objectStore(table);
       const getReq = store.getAllKeys();
-      getReq.onsuccess = function(e) {
+      getReq.onsuccess = function (e) {
       };
-      getReq.onerror = function(e) {
+      getReq.onerror = function (e) {
         reject(e);
       };
-      tx.oncomplete = function(e) {
+      tx.oncomplete = function (e) {
         resolve(getReq.result);
       };
-      tx.onabort = function(e) {
+      tx.onabort = function (e) {
         reject(e);
       };
-      tx.onerror = function(e) {
+      tx.onerror = function (e) {
         reject(e);
       };
     });
   };
-  const handlerCb = async ({url, request, event, params}) => {
+  const handlerCb = async ({ url, request, event, _params }) => {
     const client = event.clientId ? await self.clients.get(event.clientId) : undefined;
     const matched = url.pathname.match(/^\/api\/([\w\d]+)(?:\/(.+))?$/);
     if (matched) {
@@ -257,10 +257,10 @@ export function Weiwudi_Internal(registerRoute){
         headers = {
           'content-type': 'image/png'
         };
-        blob = b64toBlob('iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAMAAABrrFhUAAAAB3RJTUUH3QgIBToaSbAjlwAAABd0'+
-          'RVh0U29mdHdhcmUAR0xEUE5HIHZlciAzLjRxhaThAAAACHRwTkdHTEQzAAAAAEqAKR8AAAAEZ0FN'+
-          'QQAAsY8L/GEFAAAAA1BMVEX///+nxBvIAAAAAXRSTlMAQObYZgAAAFRJREFUeNrtwQEBAAAAgJD+'+
-          'r+4ICgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'+
+        blob = b64toBlob('iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAMAAABrrFhUAAAAB3RJTUUH3QgIBToaSbAjlwAAABd0' +
+          'RVh0U29mdHdhcmUAR0xEUE5HIHZlciAzLjRxhaThAAAACHRwTkdHTEQzAAAAAEqAKR8AAAAEZ0FN' +
+          'QQAAsY8L/GEFAAAAA1BMVEX///+nxBvIAAAAAXRSTlMAQObYZgAAAFRJREFUeNrtwQEBAAAAgJD+' +
+          'r+4ICgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
           'AAAAAAAAAAAAABgBDwABHHIJwwAAAABJRU5ErkJggg==', headers['content-type']);
       }
     } else {
@@ -275,7 +275,7 @@ export function Weiwudi_Internal(registerRoute){
         try {
           const resp = await fetch(url);
           if (resp.ok) {
-            headers = [...resp.headers.entries()].reduce((obj, e) => ({...obj, [e[0]]: e[1]}), {});
+            headers = [...resp.headers.entries()].reduce((obj, e) => ({ ...obj, [e[0]]: e[1] }), {});
             blob = await resp.blob();
             await putItem(cacheDB, 'tileCache', {
               'z_x_y': `${z}_${x}_${y}`,
@@ -290,12 +290,12 @@ export function Weiwudi_Internal(registerRoute){
             } else {
               status = resp.status;
               statusText = resp.statusText;
-              headers = [...resp.headers.entries()].reduce((obj, e) => ({...obj, [e[0]]: e[1]}), {});
+              headers = [...resp.headers.entries()].reduce((obj, e) => ({ ...obj, [e[0]]: e[1] }), {});
               blob = await resp.blob();
             }
             if (fetchAllBlocker) fetchAllBlocker.error++;
           }
-        } catch(e) {
+        } catch (e) {
           if (cached) {
             headers = cached.headers;
             blob = cached.blob;
@@ -381,7 +381,7 @@ export function Weiwudi_Internal(registerRoute){
         mapID: setting.mapID,
         error
       });
-    } catch(e) {
+    } catch (e) {
       fetchAllBlocker = undefined;
       client.postMessage({
         type: 'stop',
@@ -422,9 +422,9 @@ export function Weiwudi_Internal(registerRoute){
             }
           }
           break;
-        case 'add':
+        case 'add': {
           const db = await getDB('Weiwudi', 'mapSetting', 'mapID');
-          retVal = checkAttributes(query, ['mapID','type', 'url']);
+          retVal = checkAttributes(query, ['mapID', 'type', 'url']);
           if (!retVal) {
             query.tileSize = parseInt(query.tileSize || 256);
             switch (query.type) {
@@ -489,6 +489,7 @@ export function Weiwudi_Internal(registerRoute){
             });
           }
           break;
+        }
         case 'clean':
           retVal = checkAttributes(query, ['mapID']);
           if (fetchAllBlocker && fetchAllBlocker.mapID == query.mapID) {
@@ -518,6 +519,7 @@ export function Weiwudi_Internal(registerRoute){
           } else {
             retVal = `Error: There are no fetching process of ${query.mapID}`;
           }
+          break;
         case 'stats':
           retVal = checkAttributes(query, ['mapID']);
           if (!retVal) {
@@ -539,14 +541,15 @@ export function Weiwudi_Internal(registerRoute){
             }
           }
           break;
-        case 'cache':
-          const matched = restPath.match(/^([^\/]+)\/(\d+)\/(\d+)\/(\d+)$/);
+        case 'cache': {
+          const matched = restPath.match(/^([^/]+)\/(\d+)\/(\d+)\/(\d+)$/);
           if (matched) {
             retVal = await getImage(matched[1], parseInt(matched[2]), parseInt(matched[3]), parseInt(matched[4]));
           } else {
             retVal = 'Error: "cache" api needs mapID, zoom, x, y settings';
           }
           break;
+        }
         case 'fetchAll':
           retVal = checkAttributes(query, ['mapID']);
           if (!retVal) {
