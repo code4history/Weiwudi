@@ -207,7 +207,7 @@
                 document.getElementById('sw-status').textContent = 'Registering SW...';
 
                 // Register Service Worker
-                await Weiwudi.registerSW('./dist/weiwudi-sw.umd.js', { scope: './' });
+                await Weiwudi.registerSW('./weiwudi-sw.js', { scope: './' });
 
                 document.getElementById('sw-status').textContent = 'Registering map...';
 
