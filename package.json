@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "vite dev",
+    "dev": "vite --host",
     "build": "vite build -c vite.config.lib.js && vite build -c vite.config.sw.js",
     "preview": "vite preview",
     "lint": "eslint src"
