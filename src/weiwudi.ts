@@ -7,20 +7,20 @@ let swChecked: boolean | undefined;
 // Polyfill removed as target is ES2020
 
 class EventTarget {
-    listeners: Record<string, Function[]>;
+    listeners: Record<string, ((...args: unknown[]) => void)[]>;
 
     constructor() {
         this.listeners = {};
     }
 
-    addEventListener(type: string, callback: Function) {
+    addEventListener(type: string, callback: (...args: unknown[]) => void) {
         if (!(type in this.listeners)) {
             this.listeners[type] = [];
         }
         this.listeners[type].push(callback);
     }
 
-    removeEventListener(type: string, callback: Function) {
+    removeEventListener(type: string, callback: (...args: unknown[]) => void) {
         if (!(type in this.listeners)) {
             return;
         }
@@ -58,12 +58,12 @@ export interface WeiwudiOptions {
     maxLat?: number;
     minLng?: number;
     minLat?: number;
-    [key: string]: any;
+    [key: string]: unknown;
 }
 
 export interface WeiwudiInternalOps {
     // Placeholder for future strict typing of internal operations
-    [key: string]: any;
+    [key: string]: unknown;
 }
 
 export default class Weiwudi extends EventTarget {
@@ -237,7 +237,6 @@ export default class Weiwudi extends EventTarget {
 
     async remove() {
         this.checkAspect();
-        // @ts-ignore: This method handles the possibility of mapID being undefined/deleted, but TS checks strict logic
         if (this.mapID) await Weiwudi.removeMap(this.mapID);
         this.release();
     }

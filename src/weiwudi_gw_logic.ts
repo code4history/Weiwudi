@@ -19,6 +19,7 @@ interface MapSetting {
   width?: number;
   height?: number;
   tileSize?: number;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }
 
@@ -51,6 +52,7 @@ interface DBCountResult {
 declare const self: ServiceWorkerGlobalScope;
 
 // Allow string based method to be compatible with both Workbox types and simple strings
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: RouteHandlerCallback, method?: any) => any) {
   "use strict";
   const MERC_MAX = 20037508.342789244;
@@ -181,7 +183,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
       };
     });
   };
-  const getItem = async (db: IDBDatabase, table: string, key: string, dry?: boolean): Promise<any> => {
+  const getItem = async (db: IDBDatabase, table: string, key: string, dry?: boolean): Promise<unknown> => {
     return new Promise((resolve, reject) => {
       const tx = db.transaction([table], 'readonly');
       const store = tx.objectStore(table);
@@ -202,7 +204,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
       };
     });
   };
-  const putItem = async (db: IDBDatabase, table: string, item: any): Promise<void> => {
+  const putItem = async (db: IDBDatabase, table: string, item: unknown): Promise<void> => {
     return new Promise((resolve, reject) => {
       const tx = db.transaction([table], 'readwrite');
       const store = tx.objectStore(table);
@@ -244,7 +246,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
       };
     });
   };
-  const getAllKeys = async (db: IDBDatabase, table: string): Promise<any[]> => {
+  const getAllKeys = async (db: IDBDatabase, table: string): Promise<unknown[]> => {
     return new Promise((resolve, reject) => {
       const tx = db.transaction([table], 'readwrite');
       const store = tx.objectStore(table);
@@ -270,6 +272,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
     const client = fetchEvent && fetchEvent.clientId ? await self.clients.get(fetchEvent.clientId) : undefined;
     const matched = url.pathname.match(/^\/api\/([\w\d]+)(?:\/(.+))?$/);
     if (matched) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const query = [...url.searchParams.entries()].reduce((obj: any, e) => {
         const values = url.searchParams.getAll(e[0]);
         if (values.length === 1) obj[e[0]] = values[0];
@@ -359,7 +362,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
             }
             if (fetchAllBlocker) fetchAllBlocker.error++;
           }
-        } catch (e) {
+        } catch (_e) {
           if (cached) {
             headers = cached.headers;
             blob = cached.blob;
@@ -459,8 +462,11 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
       });
     }
   }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const apiFunc = async (apiName: string, query: any, restPath: string | undefined, client?: Client) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let retVal: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const checkAttributes = (query: any, targets: string[]) => {
       return targets.reduce((prev: string | undefined, target) => {
         if (prev) return prev;
@@ -590,7 +596,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
           retVal = checkAttributes(query, ['mapID']);
           if (!retVal) {
             const db = await getDB('Weiwudi');
-            const setting = await getItem(db, 'mapSetting', query.mapID);
+            const setting = await getItem(db, 'mapSetting', query.mapID) as MapSetting;
             if (!setting) retVal = `Error: MapID "${query.mapID}" not found`;
             else {
               const cacheDB = await getDB(`Weiwudi_${query.mapID}`);
@@ -620,7 +626,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
           retVal = checkAttributes(query, ['mapID']);
           if (!retVal && client) {
             const db = await getDB('Weiwudi');
-            const setting = await getItem(db, 'mapSetting', query.mapID);
+            const setting = await getItem(db, 'mapSetting', query.mapID) as MapSetting;
             if (!setting) retVal = `Error: MapID "${query.mapID}" not found`;
             else if (!setting.totalTile) retVal = `Error: Map "${query.mapID}" cannot fetch all tiles`;
             else if (fetchAllBlocker) {
