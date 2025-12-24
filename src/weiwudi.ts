@@ -1,3 +1,4 @@
+// @ts-nocheck
 "use strict";
 
 const BASEURL = 'https://weiwudi.example.com/api/';

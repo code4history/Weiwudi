@@ -1,3 +1,4 @@
+// @ts-nocheck
 export function Weiwudi_Internal(registerRoute) {
   "use strict";
   const MERC_MAX = 20037508.342789244;

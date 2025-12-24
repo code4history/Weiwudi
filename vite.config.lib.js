@@ -6,18 +6,15 @@ export default defineConfig({
         outDir: 'dist',
         sourcemap: true,
         lib: {
-            entry: 'src/weiwudi.js',
+            entry: './src/weiwudi.ts',
             name: 'Weiwudi',
-            fileName: (format) => `weiwudi.${format}.js`,
-            formats: ['umd', 'es']
-        },
-        rollupOptions: {
-            // Dependencies are bundled for standalone usage
+            formats: ['umd', 'es'],
+            fileName: (format) => `weiwudi.${format}.js`
         }
     },
     plugins: [
         dts({
-            include: ['src/weiwudi.js'],
+            include: ['src/weiwudi.ts'],
             outDir: 'dist',
             insertTypesEntry: true
         })
