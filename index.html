@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weiwudi - Tile Cache Service Worker Demo</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .stats-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            min-width: 280px;
+            z-index: 1000;
+            font-size: 14px;
+        }
+
+        .stats-panel h2 {
+            margin-bottom: 15px;
+            font-size: 18px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        .stat-item {
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .stat-label {
+            color: #666;
+            font-weight: 500;
+        }
+
+        .stat-value {
+            color: #333;
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        .button {
+            width: 100%;
+            padding: 10px 16px;
+            margin-top: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .button-primary {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .button-primary:hover {
+            background: #2563eb;
+            transform: translateY(-1px);
+        }
+
+        .button-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .button-danger:hover {
+            background: #dc2626;
+            transform: translateY(-1px);
+        }
+
+        .button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .status-message {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            text-align: center;
+        }
+
+        .status-success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status-error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .status-info {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .divider {
+            margin: 15px 0;
+            border-top: 1px solid #e5e7eb;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+
+    <div class="stats-panel">
+        <h2>🗺️ Cache Statistics</h2>
+
+        <div class="stat-item">
+            <span class="stat-label">Cached Tiles:</span>
+            <span class="stat-value" id="tile-count">-</span>
+        </div>
+
+        <div class="stat-item">
+            <span class="stat-label">Cache Size:</span>
+            <span class="stat-value" id="cache-size">-</span>
+        </div>
+
+        <div class="stat-item">
+            <span class="stat-label">Status:</span>
+            <span class="stat-value" id="sw-status">Initializing...</span>
+        </div>
+
+        <div class="divider"></div>
+
+        <button class="button button-primary" id="fetch-all-btn" disabled>Fetch All Tiles</button>
+        <button class="button button-danger" id="clear-cache-btn" disabled>Clear Cache</button>
+
+        <div id="status-message"></div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script type="module">
+        import Weiwudi from './dist/weiwudi.es.js';
+
+        let map = null;
+        let weiwudiMap = null;
+        let statsInterval = null;
+
+        function showMessage(message, type = 'info') {
+            const statusEl = document.getElementById('status-message');
+            statusEl.textContent = message;
+            statusEl.className = `status-message status-${type}`;
+
+            setTimeout(() => {
+                statusEl.textContent = '';
+                statusEl.className = '';
+            }, 5000);
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            if (!bytes) return '-';
+
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+            return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        async function updateStats() {
+            if (!weiwudiMap) return;
+
+            try {
+                const stats = await weiwudiMap.stats();
+                document.getElementById('tile-count').textContent = stats.count || 0;
+                document.getElementById('cache-size').textContent = formatBytes(stats.size);
+            } catch (e) {
+                console.error('Failed to update stats:', e);
+            }
+        }
+
+        async function init() {
+            try {
+                document.getElementById('sw-status').textContent = 'Registering SW...';
+
+                // Register Service Worker
+                await Weiwudi.registerSW('./dist/weiwudi-sw.umd.js', { scope: './' });
+
+                document.getElementById('sw-status').textContent = 'Registering map...';
+
+                // Register map with Weiwudi
+                weiwudiMap = await Weiwudi.registerMap('osm_demo', {
+                    type: 'wmts',
+                    minLat: 35.0,
+                    maxLat: 36.0,
+                    minLng: 139.0,
+                    maxLng: 140.0,
+                    minZoom: 10,
+                    maxZoom: 15,
+                    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+                });
+
+                document.getElementById('sw-status').textContent = 'Active';
+
+                // Initialize Leaflet map
+                map = L.map('map').setView([35.68, 139.76], 13); // Tokyo
+
+                // Add tile layer using Weiwudi cached URL
+                L.tileLayer(weiwudiMap.url, {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                    maxZoom: 18
+                }).addTo(map);
+
+                // Enable buttons
+                document.getElementById('fetch-all-btn').disabled = false;
+                document.getElementById('clear-cache-btn').disabled = false;
+
+                // Start stats polling
+                statsInterval = setInterval(updateStats, 2000);
+                updateStats();
+
+                showMessage('Weiwudi initialized successfully!', 'success');
+
+                // Listen to cache events
+                weiwudiMap.addEventListener('proceed', (e) => {
+                    if (e.detail.percent) {
+                        showMessage(`Fetching tiles: ${Math.round(e.detail.percent)}%`, 'info');
+                    }
+                });
+
+                weiwudiMap.addEventListener('finish', () => {
+                    showMessage('All tiles fetched successfully!', 'success');
+                });
+
+                weiwudiMap.addEventListener('stop', (e) => {
+                    showMessage('Fetch stopped: ' + (e.detail?.error || 'Unknown error'), 'error');
+                });
+
+            } catch (e) {
+                document.getElementById('sw-status').textContent = 'Error';
+                showMessage('Initialization error: ' + e.toString(), 'error');
+                console.error(e);
+            }
+        }
+
+        // Event handlers
+        document.getElementById('fetch-all-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('fetch-all-btn');
+            btn.disabled = true;
+
+            try {
+                showMessage('Starting to fetch all tiles...', 'info');
+                await weiwudiMap.fetchAll();
+            } catch (e) {
+                showMessage('Fetch failed: ' + e.toString(), 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        document.getElementById('clear-cache-btn').addEventListener('click', async () => {
+            if (!confirm('Are you sure you want to clear all cached tiles?')) {
+                return;
+            }
+
+            const btn = document.getElementById('clear-cache-btn');
+            btn.disabled = true;
+
+            try {
+                await weiwudiMap.clean();
+                await updateStats();
+                showMessage('Cache cleared successfully!', 'success');
+            } catch (e) {
+                showMessage('Clear failed: ' + e.toString(), 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        // Initialize on load
+        init();
+
+        // Cleanup on unload
+        window.addEventListener('beforeunload', () => {
+            if (statsInterval) clearInterval(statsInterval);
+        });
+    </script>
+</body>
+
+</html>

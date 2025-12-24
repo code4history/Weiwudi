@@ -2,6 +2,35 @@
 Service worker for tile cache.  
 Project name is named from [魏武帝(Weiwudi)](https://zh.wikipedia.org/wiki/%E6%9B%B9%E6%93%8D), who was originally named as 曹操(Cao Cao), and was Chinese warload of the Eastern Han dynasty.
 
+## Live Demo
+
+Try the interactive demo to see Weiwudi in action:
+
+```bash
+pnpm install
+pnpm dev
+```
+
+Then open `http://localhost:5173/` in your browser. The demo features:
+- 🗺️ Leaflet map with OSM tiles cached via Weiwudi
+- 📊 Real-time cache statistics (tile count, cache size)
+- 🔄 Fetch all tiles button
+- 🗑️ Clear cache functionality
+
+## Testing
+
+Run the E2E test suite powered by Playwright:
+
+```bash
+pnpm run test:e2e
+```
+
+The tests verify:
+- Service Worker registration and activation
+- Tile caching behavior
+- Cache statistics retrieval
+- Cache clearing functionality
+
 ## How to use
 
 ### Service worker side
