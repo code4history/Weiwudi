@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import dts from 'vite-plugin-dts';
 
 export default defineConfig({
     build: {
@@ -8,16 +9,20 @@ export default defineConfig({
         lib: {
             entry: 'src/weiwudi_gw.js',
             name: 'WeiwudiSW',
-            fileName: 'weiwudi-sw',
-            formats: ['iife'] // Service Workers are typically single scripts (iife)
+            fileName: (format) => `weiwudi-sw.${format}.js`,
+            formats: ['umd', 'es'] // Library for building Service Workers (not the SW itself)
         },
         rollupOptions: {
-            output: {
-                entryFileNames: 'weiwudi-sw.js',
-                // Ensure workbox is bundled
-            }
+            // Ensure workbox dependencies are bundled
         }
     },
+    plugins: [
+        dts({
+            include: ['src/weiwudi_gw.js', 'src/weiwudi_gw_logic.js'],
+            outDir: 'dist',
+            insertTypesEntry: true
+        })
+    ],
     define: {
         'process.env.NODE_ENV': '"production"' // Workbox expects this
     }

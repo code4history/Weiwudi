@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-// import { VitePWA } from 'vite-plugin-pwa'; // PWA plugin might be redundant if we are just building the SW script itself, or we misconfigured it.
+import dts from 'vite-plugin-dts';
 
 export default defineConfig({
     build: {
@@ -8,13 +8,18 @@ export default defineConfig({
         lib: {
             entry: 'src/weiwudi.js',
             name: 'Weiwudi',
-            fileName: (format) => `weiwudi.${format}.js`, // Adjust output names to stay clean
-            formats: ['umd', 'es'] // Support both for compatibility
+            fileName: (format) => `weiwudi.${format}.js`,
+            formats: ['umd', 'es']
         },
         rollupOptions: {
-            // Ensure specific dependencies are externalized if necessary
-            // external: ['workbox-core', ...], But usually we want to bundle them if it produces a standalone SW.
+            // Dependencies are bundled for standalone usage
         }
     },
-    // plugins: [ VitePWA(...) ] // checking if strictly needed
+    plugins: [
+        dts({
+            include: ['src/weiwudi.js'],
+            outDir: 'dist',
+            insertTypesEntry: true
+        })
+    ]
 });
