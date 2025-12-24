@@ -112,3 +112,6 @@ playwright-report/
 # Old build outputs (deprecated, use dist/)
 lib/
 test/
+
+# Demo build output
+dist-demo/
