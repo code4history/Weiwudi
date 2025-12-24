@@ -37,8 +37,7 @@ The tests verify:
 ### Service worker side
 Call this js with workbox in your service worker.
 ```js
-importScripts("https://storage.googleapis.com/workbox-cdn/releases/6.0.2/workbox-sw.js");
-importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@0.1.4/src/weiwudi_sw.js");
+importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@0.1.5/dist/weiwudi-sw.umd.js");
 ```
 
 ### Front logic side

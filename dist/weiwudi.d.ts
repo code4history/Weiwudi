@@ -1,4 +1,4 @@
-declare class EventTarget {
+export declare class WeiwudiEventTarget {
     listeners: Record<string, ((...args: unknown[]) => void)[]>;
     constructor();
     addEventListener(type: string, callback: (...args: unknown[]) => void): void;
@@ -22,7 +22,7 @@ export interface WeiwudiOptions {
 export interface WeiwudiInternalOps {
     [key: string]: unknown;
 }
-export default class Weiwudi extends EventTarget {
+export default class Weiwudi extends WeiwudiEventTarget {
     mapID?: string;
     url?: string;
     listener: (e: MessageEvent) => void;
@@ -40,5 +40,4 @@ export default class Weiwudi extends EventTarget {
     remove(): Promise<void>;
     cancel(): Promise<void>;
 }
-export {};
 //# sourceMappingURL=weiwudi.d.ts.map

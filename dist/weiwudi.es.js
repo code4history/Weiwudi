@@ -114,6 +114,7 @@ class i extends f {
   }
 }
 export {
+  f as WeiwudiEventTarget,
   i as default
 };
 //# sourceMappingURL=weiwudi.es.js.map

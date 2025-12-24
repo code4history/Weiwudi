@@ -6,7 +6,7 @@ let swChecked: boolean | undefined;
 
 // Polyfill removed as target is ES2020
 
-class EventTarget {
+export class WeiwudiEventTarget {
     listeners: Record<string, ((...args: unknown[]) => void)[]>;
 
     constructor() {
@@ -66,7 +66,7 @@ export interface WeiwudiInternalOps {
     [key: string]: unknown;
 }
 
-export default class Weiwudi extends EventTarget {
+export default class Weiwudi extends WeiwudiEventTarget {
     mapID?: string;
     url?: string;
     listener: (e: MessageEvent) => void;

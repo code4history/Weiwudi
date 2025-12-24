@@ -3,7 +3,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Service worker for tile cache",
   "main": "dist/weiwudi.umd.js",
   "module": "dist/weiwudi.es.js",
