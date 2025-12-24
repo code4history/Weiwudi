@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Weiwudi Cache Operations', () => {
 
     test('should register Service Worker and activate successfully', async ({ page, context }) => {
-        await context.grant Permissions(['notifications']);
+        await context.grantPermissions(['notifications']);
 
         await page.goto('/tests/e2e/fixtures/test-page.html');
 
