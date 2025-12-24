@@ -1,5 +1,8 @@
 {
-  "name": "weiwudi",
+  "name": "@c4h/weiwudi",
+  "publishConfig": {
+    "access": "public"
+  },
   "version": "0.1.4",
   "description": "Service worker for tile cache",
   "main": "dist/weiwudi.umd.js",
