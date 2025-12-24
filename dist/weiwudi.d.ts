@@ -1,8 +1,8 @@
 declare class EventTarget {
-    listeners: Record<string, Function[]>;
+    listeners: Record<string, ((...args: unknown[]) => void)[]>;
     constructor();
-    addEventListener(type: string, callback: Function): void;
-    removeEventListener(type: string, callback: Function): void;
+    addEventListener(type: string, callback: (...args: unknown[]) => void): void;
+    removeEventListener(type: string, callback: (...args: unknown[]) => void): void;
     dispatchEvent(event: Event | CustomEvent): boolean;
 }
 export interface WeiwudiOptions {
@@ -17,10 +17,10 @@ export interface WeiwudiOptions {
     maxLat?: number;
     minLng?: number;
     minLat?: number;
-    [key: string]: any;
+    [key: string]: unknown;
 }
 export interface WeiwudiInternalOps {
-    [key: string]: any;
+    [key: string]: unknown;
 }
 export default class Weiwudi extends EventTarget {
     mapID?: string;
