@@ -1,16 +1,37 @@
 declare class EventTarget {
+    listeners: Record<string, Function[]>;
     constructor();
-    addEventListener(type: any, callback: any): void;
-    removeEventListener(type: any, callback: any): void;
-    dispatchEvent(event: any): boolean;
+    addEventListener(type: string, callback: Function): void;
+    removeEventListener(type: string, callback: Function): void;
+    dispatchEvent(event: Event | CustomEvent): boolean;
+}
+export interface WeiwudiOptions {
+    type?: string;
+    url?: string;
+    width?: number;
+    height?: number;
+    tileSize?: number;
+    minZoom?: number;
+    maxZoom?: number;
+    maxLng?: number;
+    maxLat?: number;
+    minLng?: number;
+    minLat?: number;
+    [key: string]: any;
+}
+export interface WeiwudiInternalOps {
+    [key: string]: any;
 }
 export default class Weiwudi extends EventTarget {
-    static registerSW(sw: any, swOptions: any): Promise<ServiceWorkerRegistration>;
-    static swCheck(): Promise<any>;
-    static registerMap(mapID: any, options: any): Promise<Weiwudi>;
-    static retrieveMap(mapID: any): Promise<Weiwudi>;
-    static removeMap(mapID: any): Promise<void>;
-    constructor(mapID: any, attrs: any);
+    mapID?: string;
+    url?: string;
+    listener: (e: MessageEvent) => void;
+    static registerSW(sw: string | URL, swOptions?: RegistrationOptions): Promise<ServiceWorkerRegistration>;
+    static swCheck(): Promise<boolean>;
+    static registerMap(mapID: string, options: WeiwudiOptions): Promise<Weiwudi>;
+    static retrieveMap(mapID: string): Promise<Weiwudi>;
+    static removeMap(mapID: string): Promise<void>;
+    constructor(mapID: string, attrs?: WeiwudiOptions);
     release(): void;
     checkAspect(): void;
     stats(): Promise<any>;

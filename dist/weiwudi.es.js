@@ -1,15 +1,6 @@
-const i = "https://weiwudi.example.com/api/";
-let f, o;
-(function() {
-  if (typeof window.CustomEvent == "function") return !1;
-  function h(e, s) {
-    s = s || { bubbles: !1, cancelable: !1, detail: void 0 };
-    var t = document.createEvent("CustomEvent");
-    return t.initCustomEvent(e, s.bubbles, s.cancelable, s.detail), t;
-  }
-  h.prototype = window.Event.prototype, window.CustomEvent = h;
-})();
-class p {
+const a = "https://weiwudi.example.com/api/";
+let w, h;
+class f {
   constructor() {
     this.listeners = {};
   }
@@ -20,7 +11,7 @@ class p {
     if (!(e in this.listeners))
       return;
     const t = this.listeners[e];
-    for (let r = 0, n = t.length; r < n; r++)
+    for (let r = 0, c = t.length; r < c; r++)
       if (t[r] === s) {
         t.splice(r, 1);
         return;
@@ -35,16 +26,16 @@ class p {
     return !e.defaultPrevented;
   }
 }
-class a extends p {
+class i extends f {
   static async registerSW(e, s) {
     if ("serviceWorker" in navigator)
       try {
-        const t = await navigator.serviceWorker.register(e, s), r = t.installing, n = t.waiting;
-        return r && (r.state === "activated" && !n && window.location.reload(), r.addEventListener("statechange", (l) => {
-          r.state === "activated" && !n && window.location.reload();
+        const t = await navigator.serviceWorker.register(e, s), r = t.installing, c = t.waiting;
+        return r && (r.state === "activated" && !c && window.location.reload(), r.addEventListener("statechange", (o) => {
+          r.state === "activated" && !c && window.location.reload();
         })), t.onupdatefound = () => {
           t.update();
-        }, await a.swCheck(), t;
+        }, await i.swCheck(), t;
       } catch (t) {
         throw `Error: Service worker registration failed with ${t}`;
       }
@@ -52,42 +43,42 @@ class a extends p {
       throw "Error: Service worker is not supported";
   }
   static async swCheck() {
-    return o !== void 0 ? o : (f === void 0 && (f = new Promise((e, s) => {
-      fetch(`${i}ping`).then((t) => {
-        o = !!t, e(o);
+    return h !== void 0 ? h : (w === void 0 && (w = new Promise((e, s) => {
+      fetch(`${a}ping`).then((t) => {
+        h = !!t, e(h);
       }).catch((t) => {
-        o = !1, e(o);
+        h = !1, e(h);
       });
-    })), f);
+    })), w);
   }
   static async registerMap(e, s) {
-    if (!await a.swCheck()) throw "Weiwudi service worker is not implemented.";
+    if (!await i.swCheck()) throw "Weiwudi service worker is not implemented.";
     let r;
-    const n = ["type", "url", "width", "height", "tileSize", "minZoom", "maxZoom", "maxLng", "maxLat", "minLng", "minLat"].reduce((w, c) => (typeof s[c] < "u" && (s[c] instanceof Array ? s[c].map((d) => {
-      w.append(c, d);
-    }) : w.append(c, s[c])), w), new URLSearchParams());
-    n.append("mapID", e);
-    const l = new URL(`${i}add`);
-    if (l.search = n, r = await (await fetch(l.href)).text(), r.match(/^Error: /))
+    const c = ["type", "url", "width", "height", "tileSize", "minZoom", "maxZoom", "maxLng", "maxLat", "minLng", "minLat"].reduce((l, n) => (typeof s[n] < "u" && (s[n] instanceof Array ? s[n].map((p) => {
+      l.append(n, p);
+    }) : l.append(n, String(s[n]))), l), new URLSearchParams());
+    c.append("mapID", e);
+    const o = new URL(`${a}add`);
+    if (o.search = c.toString(), r = await (await fetch(o.href)).text(), r.match(/^Error: /))
       throw r;
-    return new a(e, JSON.parse(r));
+    return new i(e, JSON.parse(r));
   }
   static async retrieveMap(e) {
-    if (!await a.swCheck()) throw "Weiwudi service worker is not implemented.";
+    if (!await i.swCheck()) throw "Weiwudi service worker is not implemented.";
     let t;
-    if (t = await (await fetch(`${i}info?mapID=${e}`)).text(), t.match(/^Error: /))
+    if (t = await (await fetch(`${a}info?mapID=${e}`)).text(), t.match(/^Error: /))
       throw t;
-    return console.log(t), new a(e, JSON.parse(t));
+    return console.log(t), new i(e, JSON.parse(t));
   }
   static async removeMap(e) {
-    if (!await a.swCheck()) throw "Weiwudi service worker is not implemented.";
+    if (!await i.swCheck()) throw "Weiwudi service worker is not implemented.";
     let t;
-    if (t = await (await fetch(`${i}delete?mapID=${e}`)).text(), t.match(/^Error: /))
+    if (t = await (await fetch(`${a}delete?mapID=${e}`)).text(), t.match(/^Error: /))
       throw t;
   }
   constructor(e, s) {
     if (super(), !e) throw "MapID is necessary.";
-    this.mapID = e, s && Object.assign(this, s), this.url = `${i}cache/${e}/{z}/{x}/{y}`, this.listener = (t) => {
+    this.mapID = e, s && Object.assign(this, s), this.url = `${a}cache/${e}/{z}/{x}/{y}`, this.listener = (t) => {
       t.data.mapID === e && this.dispatchEvent(new CustomEvent(t.data.type, { detail: t.data }));
     }, navigator.serviceWorker.addEventListener("message", this.listener);
   }
@@ -99,30 +90,30 @@ class a extends p {
   }
   async stats() {
     let e;
-    if (this.checkAspect(), e = await (await fetch(`${i}stats?mapID=${this.mapID}`)).text(), typeof e == "string" && e.match(/^Error: /))
+    if (this.checkAspect(), e = await (await fetch(`${a}stats?mapID=${this.mapID}`)).text(), typeof e == "string" && e.match(/^Error: /))
       throw e;
     return JSON.parse(e);
   }
   async clean() {
     let e;
-    if (this.checkAspect(), e = await (await fetch(`${i}clean?mapID=${this.mapID}`)).text(), e.match(/^Error: /))
+    if (this.checkAspect(), e = await (await fetch(`${a}clean?mapID=${this.mapID}`)).text(), e.match(/^Error: /))
       throw e;
   }
   async fetchAll() {
     let e;
-    if (this.checkAspect(), e = await (await fetch(`${i}fetchAll?mapID=${this.mapID}`)).text(), e.match(/^Error: /))
+    if (this.checkAspect(), e = await (await fetch(`${a}fetchAll?mapID=${this.mapID}`)).text(), e.match(/^Error: /))
       throw e;
   }
   async remove() {
-    this.checkAspect(), await a.removeMap(this.mapID), this.release();
+    this.checkAspect(), this.mapID && await i.removeMap(this.mapID), this.release();
   }
   async cancel() {
     let e;
-    if (this.checkAspect(), e = await (await fetch(`${i}cancel?mapID=${this.mapID}`)).text(), e.match(/^Error: /))
+    if (this.checkAspect(), e = await (await fetch(`${a}cancel?mapID=${this.mapID}`)).text(), e.match(/^Error: /))
       throw e;
   }
 }
 export {
-  a as default
+  i as default
 };
 //# sourceMappingURL=weiwudi.es.js.map

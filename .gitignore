@@ -104,3 +104,11 @@ typings/
 .tern-port
 
 .idea
+
+# Test artifacts
+test-results/
+playwright-report/
+
+# Old build outputs (deprecated, use dist/)
+lib/
+test/

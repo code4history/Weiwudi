@@ -1,38 +1,26 @@
-// @ts-nocheck
 "use strict";
 
 const BASEURL = 'https://weiwudi.example.com/api/';
-let swChecking;
-let swChecked;
+let swChecking: Promise<boolean> | undefined;
+let swChecked: boolean | undefined;
 
-(function () {
-    if (typeof window.CustomEvent === 'function') return false;
-
-    function CustomEvent(event, params) {
-        params = params || { bubbles: false, cancelable: false, detail: undefined };
-        var evt = document.createEvent('CustomEvent');
-        evt.initCustomEvent(event, params.bubbles, params.cancelable, params.detail);
-        return evt;
-    }
-
-    CustomEvent.prototype = window.Event.prototype;
-
-    window.CustomEvent = CustomEvent;
-})();
+// Polyfill removed as target is ES2020
 
 class EventTarget {
+    listeners: Record<string, Function[]>;
+
     constructor() {
         this.listeners = {};
     }
 
-    addEventListener(type, callback) {
+    addEventListener(type: string, callback: Function) {
         if (!(type in this.listeners)) {
             this.listeners[type] = [];
         }
         this.listeners[type].push(callback);
     }
 
-    removeEventListener(type, callback) {
+    removeEventListener(type: string, callback: Function) {
         if (!(type in this.listeners)) {
             return;
         }
@@ -45,7 +33,7 @@ class EventTarget {
         }
     }
 
-    dispatchEvent(event) {
+    dispatchEvent(event: Event | CustomEvent) {
         if (!(event.type in this.listeners)) {
             return true;
         }
@@ -58,8 +46,32 @@ class EventTarget {
     }
 }
 
+export interface WeiwudiOptions {
+    type?: string;
+    url?: string;
+    width?: number;
+    height?: number;
+    tileSize?: number;
+    minZoom?: number;
+    maxZoom?: number;
+    maxLng?: number;
+    maxLat?: number;
+    minLng?: number;
+    minLat?: number;
+    [key: string]: any;
+}
+
+export interface WeiwudiInternalOps {
+    // Placeholder for future strict typing of internal operations
+    [key: string]: any;
+}
+
 export default class Weiwudi extends EventTarget {
-    static async registerSW(sw, swOptions) {
+    mapID?: string;
+    url?: string;
+    listener: (e: MessageEvent) => void;
+
+    static async registerSW(sw: string | URL, swOptions?: RegistrationOptions) {
         if ('serviceWorker' in navigator) {
             try {
                 const reg = await navigator.serviceWorker.register(sw, swOptions);
@@ -74,7 +86,7 @@ export default class Weiwudi extends EventTarget {
                         // reload to avoid skipWaiting and clients.claim()
                         window.location.reload();
                     }
-                    newWorker.addEventListener('statechange', (e) => {
+                    newWorker.addEventListener('statechange', (_e) => {
                         // newWorker.state has changed
                         if (newWorker.state === 'activated' && !waitingWoker) {
                             // reload to avoid skipWaiting and clients.claim()
@@ -100,7 +112,7 @@ export default class Weiwudi extends EventTarget {
 
     static async swCheck() {
         if (swChecked !== undefined) return swChecked;
-        if (swChecking === undefined) swChecking = new Promise((res, rej) => {
+        if (swChecking === undefined) swChecking = new Promise((res, _rej) => {
             // Removing async from executor and handling promise explicitly if needed, 
             // but here the code was wrapping await in a new Promise which is antipattern.
             // We can just rely on correct async flow or keep simpler.
@@ -110,7 +122,7 @@ export default class Weiwudi extends EventTarget {
                     swChecked = !!r;
                     res(swChecked);
                 })
-                .catch(e => {
+                .catch(_e => {
                     swChecked = false;
                     res(swChecked);
                 });
@@ -118,25 +130,25 @@ export default class Weiwudi extends EventTarget {
         return swChecking;
     }
 
-    static async registerMap(mapID, options) {
+    static async registerMap(mapID: string, options: WeiwudiOptions) {
         const swCheck = await Weiwudi.swCheck();
         if (!swCheck) throw ('Weiwudi service worker is not implemented.');
         let text;
         const p = ['type', 'url', 'width', 'height', 'tileSize', 'minZoom', 'maxZoom', 'maxLng', 'maxLat', 'minLng', 'minLat'].reduce((p, key) => {
             if (typeof options[key] !== 'undefined') {
                 if (options[key] instanceof Array) {
-                    options[key].map((val) => {
+                    options[key].map((val: string) => {
                         p.append(key, val);
                     });
                 } else {
-                    p.append(key, options[key]);
+                    p.append(key, String(options[key]));
                 }
             }
             return p;
         }, new URLSearchParams());
         p.append('mapID', mapID);
         const url = new URL(`${BASEURL}add`);
-        url.search = p;
+        url.search = p.toString(); // URLSearchParams to string
         const res = await fetch(url.href);
         text = await res.text();
         if (text.match(/^Error: /)) {
@@ -145,7 +157,7 @@ export default class Weiwudi extends EventTarget {
         return new Weiwudi(mapID, JSON.parse(text));
     }
 
-    static async retrieveMap(mapID) {
+    static async retrieveMap(mapID: string) {
         const swCheck = await Weiwudi.swCheck();
         if (!swCheck) throw ('Weiwudi service worker is not implemented.');
         let text;
@@ -158,7 +170,7 @@ export default class Weiwudi extends EventTarget {
         return new Weiwudi(mapID, JSON.parse(text));
     }
 
-    static async removeMap(mapID) {
+    static async removeMap(mapID: string) {
         const swCheck = await Weiwudi.swCheck();
         if (!swCheck) throw ('Weiwudi service worker is not implemented.');
         let text;
@@ -169,13 +181,13 @@ export default class Weiwudi extends EventTarget {
         }
     }
 
-    constructor(mapID, attrs) {
+    constructor(mapID: string, attrs?: WeiwudiOptions) {
         super();
         if (!mapID) throw ('MapID is necessary.');
         this.mapID = mapID;
         if (attrs) Object.assign(this, attrs);
         this.url = `${BASEURL}cache/${mapID}/{z}/{x}/{y}`;
-        this.listener = (e) => {
+        this.listener = (e: MessageEvent) => {
             const eventMapID = e.data.mapID;
             if (eventMapID !== mapID) return;
             this.dispatchEvent(new CustomEvent(e.data.type, { detail: e.data }));
@@ -225,7 +237,8 @@ export default class Weiwudi extends EventTarget {
 
     async remove() {
         this.checkAspect();
-        await Weiwudi.removeMap(this.mapID);
+        // @ts-ignore: This method handles the possibility of mapID being undefined/deleted, but TS checks strict logic
+        if (this.mapID) await Weiwudi.removeMap(this.mapID);
         this.release();
     }
 

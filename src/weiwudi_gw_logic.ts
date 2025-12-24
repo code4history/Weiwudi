@@ -1,17 +1,70 @@
-// @ts-nocheck
-export function Weiwudi_Internal(registerRoute) {
+/// <reference lib="webworker" />
+import { RouteHandlerCallback } from 'workbox-core';
+
+interface MapSetting {
+  mapID: string;
+  type?: string;
+  url?: string | string[];
+  minZoom?: number;
+  maxZoom?: number;
+  minX?: number;
+  maxX?: number;
+  minY?: number;
+  maxY?: number;
+  totalTile?: number;
+  minLat?: number;
+  minLng?: number;
+  maxLat?: number;
+  maxLng?: number;
+  width?: number;
+  height?: number;
+  tileSize?: number;
+  [key: string]: any;
+}
+
+interface TileCacheItem {
+  z_x_y?: string; // keyPath
+  headers: Record<string, string>;
+  blob: Blob;
+  epoch: number;
+}
+
+interface FetchAllBlocker {
+  mapID: string;
+  total: number;
+  count: number;
+  error: number;
+  cancel?: boolean;
+}
+
+interface DBDict {
+  [name: string]: IDBDatabase;
+}
+
+interface DBCountResult {
+  count: number;
+  size: number;
+  total?: number;
+  percent?: number;
+}
+
+declare const self: ServiceWorkerGlobalScope;
+
+// Allow string based method to be compatible with both Workbox types and simple strings
+export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: RouteHandlerCallback, method?: any) => any) {
   "use strict";
   const MERC_MAX = 20037508.342789244;
-  const dbCache = {};
-  let fetchAllBlocker;
-  const extractTemplate = (template, z, x, y) => {
-    const result = template.replace('{z}', z)
-      .replace('{x}', x)
-      .replace('{y}', y)
-      .replace('{-y}', Math.pow(2, z) - y - 1);
+  const dbCache: DBDict = {};
+  let fetchAllBlocker: FetchAllBlocker | undefined;
+
+  const extractTemplate = (template: string, z: number, x: number, y: number) => {
+    const result = template.replace('{z}', String(z))
+      .replace('{x}', String(x))
+      .replace('{y}', String(y))
+      .replace('{-y}', String(Math.pow(2, z) - y - 1));
     return result;
   };
-  const b64toBlob = (b64Data, contentType = '', sliceSize = 512) => {
+  const b64toBlob = (b64Data: string, contentType = '', sliceSize = 512) => {
     const byteCharacters = atob(b64Data);
     const byteArrays = [];
 
@@ -30,23 +83,23 @@ export function Weiwudi_Internal(registerRoute) {
     const blob = new Blob(byteArrays, { type: contentType });
     return blob;
   };
-  const getDB = async (dbname, table, key) => {
+  const getDB = async (dbname: string, table?: string, key?: string): Promise<IDBDatabase> => {
     return new Promise((resolve, reject) => {
       try {
         if (dbCache[dbname]) resolve(dbCache[dbname]);
         else {
           const openDB = indexedDB.open(dbname);
           openDB.onupgradeneeded = function (event) {
-            const db = event.target.result;
-            db.createObjectStore(table, { keyPath: key });
+            const db = (event.target as IDBOpenDBRequest).result;
+            if (table && key) db.createObjectStore(table, { keyPath: key });
           };
           openDB.onsuccess = function (event) {
-            const db = event.target.result;
+            const db = (event.target as IDBOpenDBRequest).result;
             dbCache[dbname] = db;
             resolve(db);
           };
-          openDB.onerror = function (error) {
-            reject(error);
+          openDB.onerror = function (_error) {
+            reject(openDB.error);
           };
         }
       } catch (e) {
@@ -54,7 +107,7 @@ export function Weiwudi_Internal(registerRoute) {
       }
     });
   };
-  const deleteDB = async (dbname) => {
+  const deleteDB = async (dbname: string): Promise<void> => {
     if (dbCache[dbname]) {
       const db = dbCache[dbname];
       db.close();
@@ -64,7 +117,7 @@ export function Weiwudi_Internal(registerRoute) {
       try {
         const deleteReq = indexedDB.deleteDatabase(dbname);
 
-        deleteReq.onsuccess = async (event) => {
+        deleteReq.onsuccess = async (_event) => {
           resolve();
         };
         deleteReq.onerror = function (error) {
@@ -75,17 +128,17 @@ export function Weiwudi_Internal(registerRoute) {
       }
     });
   };
-  const cleanDB = async (db, table) => {
+  const cleanDB = async (db: IDBDatabase, table: string): Promise<void> => {
     return new Promise((resolve, reject) => {
       const tx = db.transaction([table], 'readwrite');
       const store = tx.objectStore(table);
       const clearReq = store.clear();
-      clearReq.onsuccess = function (e) {
+      clearReq.onsuccess = function (_e) {
       };
       clearReq.onerror = function (e) {
         reject(e);
       };
-      tx.oncomplete = function (e) {
+      tx.oncomplete = function (_e) {
         resolve();
       };
       tx.onabort = function (e) {
@@ -96,25 +149,25 @@ export function Weiwudi_Internal(registerRoute) {
       };
     });
   };
-  const countDB = async (db, table) => {
+  const countDB = async (db: IDBDatabase, table: string): Promise<DBCountResult> => {
     return new Promise((resolve, reject) => {
       const tx = db.transaction([table], 'readonly');
       const store = tx.objectStore(table);
       const cursorReq = store.openCursor();
       let count = 0;
       let size = 0;
-      cursorReq.onsuccess = function (e) {
+      cursorReq.onsuccess = function (_e) {
         const cursor = cursorReq.result;
         if (cursor) {
           count++;
-          size = size + cursor.value.blob.size;
+          size = size + (cursor.value.blob.size as number);
           cursor.continue();
         }
       };
       cursorReq.onerror = function (e) {
         reject(e);
       };
-      tx.oncomplete = function (e) {
+      tx.oncomplete = function (_e) {
         resolve({
           count: count,
           size: size
@@ -128,17 +181,17 @@ export function Weiwudi_Internal(registerRoute) {
       };
     });
   };
-  const getItem = async (db, table, key, dry) => {
+  const getItem = async (db: IDBDatabase, table: string, key: string, dry?: boolean): Promise<any> => {
     return new Promise((resolve, reject) => {
       const tx = db.transaction([table], 'readonly');
       const store = tx.objectStore(table);
       const getReq = dry ? store.getKey(key) : store.get(key);
-      getReq.onsuccess = function (e) {
+      getReq.onsuccess = function (_e) {
       };
       getReq.onerror = function (e) {
         reject(e);
       };
-      tx.oncomplete = function (e) {
+      tx.oncomplete = function (_e) {
         resolve(getReq.result);
       };
       tx.onabort = function (e) {
@@ -149,17 +202,17 @@ export function Weiwudi_Internal(registerRoute) {
       };
     });
   };
-  const putItem = async (db, table, item) => {
+  const putItem = async (db: IDBDatabase, table: string, item: any): Promise<void> => {
     return new Promise((resolve, reject) => {
       const tx = db.transaction([table], 'readwrite');
       const store = tx.objectStore(table);
       const putReq = store.put(item);
-      putReq.onsuccess = function (e) {
+      putReq.onsuccess = function (_e) {
       };
       putReq.onerror = function (e) {
         reject(e);
       };
-      tx.oncomplete = function (e) {
+      tx.oncomplete = function (_e) {
         resolve();
       };
       tx.onabort = function (e) {
@@ -170,17 +223,17 @@ export function Weiwudi_Internal(registerRoute) {
       };
     });
   };
-  const deleteItem = async (db, table, key) => {
+  const deleteItem = async (db: IDBDatabase, table: string, key: string): Promise<void> => {
     return new Promise((resolve, reject) => {
       const tx = db.transaction([table], 'readwrite');
       const store = tx.objectStore(table);
       const delReq = store.delete(key);
-      delReq.onsuccess = function (e) {
+      delReq.onsuccess = function (_e) {
       };
       delReq.onerror = function (e) {
         reject(e);
       };
-      tx.oncomplete = function (e) {
+      tx.oncomplete = function (_e) {
         resolve();
       };
       tx.onabort = function (e) {
@@ -191,17 +244,17 @@ export function Weiwudi_Internal(registerRoute) {
       };
     });
   };
-  const getAllKeys = async (db, table) => {
+  const getAllKeys = async (db: IDBDatabase, table: string): Promise<any[]> => {
     return new Promise((resolve, reject) => {
       const tx = db.transaction([table], 'readwrite');
       const store = tx.objectStore(table);
       const getReq = store.getAllKeys();
-      getReq.onsuccess = function (e) {
+      getReq.onsuccess = function (_e) {
       };
       getReq.onerror = function (e) {
         reject(e);
       };
-      tx.oncomplete = function (e) {
+      tx.oncomplete = function (_e) {
         resolve(getReq.result);
       };
       tx.onabort = function (e) {
@@ -212,11 +265,12 @@ export function Weiwudi_Internal(registerRoute) {
       };
     });
   };
-  const handlerCb = async ({ url, request, event, _params }) => {
-    const client = event.clientId ? await self.clients.get(event.clientId) : undefined;
+  const handlerCb: RouteHandlerCallback = async ({ url, event }) => {
+    const fetchEvent = event instanceof FetchEvent ? event : undefined;
+    const client = fetchEvent && fetchEvent.clientId ? await self.clients.get(fetchEvent.clientId) : undefined;
     const matched = url.pathname.match(/^\/api\/([\w\d]+)(?:\/(.+))?$/);
     if (matched) {
-      const query = [...url.searchParams.entries()].reduce((obj, e) => {
+      const query = [...url.searchParams.entries()].reduce((obj: any, e) => {
         const values = url.searchParams.getAll(e[0]);
         if (values.length === 1) obj[e[0]] = values[0];
         else obj[e[0]] = values;
@@ -230,24 +284,26 @@ export function Weiwudi_Internal(registerRoute) {
         return res;
       }
     }
+    return new Response('Not Found', { status: 404 });
   };
-  const getImage = async (mapID, z, x, y, noOutput) => {
+  const getImage = async (mapID: string, z: number, x: number, y: number, noOutput?: boolean) => {
     let outExtent;
     const db = await getDB('Weiwudi');
-    const setting = await getItem(db, 'mapSetting', mapID);
+    const setting = await getItem(db, 'mapSetting', mapID) as MapSetting;
     if (!noOutput) {
       if (!setting) return `Error: MapID "${mapID}" not found`;
-      if (z < setting.minZoom || z > setting.maxZoom) outExtent = 'zoom';
+      if (z < (setting.minZoom || 0) || z > (setting.maxZoom || 0)) outExtent = 'zoom';
       else {
-        const minXatZ = Math.floor(setting.minX / Math.pow(2, setting.maxZoom - z));
-        const maxXatZ = Math.floor(setting.maxX / Math.pow(2, setting.maxZoom - z));
-        const minYatZ = Math.floor(setting.minY / Math.pow(2, setting.maxZoom - z));
-        const maxYatZ = Math.floor(setting.maxY / Math.pow(2, setting.maxZoom - z));
+        const factor = Math.pow(2, (setting.maxZoom || 0) - z);
+        const minXatZ = Math.floor((setting.minX || 0) / factor);
+        const maxXatZ = Math.floor((setting.maxX || 0) / factor);
+        const minYatZ = Math.floor((setting.minY || 0) / factor);
+        const maxYatZ = Math.floor((setting.maxY || 0) / factor);
         if (x < minXatZ || x > maxXatZ || y < minYatZ || y > maxYatZ) outExtent = 'extent';
       }
     }
-    let headers = {};
-    let blob;
+    let headers: Record<string, string> = {};
+    let blob: Blob | undefined;
     let status = 200;
     let statusText = 'OK';
     if (outExtent) {
@@ -266,17 +322,23 @@ export function Weiwudi_Internal(registerRoute) {
       }
     } else {
       const cacheDB = await getDB(`Weiwudi_${mapID}`);
-      const cached = await getItem(cacheDB, 'tileCache', `${z}_${x}_${y}`, noOutput);
+      const cached = await getItem(cacheDB, 'tileCache', `${z}_${x}_${y}`, noOutput) as TileCacheItem;
       const nowEpoch = new Date().getTime();
       if (!cached || !cached.epoch || nowEpoch - cached.epoch > 86400000) {
-        const template = setting.url instanceof Array ?
-          setting.url[Math.floor(Math.random() * setting.url.length)] :
-          setting.url;
+        // Handle setting.url being potentially undefined or array
+        let template = '';
+        if (setting.url instanceof Array) {
+          template = setting.url[Math.floor(Math.random() * setting.url.length)];
+        } else if (typeof setting.url === 'string') {
+          template = setting.url;
+        }
+
         const url = extractTemplate(template, z, x, y);
         try {
           const resp = await fetch(url);
           if (resp.ok) {
-            headers = [...resp.headers.entries()].reduce((obj, e) => ({ ...obj, [e[0]]: e[1] }), {});
+            headers = {};
+            resp.headers.forEach((val, key) => { headers[key] = val; });
             blob = await resp.blob();
             await putItem(cacheDB, 'tileCache', {
               'z_x_y': `${z}_${x}_${y}`,
@@ -291,7 +353,8 @@ export function Weiwudi_Internal(registerRoute) {
             } else {
               status = resp.status;
               statusText = resp.statusText;
-              headers = [...resp.headers.entries()].reduce((obj, e) => ({ ...obj, [e[0]]: e[1] }), {});
+              headers = {};
+              resp.headers.forEach((val, key) => { headers[key] = val; });
               blob = await resp.blob();
             }
             if (fetchAllBlocker) fetchAllBlocker.error++;
@@ -317,19 +380,21 @@ export function Weiwudi_Internal(registerRoute) {
       headers: new Headers(headers)
     });
   };
-  const fetchAll = async (client, setting) => {
+  const fetchAll = async (client: Client, setting: MapSetting) => {
     let processed = 0;
-    let error = 0;
     let percent = 0;
     const db = await getDB(`Weiwudi_${setting.mapID}`);
     const allKeys = await getAllKeys(db, 'tileCache');
     try {
       const allTasks = [];
-      for (let z = setting.minZoom; z <= setting.maxZoom; z++) {
-        const maxXatZ = Math.floor(setting.maxX / Math.pow(2, setting.maxZoom - z));
-        const minXatZ = Math.floor(setting.minX / Math.pow(2, setting.maxZoom - z));
-        const maxYatZ = Math.floor(setting.maxY / Math.pow(2, setting.maxZoom - z));
-        const minYatZ = Math.floor(setting.minY / Math.pow(2, setting.maxZoom - z));
+      const minZoom = setting.minZoom || 0;
+      const maxZoom = setting.maxZoom || 0;
+      for (let z = minZoom; z <= maxZoom; z++) {
+        const factor = Math.pow(2, maxZoom - z);
+        const maxXatZ = Math.floor((setting.maxX || 0) / factor);
+        const minXatZ = Math.floor((setting.minX || 0) / factor);
+        const maxYatZ = Math.floor((setting.maxY || 0) / factor);
+        const minYatZ = Math.floor((setting.minY || 0) / factor);
         for (let x = minXatZ; x <= maxXatZ; x++) {
           for (let y = minYatZ; y <= maxYatZ; y++) {
             allTasks.push([z, x, y]);
@@ -345,7 +410,7 @@ export function Weiwudi_Internal(registerRoute) {
           fetchAllBlocker = undefined;
           return;
         }
-        if (fetchAllBlocker.cancel) {
+        if (fetchAllBlocker && fetchAllBlocker.cancel) {
           fetchAllBlocker = undefined;
           client.postMessage({
             type: 'canceled',
@@ -360,20 +425,20 @@ export function Weiwudi_Internal(registerRoute) {
         });
         await Promise.all(promises);
         processed += promises.length;
-        fetchAllBlocker.count = processed;
-        percent = Math.floor(processed * 100 / setting.totalTile);
+        if (fetchAllBlocker) fetchAllBlocker.count = processed;
+        percent = Math.floor(processed * 100 / (setting.totalTile || 1));
         client.postMessage({
           type: 'proceed',
           message: `Proceeding the tile fetching: ${setting.mapID} ${percent}% (${processed} / ${setting.totalTile})`,
           percent,
           processed,
-          error: fetchAllBlocker.error,
+          error: fetchAllBlocker ? fetchAllBlocker.error : 0,
           total: setting.totalTile,
           mapID: setting.mapID
         });
         subTasks = allTasks.splice(0, 5);
       }
-      const error = fetchAllBlocker.error;
+      const error = fetchAllBlocker ? fetchAllBlocker.error : 0;
       fetchAllBlocker = undefined;
       client.postMessage({
         type: 'finish',
@@ -394,10 +459,10 @@ export function Weiwudi_Internal(registerRoute) {
       });
     }
   }
-  const apiFunc = async (apiName, query, restPath, client) => {
-    let retVal;
-    const checkAttributes = (query, targets) => {
-      return targets.reduce((prev, target) => {
+  const apiFunc = async (apiName: string, query: any, restPath: string | undefined, client?: Client) => {
+    let retVal: any;
+    const checkAttributes = (query: any, targets: string[]) => {
+      return targets.reduce((prev: string | undefined, target) => {
         if (prev) return prev;
         if (query[target] === undefined) return `Error: Attribute "${target}" is missing`;
         return prev;
@@ -434,7 +499,7 @@ export function Weiwudi_Internal(registerRoute) {
                 if (!retVal) {
                   query.width = parseInt(query.width);
                   query.height = parseInt(query.height);
-                  const calcZoom = (v) => { return Math.ceil(Math.log(v / query.tileSize) / Math.log(2)) };
+                  const calcZoom = (v: number) => { return Math.ceil(Math.log(v / query.tileSize) / Math.log(2)) };
                   query.maxZoom = Math.max(calcZoom(query.width), calcZoom(query.height));
                   query.minZoom = query.minZoom ? parseInt(query.minZoom) : 0;
                   query.minX = 0;
@@ -445,8 +510,8 @@ export function Weiwudi_Internal(registerRoute) {
                 break;
               case 'wmts':
                 if (!retVal) {
-                  const lng2MercX = (lng) => { return 6378137 * lng * Math.PI / 180 };
-                  const lat2MercY = (lat) => { return 6378137 * Math.log(Math.tan(Math.PI / 360 * (90 + lat))) };
+                  const lng2MercX = (lng: number) => { return 6378137 * lng * Math.PI / 180 };
+                  const lat2MercY = (lat: number) => { return 6378137 * Math.log(Math.tan(Math.PI / 360 * (90 + lat))) };
                   if (query.maxZoom) query.maxZoom = parseInt(query.maxZoom);
                   if (query.minZoom) query.minZoom = parseInt(query.minZoom);
                   if (query.maxLng && query.minLng && query.maxLat && query.minLat) {
@@ -472,7 +537,7 @@ export function Weiwudi_Internal(registerRoute) {
           if (!retVal) {
             if (!checkAttributes(query, ['maxX', 'minX', 'maxY', 'minY', 'minZoom', 'maxZoom'])) {
               query.totalTile = 0;
-              const calcTileCoord = (atMaxZoom, zoom) => { return Math.floor(atMaxZoom / Math.pow(2, query.maxZoom - zoom)) };
+              const calcTileCoord = (atMaxZoom: number, zoom: number) => { return Math.floor(atMaxZoom / Math.pow(2, query.maxZoom - zoom)) };
               for (let z = query.minZoom; z <= query.maxZoom; z++) {
                 const minX = calcTileCoord(query.minX, z);
                 const minY = calcTileCoord(query.minY, z);
@@ -532,7 +597,7 @@ export function Weiwudi_Internal(registerRoute) {
               const ret = await countDB(cacheDB, 'tileCache');
               if (setting.totalTile) {
                 ret.total = setting.totalTile;
-                ret.percent = Math.floor(ret.count / ret.total * 100);
+                ret.percent = Math.floor(ret.count / ret.total! * 100);
               }
               retVal = new Response(JSON.stringify(ret), {
                 headers: new Headers({
@@ -543,7 +608,7 @@ export function Weiwudi_Internal(registerRoute) {
           }
           break;
         case 'cache': {
-          const matched = restPath.match(/^([^/]+)\/(\d+)\/(\d+)\/(\d+)$/);
+          const matched = restPath?.match(/^([^/]+)\/(\d+)\/(\d+)\/(\d+)$/);
           if (matched) {
             retVal = await getImage(matched[1], parseInt(matched[2]), parseInt(matched[3]), parseInt(matched[4]));
           } else {
@@ -553,7 +618,7 @@ export function Weiwudi_Internal(registerRoute) {
         }
         case 'fetchAll':
           retVal = checkAttributes(query, ['mapID']);
-          if (!retVal) {
+          if (!retVal && client) {
             const db = await getDB('Weiwudi');
             const setting = await getItem(db, 'mapSetting', query.mapID);
             if (!setting) retVal = `Error: MapID "${query.mapID}" not found`;
@@ -564,7 +629,7 @@ export function Weiwudi_Internal(registerRoute) {
               setTimeout(() => {
                 fetchAllBlocker = {
                   mapID: query.mapID,
-                  total: setting.totalTile,
+                  total: setting.totalTile || 0,
                   count: 0,
                   error: 0
                 };

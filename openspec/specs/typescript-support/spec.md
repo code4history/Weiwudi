@@ -4,14 +4,17 @@
 TBD - created by archiving change typescriptize. Update Purpose after archive.
 ## Requirements
 ### Requirement: TypeScript Build Pipeline
-The project MUST compile TypeScript source files to JavaScript bundles.
+The build pipeline MUST rely on strict type checking.
 
-#### Scenario: Build Success
-Given the source files are renamed to `.ts`  
-And `tsconfig.json` is configured  
-When I run `pnpm run build`  
-Then it MUST succeed without errors  
-And `dist/` MUST contain valid JavaScript bundles
+#### Scenario: No Nocheck
+Given the source code  
+When I search for `// @ts-nocheck`  
+Then I should find NO occurrences in `src/`
+
+#### Scenario: Strict Typecheck
+Given I run `pnpm run typecheck`  
+Then it MUST succeed  
+And it MUST validate `weiwudi_gw_logic.ts`
 
 ### Requirement: Incremental Adoption
 The project MUST allow some files to bypass strict type checking to facilitate migration.

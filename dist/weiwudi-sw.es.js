@@ -1,282 +1,566 @@
-import { registerRoute as F } from "workbox-routing";
-function W(E) {
-  const w = 20037508342789244e-9, g = {};
-  let p;
-  const T = (r, t, l, c) => r.replace("{z}", t).replace("{x}", l).replace("{y}", c).replace("{-y}", Math.pow(2, t) - c - 1), R = (r, t = "", l = 512) => {
-    const c = atob(r), o = [];
-    for (let n = 0; n < c.length; n += l) {
-      const e = c.slice(n, n + l), a = new Array(e.length);
-      for (let m = 0; m < e.length; m++)
-        a[m] = e.charCodeAt(m);
-      const s = new Uint8Array(a);
-      o.push(s);
-    }
-    return new Blob(o, { type: t });
-  }, d = async (r, t, l) => new Promise((c, o) => {
+try {
+  self["workbox:core:7.3.0"] && _();
+} catch {
+}
+const O = (A, ...a) => {
+  let f = A;
+  return a.length > 0 && (f += ` :: ${JSON.stringify(a)}`), f;
+}, J = O;
+class k extends Error {
+  /**
+   *
+   * @param {string} errorCode The error code that
+   * identifies this particular error.
+   * @param {Object=} details Any relevant arguments
+   * that will help developers identify issues should
+   * be added as a key on the context object.
+   */
+  constructor(a, f) {
+    const i = J(a, f);
+    super(i), this.name = a, this.details = f;
+  }
+}
+try {
+  self["workbox:routing:7.3.0"] && _();
+} catch {
+}
+const F = "GET", P = (A) => A && typeof A == "object" ? A : { handle: A };
+class B {
+  /**
+   * Constructor for Route class.
+   *
+   * @param {workbox-routing~matchCallback} match
+   * A callback function that determines whether the route matches a given
+   * `fetch` event by returning a non-falsy value.
+   * @param {workbox-routing~handlerCallback} handler A callback
+   * function that returns a Promise resolving to a Response.
+   * @param {string} [method='GET'] The HTTP method to match the Route
+   * against.
+   */
+  constructor(a, f, i = F) {
+    this.handler = P(f), this.match = a, this.method = i;
+  }
+  /**
+   *
+   * @param {workbox-routing-handlerCallback} handler A callback
+   * function that returns a Promise resolving to a Response
+   */
+  setCatchHandler(a) {
+    this.catchHandler = P(a);
+  }
+}
+class K extends B {
+  /**
+   * If the regular expression contains
+   * [capture groups]{@link https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/RegExp#grouping-back-references},
+   * the captured values will be passed to the
+   * {@link workbox-routing~handlerCallback} `params`
+   * argument.
+   *
+   * @param {RegExp} regExp The regular expression to match against URLs.
+   * @param {workbox-routing~handlerCallback} handler A callback
+   * function that returns a Promise resulting in a Response.
+   * @param {string} [method='GET'] The HTTP method to match the Route
+   * against.
+   */
+  constructor(a, f, i) {
+    const x = ({ url: D }) => {
+      const p = a.exec(D.href);
+      if (p && !(D.origin !== location.origin && p.index !== 0))
+        return p.slice(1);
+    };
+    super(x, f, i);
+  }
+}
+class Q {
+  /**
+   * Initializes a new Router.
+   */
+  constructor() {
+    this._routes = /* @__PURE__ */ new Map(), this._defaultHandlerMap = /* @__PURE__ */ new Map();
+  }
+  /**
+   * @return {Map<string, Array<workbox-routing.Route>>} routes A `Map` of HTTP
+   * method name ('GET', etc.) to an array of all the corresponding `Route`
+   * instances that are registered.
+   */
+  get routes() {
+    return this._routes;
+  }
+  /**
+   * Adds a fetch event listener to respond to events when a route matches
+   * the event's request.
+   */
+  addFetchListener() {
+    self.addEventListener("fetch", ((a) => {
+      const { request: f } = a, i = this.handleRequest({ request: f, event: a });
+      i && a.respondWith(i);
+    }));
+  }
+  /**
+   * Adds a message event listener for URLs to cache from the window.
+   * This is useful to cache resources loaded on the page prior to when the
+   * service worker started controlling it.
+   *
+   * The format of the message data sent from the window should be as follows.
+   * Where the `urlsToCache` array may consist of URL strings or an array of
+   * URL string + `requestInit` object (the same as you'd pass to `fetch()`).
+   *
+   * ```
+   * {
+   *   type: 'CACHE_URLS',
+   *   payload: {
+   *     urlsToCache: [
+   *       './script1.js',
+   *       './script2.js',
+   *       ['./script3.js', {mode: 'no-cors'}],
+   *     ],
+   *   },
+   * }
+   * ```
+   */
+  addCacheListener() {
+    self.addEventListener("message", ((a) => {
+      if (a.data && a.data.type === "CACHE_URLS") {
+        const { payload: f } = a.data, i = Promise.all(f.urlsToCache.map((x) => {
+          typeof x == "string" && (x = [x]);
+          const D = new Request(...x);
+          return this.handleRequest({ request: D, event: a });
+        }));
+        a.waitUntil(i), a.ports && a.ports[0] && i.then(() => a.ports[0].postMessage(!0));
+      }
+    }));
+  }
+  /**
+   * Apply the routing rules to a FetchEvent object to get a Response from an
+   * appropriate Route's handler.
+   *
+   * @param {Object} options
+   * @param {Request} options.request The request to handle.
+   * @param {ExtendableEvent} options.event The event that triggered the
+   *     request.
+   * @return {Promise<Response>|undefined} A promise is returned if a
+   *     registered route can handle the request. If there is no matching
+   *     route and there's no `defaultHandler`, `undefined` is returned.
+   */
+  handleRequest({ request: a, event: f }) {
+    const i = new URL(a.url, location.href);
+    if (!i.protocol.startsWith("http"))
+      return;
+    const x = i.origin === location.origin, { params: D, route: p } = this.findMatchingRoute({
+      event: f,
+      request: a,
+      sameOrigin: x,
+      url: i
+    });
+    let I = p && p.handler;
+    const M = a.method;
+    if (!I && this._defaultHandlerMap.has(M) && (I = this._defaultHandlerMap.get(M)), !I)
+      return;
+    let $;
     try {
-      if (g[r]) c(g[r]);
+      $ = I.handle({ url: i, request: a, event: f, params: D });
+    } catch (E) {
+      $ = Promise.reject(E);
+    }
+    const R = p && p.catchHandler;
+    return $ instanceof Promise && (this._catchHandler || R) && ($ = $.catch(async (E) => {
+      if (R)
+        try {
+          return await R.handle({ url: i, request: a, event: f, params: D });
+        } catch (L) {
+          L instanceof Error && (E = L);
+        }
+      if (this._catchHandler)
+        return this._catchHandler.handle({ url: i, request: a, event: f });
+      throw E;
+    })), $;
+  }
+  /**
+   * Checks a request and URL (and optionally an event) against the list of
+   * registered routes, and if there's a match, returns the corresponding
+   * route along with any params generated by the match.
+   *
+   * @param {Object} options
+   * @param {URL} options.url
+   * @param {boolean} options.sameOrigin The result of comparing `url.origin`
+   *     against the current origin.
+   * @param {Request} options.request The request to match.
+   * @param {Event} options.event The corresponding event.
+   * @return {Object} An object with `route` and `params` properties.
+   *     They are populated if a matching route was found or `undefined`
+   *     otherwise.
+   */
+  findMatchingRoute({ url: a, sameOrigin: f, request: i, event: x }) {
+    const D = this._routes.get(i.method) || [];
+    for (const p of D) {
+      let I;
+      const M = p.match({ url: a, sameOrigin: f, request: i, event: x });
+      if (M)
+        return I = M, (Array.isArray(I) && I.length === 0 || M.constructor === Object && // eslint-disable-line
+        Object.keys(M).length === 0 || typeof M == "boolean") && (I = void 0), { route: p, params: I };
+    }
+    return {};
+  }
+  /**
+   * Define a default `handler` that's called when no routes explicitly
+   * match the incoming request.
+   *
+   * Each HTTP method ('GET', 'POST', etc.) gets its own default handler.
+   *
+   * Without a default handler, unmatched requests will go against the
+   * network as if there were no service worker present.
+   *
+   * @param {workbox-routing~handlerCallback} handler A callback
+   * function that returns a Promise resulting in a Response.
+   * @param {string} [method='GET'] The HTTP method to associate with this
+   * default handler. Each method has its own default.
+   */
+  setDefaultHandler(a, f = F) {
+    this._defaultHandlerMap.set(f, P(a));
+  }
+  /**
+   * If a Route throws an error while handling a request, this `handler`
+   * will be called and given a chance to provide a response.
+   *
+   * @param {workbox-routing~handlerCallback} handler A callback
+   * function that returns a Promise resulting in a Response.
+   */
+  setCatchHandler(a) {
+    this._catchHandler = P(a);
+  }
+  /**
+   * Registers a route with the router.
+   *
+   * @param {workbox-routing.Route} route The route to register.
+   */
+  registerRoute(a) {
+    this._routes.has(a.method) || this._routes.set(a.method, []), this._routes.get(a.method).push(a);
+  }
+  /**
+   * Unregisters a route with the router.
+   *
+   * @param {workbox-routing.Route} route The route to unregister.
+   */
+  unregisterRoute(a) {
+    if (!this._routes.has(a.method))
+      throw new k("unregister-route-but-not-found-with-method", {
+        method: a.method
+      });
+    const f = this._routes.get(a.method).indexOf(a);
+    if (f > -1)
+      this._routes.get(a.method).splice(f, 1);
+    else
+      throw new k("unregister-route-route-not-registered");
+  }
+}
+let C;
+const v = () => (C || (C = new Q(), C.addFetchListener(), C.addCacheListener()), C);
+function G(A, a, f) {
+  let i;
+  if (typeof A == "string") {
+    const D = new URL(A, location.href), p = ({ url: I }) => I.href === D.href;
+    i = new B(p, a, f);
+  } else if (A instanceof RegExp)
+    i = new K(A, a, f);
+  else if (typeof A == "function")
+    i = new B(A, a, f);
+  else if (A instanceof B)
+    i = A;
+  else
+    throw new k("unsupported-route-type", {
+      moduleName: "workbox-routing",
+      funcName: "registerRoute",
+      paramName: "capture"
+    });
+  return v().registerRoute(i), i;
+}
+function V(A) {
+  const a = 20037508342789244e-9, f = {};
+  let i;
+  const x = (h, t, l, c) => h.replace("{z}", String(t)).replace("{x}", String(l)).replace("{y}", String(c)).replace("{-y}", String(Math.pow(2, t) - c - 1)), D = (h, t = "", l = 512) => {
+    const c = atob(h), e = [];
+    for (let s = 0; s < c.length; s += l) {
+      const o = c.slice(s, s + l), n = new Array(o.length);
+      for (let d = 0; d < o.length; d++)
+        n[d] = o.charCodeAt(d);
+      const r = new Uint8Array(n);
+      e.push(r);
+    }
+    return new Blob(e, { type: t });
+  }, p = async (h, t, l) => new Promise((c, e) => {
+    try {
+      if (f[h]) c(f[h]);
       else {
-        const i = indexedDB.open(r);
-        i.onupgradeneeded = function(n) {
-          n.target.result.createObjectStore(t, { keyPath: l });
-        }, i.onsuccess = function(n) {
-          const e = n.target.result;
-          g[r] = e, c(e);
-        }, i.onerror = function(n) {
-          o(n);
+        const m = indexedDB.open(h);
+        m.onupgradeneeded = function(s) {
+          const o = s.target.result;
+          t && l && o.createObjectStore(t, { keyPath: l });
+        }, m.onsuccess = function(s) {
+          const o = s.target.result;
+          f[h] = o, c(o);
+        }, m.onerror = function(s) {
+          e(m.error);
         };
       }
-    } catch (i) {
-      o(i);
+    } catch (m) {
+      e(m);
     }
-  }), B = async (r) => (g[r] && (g[r].close(), delete g[r]), new Promise((t, l) => {
+  }), I = async (h) => (f[h] && (f[h].close(), delete f[h]), new Promise((t, l) => {
     try {
-      const c = indexedDB.deleteDatabase(r);
-      c.onsuccess = async (o) => {
+      const c = indexedDB.deleteDatabase(h);
+      c.onsuccess = async (e) => {
         t();
-      }, c.onerror = function(o) {
-        l(o);
+      }, c.onerror = function(e) {
+        l(e);
       };
     } catch (c) {
       l(c);
     }
-  })), S = async (r, t) => new Promise((l, c) => {
-    const o = r.transaction([t], "readwrite"), n = o.objectStore(t).clear();
-    n.onsuccess = function(e) {
-    }, n.onerror = function(e) {
-      c(e);
-    }, o.oncomplete = function(e) {
+  })), M = async (h, t) => new Promise((l, c) => {
+    const e = h.transaction([t], "readwrite"), s = e.objectStore(t).clear();
+    s.onsuccess = function(o) {
+    }, s.onerror = function(o) {
+      c(o);
+    }, e.oncomplete = function(o) {
       l();
-    }, o.onabort = function(e) {
-      c(e);
-    }, o.onerror = function(e) {
-      c(e);
+    }, e.onabort = function(o) {
+      c(o);
+    }, e.onerror = function(o) {
+      c(o);
     };
-  }), X = async (r, t) => new Promise((l, c) => {
-    const o = r.transaction([t], "readonly"), n = o.objectStore(t).openCursor();
-    let e = 0, a = 0;
-    n.onsuccess = function(s) {
-      const m = n.result;
-      m && (e++, a = a + m.value.blob.size, m.continue());
-    }, n.onerror = function(s) {
-      c(s);
-    }, o.oncomplete = function(s) {
+  }), $ = async (h, t) => new Promise((l, c) => {
+    const e = h.transaction([t], "readonly"), s = e.objectStore(t).openCursor();
+    let o = 0, n = 0;
+    s.onsuccess = function(r) {
+      const d = s.result;
+      d && (o++, n = n + d.value.blob.size, d.continue());
+    }, s.onerror = function(r) {
+      c(r);
+    }, e.oncomplete = function(r) {
       l({
-        count: e,
-        size: a
+        count: o,
+        size: n
       });
-    }, o.onabort = function(s) {
-      c(s);
-    }, o.onerror = function(s) {
-      c(s);
+    }, e.onabort = function(r) {
+      c(r);
+    }, e.onerror = function(r) {
+      c(r);
     };
-  }), M = async (r, t, l, c) => new Promise((o, i) => {
-    const n = r.transaction([t], "readonly"), e = n.objectStore(t), a = c ? e.getKey(l) : e.get(l);
-    a.onsuccess = function(s) {
-    }, a.onerror = function(s) {
-      i(s);
-    }, n.oncomplete = function(s) {
-      o(a.result);
-    }, n.onabort = function(s) {
-      i(s);
-    }, n.onerror = function(s) {
-      i(s);
+  }), R = async (h, t, l, c) => new Promise((e, m) => {
+    const s = h.transaction([t], "readonly"), o = s.objectStore(t), n = c ? o.getKey(l) : o.get(l);
+    n.onsuccess = function(r) {
+    }, n.onerror = function(r) {
+      m(r);
+    }, s.oncomplete = function(r) {
+      e(n.result);
+    }, s.onabort = function(r) {
+      m(r);
+    }, s.onerror = function(r) {
+      m(r);
     };
-  }), $ = async (r, t, l) => new Promise((c, o) => {
-    const i = r.transaction([t], "readwrite"), e = i.objectStore(t).put(l);
-    e.onsuccess = function(a) {
-    }, e.onerror = function(a) {
-      o(a);
-    }, i.oncomplete = function(a) {
+  }), E = async (h, t, l) => new Promise((c, e) => {
+    const m = h.transaction([t], "readwrite"), o = m.objectStore(t).put(l);
+    o.onsuccess = function(n) {
+    }, o.onerror = function(n) {
+      e(n);
+    }, m.oncomplete = function(n) {
       c();
-    }, i.onabort = function(a) {
-      o(a);
-    }, i.onerror = function(a) {
-      o(a);
+    }, m.onabort = function(n) {
+      e(n);
+    }, m.onerror = function(n) {
+      e(n);
     };
-  }), Y = async (r, t, l) => new Promise((c, o) => {
-    const i = r.transaction([t], "readwrite"), e = i.objectStore(t).delete(l);
-    e.onsuccess = function(a) {
-    }, e.onerror = function(a) {
-      o(a);
-    }, i.oncomplete = function(a) {
+  }), L = async (h, t, l) => new Promise((c, e) => {
+    const m = h.transaction([t], "readwrite"), o = m.objectStore(t).delete(l);
+    o.onsuccess = function(n) {
+    }, o.onerror = function(n) {
+      e(n);
+    }, m.oncomplete = function(n) {
       c();
-    }, i.onabort = function(a) {
-      o(a);
-    }, i.onerror = function(a) {
-      o(a);
+    }, m.onabort = function(n) {
+      e(n);
+    }, m.onerror = function(n) {
+      e(n);
     };
-  }), C = async (r, t) => new Promise((l, c) => {
-    const o = r.transaction([t], "readwrite"), n = o.objectStore(t).getAllKeys();
-    n.onsuccess = function(e) {
-    }, n.onerror = function(e) {
-      c(e);
-    }, o.oncomplete = function(e) {
-      l(n.result);
-    }, o.onabort = function(e) {
-      c(e);
-    }, o.onerror = function(e) {
-      c(e);
+  }), U = async (h, t) => new Promise((l, c) => {
+    const e = h.transaction([t], "readwrite"), s = e.objectStore(t).getAllKeys();
+    s.onsuccess = function(o) {
+    }, s.onerror = function(o) {
+      c(o);
+    }, e.oncomplete = function(o) {
+      l(s.result);
+    }, e.onabort = function(o) {
+      c(o);
+    }, e.onerror = function(o) {
+      c(o);
     };
-  }), P = async ({ url: r, request: t, event: l, _params: c }) => {
-    const o = l.clientId ? await self.clients.get(l.clientId) : void 0, i = r.pathname.match(/^\/api\/([\w\d]+)(?:\/(.+))?$/);
-    if (i) {
-      const n = [...r.searchParams.entries()].reduce((m, A) => {
-        const h = r.searchParams.getAll(A[0]);
-        return h.length === 1 ? m[A[0]] = h[0] : m[A[0]] = h, m;
-      }, {}), e = i[1], a = i[2];
-      let s = await L(e, n, a, o);
-      if (s)
-        return s instanceof Response || (s = new Response(s)), s;
+  }), W = async ({ url: h, event: t }) => {
+    const l = t instanceof FetchEvent ? t : void 0, c = l && l.clientId ? await self.clients.get(l.clientId) : void 0, e = h.pathname.match(/^\/api\/([\w\d]+)(?:\/(.+))?$/);
+    if (e) {
+      const m = [...h.searchParams.entries()].reduce((r, d) => {
+        const g = h.searchParams.getAll(d[0]);
+        return g.length === 1 ? r[d[0]] = g[0] : r[d[0]] = g, r;
+      }, {}), s = e[1], o = e[2];
+      let n = await z(s, m, o, c);
+      if (n)
+        return n instanceof Response || (n = new Response(n)), n;
     }
-  }, Z = async (r, t, l, c, o) => {
-    let i;
-    const n = await d("Weiwudi"), e = await M(n, "mapSetting", r);
-    if (!o) {
-      if (!e) return `Error: MapID "${r}" not found`;
-      if (t < e.minZoom || t > e.maxZoom) i = "zoom";
+    return new Response("Not Found", { status: 404 });
+  }, Y = async (h, t, l, c, e) => {
+    let m;
+    const s = await p("Weiwudi"), o = await R(s, "mapSetting", h);
+    if (!e) {
+      if (!o) return `Error: MapID "${h}" not found`;
+      if (t < (o.minZoom || 0) || t > (o.maxZoom || 0)) m = "zoom";
       else {
-        const h = Math.floor(e.minX / Math.pow(2, e.maxZoom - t)), f = Math.floor(e.maxX / Math.pow(2, e.maxZoom - t)), I = Math.floor(e.minY / Math.pow(2, e.maxZoom - t)), D = Math.floor(e.maxY / Math.pow(2, e.maxZoom - t));
-        (l < h || l > f || c < I || c > D) && (i = "extent");
+        const w = Math.pow(2, (o.maxZoom || 0) - t), u = Math.floor((o.minX || 0) / w), T = Math.floor((o.maxX || 0) / w), Z = Math.floor((o.minY || 0) / w), H = Math.floor((o.maxY || 0) / w);
+        (l < u || l > T || c < Z || c > H) && (m = "extent");
       }
     }
-    let a = {}, s, m = 200, A = "OK";
-    if (i)
-      i === "zoom" ? (m = 404, A = "Not Found") : (a = {
+    let n = {}, r, d = 200, g = "OK";
+    if (m)
+      m === "zoom" ? (d = 404, g = "Not Found") : (n = {
         "content-type": "image/png"
-      }, s = R("iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAMAAABrrFhUAAAAB3RJTUUH3QgIBToaSbAjlwAAABd0RVh0U29mdHdhcmUAR0xEUE5HIHZlciAzLjRxhaThAAAACHRwTkdHTEQzAAAAAEqAKR8AAAAEZ0FNQQAAsY8L/GEFAAAAA1BMVEX///+nxBvIAAAAAXRSTlMAQObYZgAAAFRJREFUeNrtwQEBAAAAgJD+r+4ICgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABgBDwABHHIJwwAAAABJRU5ErkJggg==", a["content-type"]));
+      }, r = D("iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAMAAABrrFhUAAAAB3RJTUUH3QgIBToaSbAjlwAAABd0RVh0U29mdHdhcmUAR0xEUE5HIHZlciAzLjRxhaThAAAACHRwTkdHTEQzAAAAAEqAKR8AAAAEZ0FNQQAAsY8L/GEFAAAAA1BMVEX///+nxBvIAAAAAXRSTlMAQObYZgAAAFRJREFUeNrtwQEBAAAAgJD+r+4ICgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABgBDwABHHIJwwAAAABJRU5ErkJggg==", n["content-type"]));
     else {
-      const h = await d(`Weiwudi_${r}`), f = await M(h, "tileCache", `${t}_${l}_${c}`, o), I = (/* @__PURE__ */ new Date()).getTime();
-      if (!f || !f.epoch || I - f.epoch > 864e5) {
-        const D = e.url instanceof Array ? e.url[Math.floor(Math.random() * e.url.length)] : e.url, k = T(D, t, l, c);
+      const w = await p(`Weiwudi_${h}`), u = await R(w, "tileCache", `${t}_${l}_${c}`, e), T = (/* @__PURE__ */ new Date()).getTime();
+      if (!u || !u.epoch || T - u.epoch > 864e5) {
+        let Z = "";
+        o.url instanceof Array ? Z = o.url[Math.floor(Math.random() * o.url.length)] : typeof o.url == "string" && (Z = o.url);
+        const H = x(Z, t, l, c);
         try {
-          const x = await fetch(k);
-          x.ok ? (a = [...x.headers.entries()].reduce((u, b) => ({ ...u, [b[0]]: b[1] }), {}), s = await x.blob(), await $(h, "tileCache", {
+          const b = await fetch(H);
+          b.ok ? (n = {}, b.headers.forEach((S, X) => {
+            n[X] = S;
+          }), r = await b.blob(), await E(w, "tileCache", {
             z_x_y: `${t}_${l}_${c}`,
-            headers: a,
-            blob: s,
-            epoch: I
-          })) : (f ? (a = f.headers, s = f.blob) : (m = x.status, A = x.statusText, a = [...x.headers.entries()].reduce((u, b) => ({ ...u, [b[0]]: b[1] }), {}), s = await x.blob()), p && p.error++);
+            headers: n,
+            blob: r,
+            epoch: T
+          })) : (u ? (n = u.headers, r = u.blob) : (d = b.status, g = b.statusText, n = {}, b.headers.forEach((S, X) => {
+            n[X] = S;
+          }), r = await b.blob()), i && i.error++);
         } catch {
-          f ? (a = f.headers, s = f.blob) : (m = 404, A = "Not Found"), p && p.error++;
+          u ? (n = u.headers, r = u.blob) : (d = 404, g = "Not Found"), i && i.error++;
         }
-      } else o || (a = f.headers, s = f.blob);
+      } else e || (n = u.headers, r = u.blob);
     }
-    return o ? void 0 : new Response(s, {
-      status: m,
-      statusText: A,
-      headers: new Headers(a)
+    return e ? void 0 : new Response(r, {
+      status: d,
+      statusText: g,
+      headers: new Headers(n)
     });
-  }, _ = async (r, t) => {
+  }, N = async (h, t) => {
     let l = 0, c = 0;
-    const o = await d(`Weiwudi_${t.mapID}`), i = await C(o, "tileCache");
+    const e = await p(`Weiwudi_${t.mapID}`), m = await U(e, "tileCache");
     try {
-      const n = [];
-      for (let s = t.minZoom; s <= t.maxZoom; s++) {
-        const m = Math.floor(t.maxX / Math.pow(2, t.maxZoom - s)), A = Math.floor(t.minX / Math.pow(2, t.maxZoom - s)), h = Math.floor(t.maxY / Math.pow(2, t.maxZoom - s)), f = Math.floor(t.minY / Math.pow(2, t.maxZoom - s));
-        for (let I = A; I <= m; I++)
-          for (let D = f; D <= h; D++)
-            n.push([s, I, D]);
+      const s = [], o = t.minZoom || 0, n = t.maxZoom || 0;
+      for (let g = o; g <= n; g++) {
+        const w = Math.pow(2, n - g), u = Math.floor((t.maxX || 0) / w), T = Math.floor((t.minX || 0) / w), Z = Math.floor((t.maxY || 0) / w), H = Math.floor((t.minY || 0) / w);
+        for (let b = T; b <= u; b++)
+          for (let S = H; S <= Z; S++)
+            s.push([g, b, S]);
       }
-      n.length != t.totalTile && console.log("Number of tiles is different");
-      let e = n.splice(0, 5);
-      for (; e.length; ) {
-        if (!await self.clients.get(r.id)) {
-          p = void 0;
+      s.length != t.totalTile && console.log("Number of tiles is different");
+      let r = s.splice(0, 5);
+      for (; r.length; ) {
+        if (!await self.clients.get(h.id)) {
+          i = void 0;
           return;
         }
-        if (p.cancel) {
-          p = void 0, r.postMessage({
+        if (i && i.cancel) {
+          i = void 0, h.postMessage({
             type: "canceled",
             message: `Fetching tile of ${t.mapID} is canceled`,
             mapID: t.mapID
           });
           return;
         }
-        const m = e.map((A) => {
-          if (!(i.indexOf(`${A[0]}_${A[1]}_${A[2]}`) >= 0))
-            return Z(t.mapID, A[0], A[1], A[2], !0);
+        const w = r.map((u) => {
+          if (!(m.indexOf(`${u[0]}_${u[1]}_${u[2]}`) >= 0))
+            return Y(t.mapID, u[0], u[1], u[2], !0);
         });
-        await Promise.all(m), l += m.length, p.count = l, c = Math.floor(l * 100 / t.totalTile), r.postMessage({
+        await Promise.all(w), l += w.length, i && (i.count = l), c = Math.floor(l * 100 / (t.totalTile || 1)), h.postMessage({
           type: "proceed",
           message: `Proceeding the tile fetching: ${t.mapID} ${c}% (${l} / ${t.totalTile})`,
           percent: c,
           processed: l,
-          error: p.error,
+          error: i ? i.error : 0,
           total: t.totalTile,
           mapID: t.mapID
-        }), e = n.splice(0, 5);
+        }), r = s.splice(0, 5);
       }
-      const a = p.error;
-      p = void 0, r.postMessage({
+      const d = i ? i.error : 0;
+      i = void 0, h.postMessage({
         type: "finish",
-        message: `Fetched all tiles of ${t.mapID}${a ? ` with ${a} error cases` : ""}`,
+        message: `Fetched all tiles of ${t.mapID}${d ? ` with ${d} error cases` : ""}`,
         total: t.totalTile,
         mapID: t.mapID,
-        error: a
+        error: d
       });
-    } catch (n) {
-      p = void 0, r.postMessage({
+    } catch (s) {
+      i = void 0, h.postMessage({
         type: "stop",
         message: `Fetching stopped: ${t.mapID} ${l} / ${t.totalTile}`,
-        reason: n,
+        reason: s,
         processed: l,
         total: t.totalTile,
         mapID: t.mapID
       });
     }
-  }, L = async (r, t, l, c) => {
-    let o;
-    const i = (n, e) => e.reduce((a, s) => a || (n[s] === void 0 ? `Error: Attribute "${s}" is missing` : a), void 0);
+  }, z = async (h, t, l, c) => {
+    let e;
+    const m = (s, o) => o.reduce((n, r) => n || (s[r] === void 0 ? `Error: Attribute "${r}" is missing` : n), void 0);
     try {
-      switch (r) {
+      switch (h) {
         case "ping":
-          o = "Implemented";
+          e = "Implemented";
           break;
         case "info":
-          if (o = i(t, ["mapID"]), !o) {
-            const n = await d("Weiwudi", "mapSetting", "mapID"), e = await M(n, "mapSetting", t.mapID);
-            e ? o = new Response(JSON.stringify(e), {
+          if (e = m(t, ["mapID"]), !e) {
+            const s = await p("Weiwudi", "mapSetting", "mapID"), o = await R(s, "mapSetting", t.mapID);
+            o ? e = new Response(JSON.stringify(o), {
               headers: new Headers({
                 "content-type": "application/json"
               })
-            }) : o = `Error: MapID "${t.mapID}" not found`;
+            }) : e = `Error: MapID "${t.mapID}" not found`;
           }
           break;
         case "add": {
-          const n = await d("Weiwudi", "mapSetting", "mapID");
-          if (o = i(t, ["mapID", "type", "url"]), !o)
+          const s = await p("Weiwudi", "mapSetting", "mapID");
+          if (e = m(t, ["mapID", "type", "url"]), !e)
             switch (t.tileSize = parseInt(t.tileSize || 256), t.type) {
               case "xyz":
-                if (o = i(t, ["width", "height"]), !o) {
+                if (e = m(t, ["width", "height"]), !e) {
                   t.width = parseInt(t.width), t.height = parseInt(t.height);
-                  const e = (a) => Math.ceil(Math.log(a / t.tileSize) / Math.log(2));
-                  t.maxZoom = Math.max(e(t.width), e(t.height)), t.minZoom = t.minZoom ? parseInt(t.minZoom) : 0, t.minX = 0, t.minY = 0, t.maxX = Math.ceil(t.width / t.tileSize) - 1, t.maxY = Math.ceil(t.height / t.tileSize) - 1;
+                  const o = (n) => Math.ceil(Math.log(n / t.tileSize) / Math.log(2));
+                  t.maxZoom = Math.max(o(t.width), o(t.height)), t.minZoom = t.minZoom ? parseInt(t.minZoom) : 0, t.minX = 0, t.minY = 0, t.maxX = Math.ceil(t.width / t.tileSize) - 1, t.maxY = Math.ceil(t.height / t.tileSize) - 1;
                 }
                 break;
               case "wmts":
-                if (!o) {
-                  const e = (s) => 6378137 * s * Math.PI / 180, a = (s) => 6378137 * Math.log(Math.tan(Math.PI / 360 * (90 + s)));
+                if (!e) {
+                  const o = (r) => 6378137 * r * Math.PI / 180, n = (r) => 6378137 * Math.log(Math.tan(Math.PI / 360 * (90 + r)));
                   if (t.maxZoom && (t.maxZoom = parseInt(t.maxZoom)), t.minZoom && (t.minZoom = parseInt(t.minZoom)), t.maxLng && t.minLng && t.maxLat && t.minLat) {
                     t.maxLng = parseFloat(t.maxLng), t.minLng = parseFloat(t.minLng), t.maxLat = parseFloat(t.maxLat), t.minLat = parseFloat(t.minLat);
-                    const s = e(t.maxLng), m = e(t.minLng), A = a(t.maxLat), h = a(t.minLat);
-                    t.minX = Math.floor((w + m) / (2 * w) * Math.pow(2, t.maxZoom)), t.maxX = Math.floor((w + s) / (2 * w) * Math.pow(2, t.maxZoom)), t.minY = Math.floor((w - A) / (2 * w) * Math.pow(2, t.maxZoom)), t.maxY = Math.floor((w - h) / (2 * w) * Math.pow(2, t.maxZoom));
+                    const r = o(t.maxLng), d = o(t.minLng), g = n(t.maxLat), w = n(t.minLat);
+                    t.minX = Math.floor((a + d) / (2 * a) * Math.pow(2, t.maxZoom)), t.maxX = Math.floor((a + r) / (2 * a) * Math.pow(2, t.maxZoom)), t.minY = Math.floor((a - g) / (2 * a) * Math.pow(2, t.maxZoom)), t.maxY = Math.floor((a - w) / (2 * a) * Math.pow(2, t.maxZoom));
                   }
                 }
                 break;
               default:
-                o = 'Error: Unknown "type" value';
+                e = 'Error: Unknown "type" value';
             }
-          if (!o) {
-            if (!i(t, ["maxX", "minX", "maxY", "minY", "minZoom", "maxZoom"])) {
+          if (!e) {
+            if (!m(t, ["maxX", "minX", "maxY", "minY", "minZoom", "maxZoom"])) {
               t.totalTile = 0;
-              const e = (a, s) => Math.floor(a / Math.pow(2, t.maxZoom - s));
-              for (let a = t.minZoom; a <= t.maxZoom; a++) {
-                const s = e(t.minX, a), m = e(t.minY, a), A = e(t.maxX, a), h = e(t.maxY, a);
-                t.totalTile += (A - s + 1) * (h - m + 1);
+              const o = (n, r) => Math.floor(n / Math.pow(2, t.maxZoom - r));
+              for (let n = t.minZoom; n <= t.maxZoom; n++) {
+                const r = o(t.minX, n), d = o(t.minY, n), g = o(t.maxX, n), w = o(t.maxY, n);
+                t.totalTile += (g - r + 1) * (w - d + 1);
               }
             }
-            await $(n, "mapSetting", t), await d(`Weiwudi_${t.mapID}`, "tileCache", "z_x_y"), o = new Response(JSON.stringify(t), {
+            await E(s, "mapSetting", t), await p(`Weiwudi_${t.mapID}`, "tileCache", "z_x_y"), e = new Response(JSON.stringify(t), {
               headers: new Headers({
                 "content-type": "application/json"
               })
@@ -285,32 +569,32 @@ function W(E) {
           break;
         }
         case "clean":
-          if (o = i(t, ["mapID"]), p && p.mapID == t.mapID)
-            o = `Error: ${t.mapID} is under fetching process. Please cancel it first`;
-          else if (!o) {
-            const n = await d(`Weiwudi_${t.mapID}`);
-            await S(n, "tileCache"), o = `Cleaned: ${t.mapID}`;
+          if (e = m(t, ["mapID"]), i && i.mapID == t.mapID)
+            e = `Error: ${t.mapID} is under fetching process. Please cancel it first`;
+          else if (!e) {
+            const s = await p(`Weiwudi_${t.mapID}`);
+            await M(s, "tileCache"), e = `Cleaned: ${t.mapID}`;
           }
           break;
         case "delete":
-          if (o = i(t, ["mapID"]), p && p.mapID == t.mapID)
-            o = `Error: ${t.mapID} is under fetching process. Please cancel it first`;
-          else if (!o) {
-            await B(`Weiwudi_${t.mapID}`);
-            const n = await d("Weiwudi");
-            await Y(n, "mapSetting", t.mapID), o = `Deleted: ${t.mapID}`;
+          if (e = m(t, ["mapID"]), i && i.mapID == t.mapID)
+            e = `Error: ${t.mapID} is under fetching process. Please cancel it first`;
+          else if (!e) {
+            await I(`Weiwudi_${t.mapID}`);
+            const s = await p("Weiwudi");
+            await L(s, "mapSetting", t.mapID), e = `Deleted: ${t.mapID}`;
           }
           break;
         case "cancel":
-          o = i(t, ["mapID"]), p && p.mapID == t.mapID ? (p.cancel = !0, o = `Fetching process of ${p.mapID} is canceled`) : o = `Error: There are no fetching process of ${t.mapID}`;
+          e = m(t, ["mapID"]), i && i.mapID == t.mapID ? (i.cancel = !0, e = `Fetching process of ${i.mapID} is canceled`) : e = `Error: There are no fetching process of ${t.mapID}`;
           break;
         case "stats":
-          if (o = i(t, ["mapID"]), !o) {
-            const n = await d("Weiwudi"), e = await M(n, "mapSetting", t.mapID);
-            if (!e) o = `Error: MapID "${t.mapID}" not found`;
+          if (e = m(t, ["mapID"]), !e) {
+            const s = await p("Weiwudi"), o = await R(s, "mapSetting", t.mapID);
+            if (!o) e = `Error: MapID "${t.mapID}" not found`;
             else {
-              const a = await d(`Weiwudi_${t.mapID}`), s = await X(a, "tileCache");
-              e.totalTile && (s.total = e.totalTile, s.percent = Math.floor(s.count / s.total * 100)), o = new Response(JSON.stringify(s), {
+              const n = await p(`Weiwudi_${t.mapID}`), r = await $(n, "tileCache");
+              o.totalTile && (r.total = o.totalTile, r.percent = Math.floor(r.count / r.total * 100)), e = new Response(JSON.stringify(r), {
                 headers: new Headers({
                   "content-type": "application/json"
                 })
@@ -319,32 +603,32 @@ function W(E) {
           }
           break;
         case "cache": {
-          const n = l.match(/^([^/]+)\/(\d+)\/(\d+)\/(\d+)$/);
-          n ? o = await Z(n[1], parseInt(n[2]), parseInt(n[3]), parseInt(n[4])) : o = 'Error: "cache" api needs mapID, zoom, x, y settings';
+          const s = l?.match(/^([^/]+)\/(\d+)\/(\d+)\/(\d+)$/);
+          s ? e = await Y(s[1], parseInt(s[2]), parseInt(s[3]), parseInt(s[4])) : e = 'Error: "cache" api needs mapID, zoom, x, y settings';
           break;
         }
         case "fetchAll":
-          if (o = i(t, ["mapID"]), !o) {
-            const n = await d("Weiwudi"), e = await M(n, "mapSetting", t.mapID);
-            e ? e.totalTile ? p ? o = `Error: Another fetching process is running: "${p.mapID}" (${p.count} / ${p.total})` : (setTimeout(() => {
-              p = {
+          if (e = m(t, ["mapID"]), !e && c) {
+            const s = await p("Weiwudi"), o = await R(s, "mapSetting", t.mapID);
+            o ? o.totalTile ? i ? e = `Error: Another fetching process is running: "${i.mapID}" (${i.count} / ${i.total})` : (setTimeout(() => {
+              i = {
                 mapID: t.mapID,
-                total: e.totalTile,
+                total: o.totalTile || 0,
                 count: 0,
                 error: 0
-              }, _(c, e);
-            }, 1), o = `Fetching task start: ${t.mapID}`) : o = `Error: Map "${t.mapID}" cannot fetch all tiles` : o = `Error: MapID "${t.mapID}" not found`;
+              }, N(c, o);
+            }, 1), e = `Fetching task start: ${t.mapID}`) : e = `Error: Map "${t.mapID}" cannot fetch all tiles` : e = `Error: MapID "${t.mapID}" not found`;
           }
           break;
         default:
-          o = `Error: API ${r} not found`;
+          e = `Error: API ${h} not found`;
       }
-    } catch (n) {
-      o = `Error: ${n}`;
+    } catch (s) {
+      e = `Error: ${s}`;
     }
-    if (o) return o;
+    if (e) return e;
   };
-  E(/^https?:\/\/weiwudi.example.com/, P, "GET");
+  A(/^https?:\/\/weiwudi.example.com/, W, "GET");
 }
-W(F);
+V(G);
 //# sourceMappingURL=weiwudi-sw.es.js.map

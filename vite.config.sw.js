@@ -13,7 +13,7 @@ export default defineConfig({
             fileName: (format) => `weiwudi-sw.${format}.js`
         },
         rollupOptions: {
-            external: ['workbox-routing', 'workbox-strategies']
+            // external: ['workbox-routing', 'workbox-strategies'] // Removed external to bundle workbox-routing
         }
     },
     define: {
