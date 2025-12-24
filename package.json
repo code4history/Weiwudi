@@ -7,10 +7,9 @@
   "types": "index.d.ts",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "test:e2e": "playwright test",
+    "test": "playwright test",
     "dev": "vite --host",
-    "build": "vite build -c vite.config.lib.js && vite build -c vite.config.sw.js",
+    "build": "vite build -c vite.config.lib.js && vite build -c vite.config.sw.js && (Copy-Item dist\\weiwudi-sw.umd.js public\\weiwudi-sw.js)",
     "preview": "vite preview",
     "lint": "eslint src"
   },

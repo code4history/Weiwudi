@@ -25,8 +25,8 @@
             try {
                 document.getElementById('status').textContent = 'Registering Service Worker...';
 
-                // Register Service Worker
-                await Weiwudi.registerSW('./test-sw.js', { scope: './' });
+                // Register Service Worker - use built version from public/
+                await Weiwudi.registerSW('../../../weiwudi-sw.js', { scope: '/tests/e2e/fixtures/' });
 
                 document.getElementById('status').textContent = 'Registering map...';
 
