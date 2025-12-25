@@ -293,9 +293,6 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
     let outExtent;
     const db = await getDB('Weiwudi');
     const setting = await getItem(db, 'mapSetting', mapID) as MapSetting;
-    console.log(`MapID: ${mapID}, z: ${z}, x: ${x}, y: ${y}`);
-    console.log(`Setting: ${JSON.stringify(setting)}`);
-    console.log(`Before: ${outExtent}`);
     if (!noOutput) {
       if (!setting) return `Error: MapID "${mapID}" not found`;
       if (z < (setting.minZoom || 0) || z > (setting.maxZoom || 0)) outExtent = 'zoom';
@@ -308,7 +305,6 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
         if (x < minXatZ || x > maxXatZ || y < minYatZ || y > maxYatZ) outExtent = 'extent';
       }
     }
-    console.log(`After: ${outExtent}`);
     let headers: Record<string, string> = {};
     let blob: Blob | undefined;
     let status = 200;
