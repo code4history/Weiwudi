@@ -9,10 +9,21 @@
   "module": "dist/weiwudi.es.js",
   "types": "dist/weiwudi.d.ts",
   "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/weiwudi.d.ts",
+      "import": "./dist/weiwudi.es.js",
+      "require": "./dist/weiwudi.umd.js"
+    },
+    "./sw": {
+      "types": "./dist/weiwudi_gw.d.ts",
+      "import": "./dist/weiwudi-sw.es.js"
+    }
+  },
   "scripts": {
     "test": "playwright test",
     "dev": "vite --host",
-    "build": "vite build -c vite.config.lib.js && vite build -c vite.config.sw.js && node -e \"import('fs').then(fs => fs.copyFileSync('dist/weiwudi-sw.umd.js', 'public/weiwudi-sw.js'))\"",
+    "build": "vite build -c vite.config.lib.js && vite build -c vite.config.sw-es.js && vite build -c vite.config.sw-umd.js && node -e \"import('fs').then(fs => fs.copyFileSync('dist/weiwudi-sw.umd.js', 'public/weiwudi-sw.js'))\"",
     "build:demo": "pnpm run build && vite build -c vite.config.demo.js",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
@@ -54,10 +65,12 @@
     "workbox-core": "^7.4.0",
     "workbox-window": "7.4.0"
   },
-  "dependencies": {
-    "workbox-expiration": "^7.4.0",
-    "workbox-precaching": "^7.4.0",
-    "workbox-routing": "^7.4.0",
-    "workbox-strategies": "^7.4.0"
+  "peerDependencies": {
+    "workbox-routing": "^7.4.0"
+  },
+  "peerDependenciesMeta": {
+    "workbox-routing": {
+      "optional": false
+    }
   }
 }

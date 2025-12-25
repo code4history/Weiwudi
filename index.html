@@ -207,7 +207,7 @@
                 document.getElementById('sw-status').textContent = 'Registering SW...';
 
                 // Register Service Worker
-                await Weiwudi.registerSW('./weiwudi-sw.js', { scope: './' });
+                await Weiwudi.registerSW('./demo-sw.js', { scope: './' });
 
                 document.getElementById('sw-status').textContent = 'Registering map...';
 
@@ -219,7 +219,7 @@
                     minLng: 139.0,
                     maxLng: 140.0,
                     minZoom: 10,
-                    maxZoom: 15,
+                    maxZoom: 18,
                     url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
                 });
 

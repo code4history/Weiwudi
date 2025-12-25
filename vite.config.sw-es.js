@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import dts from 'vite-plugin-dts';
 
 export default defineConfig({
+    publicDir: false,
     build: {
         outDir: 'dist',
         emptyOutDir: false,
@@ -9,11 +10,11 @@ export default defineConfig({
         lib: {
             entry: './src/weiwudi_gw.ts',
             name: 'Weiwudi_SW',
-            formats: ['umd', 'es'], // Library for building Service Workers (not the SW itself)
-            fileName: (format) => `weiwudi-sw.${format}.js`
+            formats: ['es'], // ES module only for import usage
+            fileName: () => `weiwudi-sw.es.js`
         },
         rollupOptions: {
-            // external: ['workbox-routing', 'workbox-strategies'] // Removed external to bundle workbox-routing
+            external: ['workbox-routing', 'workbox-core'] // Workbox as peer dependency
         }
     },
     define: {

@@ -13,7 +13,7 @@
     <div id="stats"></div>
 
     <script type="module">
-        import Weiwudi from '../../../dist/weiwudi.es.js';
+        import Weiwudi from '/dist/weiwudi.es.js';
 
         window.weiwudiTest = {
             map: null,
@@ -26,7 +26,7 @@
                 document.getElementById('status').textContent = 'Registering Service Worker...';
 
                 // Register Service Worker - use built version from public/
-                await Weiwudi.registerSW('../../../weiwudi-sw.js', { scope: '/tests/e2e/fixtures/' });
+                await Weiwudi.registerSW('./test-sw.js', { scope: '/tests/e2e/fixtures/' });
 
                 document.getElementById('status').textContent = 'Registering map...';
 

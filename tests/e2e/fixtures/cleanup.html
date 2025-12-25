@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Cleanup</title>
+</head>
+
+<body>
+    <h1>Cleaning up...</h1>
+    <script>
+        (async () => {
+            try {
+                // Unregister all Service Workers
+                if ('serviceWorker' in navigator) {
+                    const registrations = await navigator.serviceWorker.getRegistrations();
+                    await Promise.all(registrations.map(reg => reg.unregister()));
+                }
+
+                // Clear all caches
+                const cacheNames = await caches.keys();
+                await Promise.all(cacheNames.map(name => caches.delete(name)));
+
+                // Clear IndexedDB
+                if (indexedDB.databases) {
+                    const dbs = await indexedDB.databases();
+                    await Promise.all(dbs.map(db => {
+                        return new Promise((resolve) => {
+                            const request = indexedDB.deleteDatabase(db.name);
+                            request.onsuccess = () => resolve();
+                            request.onerror = () => resolve();
+                        });
+                    }));
+                }
+            } catch (error) {
+                console.error('Cleanup error:', error);
+            } finally {
+                // Always signal completion
+                window.cleanupComplete = true;
+            }
+        })();
+    </script>
+</body>
+
+</html>

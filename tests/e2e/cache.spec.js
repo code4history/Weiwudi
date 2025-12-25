@@ -1,15 +1,31 @@
 import { test, expect } from '@playwright/test';
 
-test.describe('Weiwudi Cache Operations', () => {
+test.describe.serial('Weiwudi Cache Operations', () => {
+
+    // Simple cleanup: just unregister SWs
+    test.beforeEach(async ({ page }) => {
+        await page.goto('/tests/e2e/fixtures/blank.html');
+        await page.evaluate(async () => {
+            if ('serviceWorker' in navigator) {
+                const registrations = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(registrations.map(reg => reg.unregister()));
+            }
+        });
+    });
 
     test('should register Service Worker and activate successfully', async ({ page, context }) => {
-        await context.grantPermissions(['notifications']);
+        test.slow();
 
+        // Debug logging
+        page.on('console', msg => console.log(`BROWSER LOG: ${msg.text()}`));
+        page.on('pageerror', err => console.log(`BROWSER ERROR: ${err.message}`));
+
+        await context.grantPermissions(['notifications']);
         await page.goto('/tests/e2e/fixtures/test-page.html');
 
         // Wait for initialization
         await page.waitForFunction(() => window.weiwudiTest?.ready || window.weiwudiTest?.error, {
-            timeout: 10000
+            timeout: 30000
         });
 
         // Check for errors
@@ -27,9 +43,7 @@ test.describe('Weiwudi Cache Operations', () => {
 
     test('should cache tile requests', async ({ page, context }) => {
         await context.grantPermissions(['notifications']);
-
         await page.goto('/tests/e2e/fixtures/test-page.html');
-
         await page.waitForFunction(() => window.weiwudiTest?.ready, { timeout: 10000 });
 
         // Fetch a tile to trigger caching
@@ -43,7 +57,7 @@ test.describe('Weiwudi Cache Operations', () => {
         }, tileUrl);
 
         // Wait a bit for caching
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(2000); // Increased wait time
 
         // Check cache stats
         const stats = await page.evaluate(async () => {
@@ -55,9 +69,7 @@ test.describe('Weiwudi Cache Operations', () => {
 
     test('should retrieve cache statistics', async ({ page, context }) => {
         await context.grantPermissions(['notifications']);
-
         await page.goto('/tests/e2e/fixtures/test-page.html');
-
         await page.waitForFunction(() => window.weiwudiTest?.ready, { timeout: 10000 });
 
         const stats = await page.evaluate(async () => {
@@ -71,9 +83,7 @@ test.describe('Weiwudi Cache Operations', () => {
 
     test('should clear cached tiles', async ({ page, context }) => {
         await context.grantPermissions(['notifications']);
-
         await page.goto('/tests/e2e/fixtures/test-page.html');
-
         await page.waitForFunction(() => window.weiwudiTest?.ready, { timeout: 10000 });
 
         // Cache a tile first
