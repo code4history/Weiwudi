@@ -299,7 +299,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
     if (!noOutput) {
       if (!setting) return `Error: MapID "${mapID}" not found`;
       if (z < (setting.minZoom || 0) || z > (setting.maxZoom || 0)) outExtent = 'zoom';
-      else {
+      else if (setting.minX !== undefined && setting.maxX !== undefined && setting.minY !== undefined && setting.maxY !== undefined) {
         const factor = Math.pow(2, (setting.maxZoom || 0) - z);
         const minXatZ = Math.floor((setting.minX || 0) / factor);
         const maxXatZ = Math.floor((setting.maxX || 0) / factor);
