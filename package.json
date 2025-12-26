@@ -59,8 +59,7 @@
     "globals": "^16.5.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.0",
-    "vite-plugin-dts": "^4.3.0",
-    "vite-plugin-pwa": "^1.2.0",
+    "vite-plugin-dts": "^4.5.4",
     "workbox-build": "7.4.0",
     "workbox-core": "^7.4.0",
     "workbox-window": "7.4.0"

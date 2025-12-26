@@ -115,3 +115,4 @@ test/
 
 # Demo build output
 dist-demo/
+playwright-report/
