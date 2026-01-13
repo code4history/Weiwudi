@@ -411,6 +411,12 @@ export class WeiwudiServiceWorker {
     let resource = await this.db.getResource(url);
     if (resource) return resource;
 
+    const normalizedUrl = this.normalizeUrl(url);
+    if (normalizedUrl !== url) {
+      resource = await this.db.getResource(normalizedUrl);
+      if (resource) return resource;
+    }
+
     // Try template match
     const allResources = [
       ...await this.db.getResourcesByType('tile'),
@@ -418,7 +424,7 @@ export class WeiwudiServiceWorker {
     ];
 
     for (const res of allResources) {
-      if (res.urlTemplate && this.matchesTemplate(url, res.urlTemplate)) {
+      if (res.urlTemplate && this.matchesTemplate(normalizedUrl, res.urlTemplate)) {
         return res;
       }
     }
@@ -500,14 +506,35 @@ export class WeiwudiServiceWorker {
    * Match URL to template
    */
   private matchesTemplate(url: string, template: string): boolean {
-    const regexStr = template
-      .replace(/\{z\}/g, '\\d+')
-      .replace(/\{x\}/g, '\\d+')
-      .replace(/\{y\}/g, '\\d+')
-      .replace(/\{fontstack\}/g, '[^/]+')
-      .replace(/\{range\}/g, '\\d+-\\d+');
-    
-    return new RegExp(regexStr).test(url);
+    const normalizedUrl = this.normalizeUrl(url);
+    const normalizedTemplate = this.normalizeUrl(template);
+
+    let pattern = normalizedTemplate
+      .replace(/\{z\}/g, '__Z__')
+      .replace(/\{x\}/g, '__X__')
+      .replace(/\{y\}/g, '__Y__')
+      .replace(/\{fontstack\}/g, '__FONTSTACK__')
+      .replace(/\{range\}/g, '__RANGE__');
+
+    pattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    pattern = pattern
+      .replace(/__Z__/g, '\\d+')
+      .replace(/__X__/g, '\\d+')
+      .replace(/__Y__/g, '\\d+')
+      .replace(/__FONTSTACK__/g, '[^/]+')
+      .replace(/__RANGE__/g, '\\d+-\\d+');
+
+    return new RegExp(`^${pattern}$`).test(normalizedUrl);
+  }
+
+  private normalizeUrl(url: string): string {
+    try {
+      const parsed = new URL(url);
+      return `${parsed.origin}${parsed.pathname}`;
+    } catch {
+      return url.split('?')[0].split('#')[0];
+    }
   }
 
   // Plugin hooks

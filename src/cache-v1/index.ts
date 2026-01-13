@@ -16,9 +16,14 @@ export async function register(swPath = '/weiwudi-sw.js'): Promise<WeiwudiClient
   }
 
   try {
+    const isDev = typeof import.meta !== 'undefined' && import.meta.env?.DEV;
+    const useModule = isDev && swPath === '/weiwudi-sw.js';
+    const resolvedSwPath = useModule ? '/weiwudi-sw-dev.js' : swPath;
+
     // Register Service Worker
-    const registration = await navigator.serviceWorker.register(swPath, {
-      scope: '/'
+    const registration = await navigator.serviceWorker.register(resolvedSwPath, {
+      scope: '/',
+      ...(useModule ? { type: 'module' } : {})
     });
 
     // Wait for Service Worker to be ready

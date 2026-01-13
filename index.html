@@ -156,7 +156,8 @@
     import { register as registerWeiwudi } from './src/cache-v1/index.ts';
 
     // Mapbox access token (公開用トークンを使用)
-    mapboxgl.accessToken = 'pk.eyJ1IjoiZXhhbXBsZSIsImEiOiJjbGV4YW1wbGUifQ.example';
+    // mapboxgl.accessToken = 'pk.eyJ1IjoiZXhhbXBsZSIsImEiOiJjbGV4YW1wbGUifQ.example';
+    mapboxgl.accessToken = 'pk.eyJ1Ijoia29jaGl6dWZhbiIsImEiOiJjbHRnaWhzOW8wd2p4MmtvZDFsOWJiOG40In0.FYTPboTqXKv5a_onOaW1vQ';
 
     let map;
     let weiwudi;
@@ -208,12 +209,14 @@
       document.getElementById('register-btn').addEventListener('click', async () => {
         try {
           updateStatus('スタイルをキャッシュに登録中...');
-          const styleUrl = map.getStyle().sprite;
+          const styleId = document.getElementById('map-style').value;
+          const styleUrl = `https://api.mapbox.com/styles/v1/mapbox/${styleId}?access_token=${encodeURIComponent(mapboxgl.accessToken)}`;
           
           await weiwudi.register({
-            url: `mapbox://styles/mapbox/${document.getElementById('map-style').value}`,
+            url: styleUrl,
             options: {
-              autoRegisterAssets: true
+              autoRegisterAssets: true,
+              mapboxAccessToken: mapboxgl.accessToken
             }
           });
           

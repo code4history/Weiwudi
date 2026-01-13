@@ -3,19 +3,21 @@
  */
 
 import { WeiwudiDatabase } from './database';
-import { 
-  Resource, 
-  WeiwudiOptions, 
-  WeiwudiPlugin, 
-  QuotaOptions, 
+import {
+  Resource,
+  WeiwudiOptions,
+  WeiwudiPlugin,
+  QuotaOptions,
   AutoCleanupOptions,
   StorageUsage
 } from './types';
+import { BeatBox } from '@c4h/beatbox';
 
 export class WeiwudiClient extends EventTarget {
   private db: WeiwudiDatabase;
   private plugins: WeiwudiPlugin[] = [];
   private managedUrls: Set<string> = new Set();
+  private beatbox: BeatBox | null = null;
 
   constructor() {
     super();
@@ -28,6 +30,11 @@ export class WeiwudiClient extends EventTarget {
   async init(): Promise<void> {
     await this.db.open();
     
+    const accessToken = await this.db.getSetting('mapboxAccessToken');
+    if (accessToken) {
+      this.beatbox = new BeatBox({ accessToken });
+    }
+
     // Load managed URLs
     const resources = await this.db.getResourcesByType('style');
     const tileResources = await this.db.getResourcesByType('tile');
@@ -49,6 +56,11 @@ export class WeiwudiClient extends EventTarget {
     options?: WeiwudiOptions;
   }): Promise<void> {
     const urls = params.urls || (params.url ? [params.url] : []);
+
+    if (params.options?.mapboxAccessToken) {
+      await this.db.saveSetting('mapboxAccessToken', params.options.mapboxAccessToken);
+      this.beatbox = new BeatBox({ accessToken: params.options.mapboxAccessToken });
+    }
     
     for (const url of urls) {
       // Detect resource type
@@ -70,8 +82,7 @@ export class WeiwudiClient extends EventTarget {
         // Run plugins
         const modifiedResource = await this.runResourceWillRegister(resource);
         
-        await this.db.saveResource(modifiedResource || resource);
-        this.managedUrls.add(url);
+        await this.saveResourceWithAliases(modifiedResource || resource);
       }
     }
   }
@@ -232,8 +243,7 @@ export class WeiwudiClient extends EventTarget {
         lastAccessed: Date.now(),
         size: 0
       };
-      await this.db.saveResource(styleResource);
-      this.managedUrls.add(styleUrl);
+      await this.saveResourceWithAliases(styleResource);
       
       // Extract and register sources
       if (style.sources) {
@@ -254,8 +264,7 @@ export class WeiwudiClient extends EventTarget {
                 lastAccessed: Date.now(),
                 size: 0
               };
-              await this.db.saveResource(tileResource);
-              this.managedUrls.add(tileUrl);
+              await this.saveResourceWithAliases(tileResource);
             }
           }
         }
@@ -270,8 +279,7 @@ export class WeiwudiClient extends EventTarget {
           lastAccessed: Date.now(),
           size: 0
         };
-        await this.db.saveResource(spriteResource);
-        this.managedUrls.add(style.sprite);
+        await this.saveResourceWithAliases(spriteResource);
       }
       
       // Register glyphs
@@ -284,12 +292,63 @@ export class WeiwudiClient extends EventTarget {
           lastAccessed: Date.now(),
           size: 0
         };
-        await this.db.saveResource(glyphsResource);
-        this.managedUrls.add(style.glyphs);
+        await this.saveResourceWithAliases(glyphsResource);
       }
     } catch (error) {
       console.error('Failed to register style with assets:', error);
       throw error;
+    }
+  }
+
+  private expandMapboxUrl(url: string): string | null {
+    if (!this.beatbox || !url.startsWith('mapbox://')) {
+      return null;
+    }
+
+    try {
+      return this.beatbox.toHttpUrl(url);
+    } catch {
+      return null;
+    }
+  }
+
+  private resolveTemplateForUrl(
+    url: string,
+    template?: string,
+    expandedTemplate?: string
+  ): string | undefined {
+    if (!template) return undefined;
+
+    if (template.startsWith('mapbox://') && url.startsWith('http')) {
+      return expandedTemplate || template;
+    }
+
+    return template;
+  }
+
+  private async saveResourceWithAliases(resource: Resource): Promise<void> {
+    const urls = new Set<string>([resource.url]);
+    const expandedUrl = this.expandMapboxUrl(resource.url);
+    if (expandedUrl) {
+      urls.add(expandedUrl);
+    }
+
+    const template = resource.urlTemplate;
+    const expandedTemplate = template ? this.expandMapboxUrl(template) : null;
+
+    for (const url of urls) {
+      const urlTemplate = this.resolveTemplateForUrl(url, template, expandedTemplate || undefined);
+      const resourceForUrl: Resource = {
+        ...resource,
+        url,
+        urlTemplate
+      };
+
+      await this.db.saveResource(resourceForUrl);
+      this.managedUrls.add(url);
+      if (urlTemplate) {
+        this.managedUrls.add(urlTemplate);
+      }
     }
   }
 
