@@ -214,24 +214,25 @@
                 // Register map with Weiwudi
                 weiwudiMap = await Weiwudi.registerMap('osm_demo', {
                     type: 'wmts',
-                    minLat: 35.0,
-                    maxLat: 36.0,
-                    minLng: 139.0,
-                    maxLng: 140.0,
-                    minZoom: 10,
-                    maxZoom: 18,
+                    minLat: 35.63,
+                    maxLat: 35.73,
+                    minLng: 139.71,
+                    maxLng: 139.81,
+                    minZoom: 14,
+                    maxZoom: 17,
                     url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
                 });
 
                 document.getElementById('sw-status').textContent = 'Active';
 
                 // Initialize Leaflet map
-                map = L.map('map').setView([35.68, 139.76], 13); // Tokyo
+                map = L.map('map').setView([35.68, 139.76], 14); // Tokyo
 
                 // Add tile layer using Weiwudi cached URL
                 L.tileLayer(weiwudiMap.url, {
                     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-                    maxZoom: 18
+                    minZoom: 14,
+                    maxZoom: 17
                 }).addTo(map);
 
                 // Enable buttons
