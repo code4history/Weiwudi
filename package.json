@@ -29,6 +29,11 @@
     "preview": "vite preview",
     "lint": "eslint \"src/**/*.ts\""
   },
+  "pnpm": {
+    "overrides": {
+      "@microsoft/api-extractor": "7.58.0"
+    }
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/code4history/Weiwudi.git"
@@ -52,17 +57,17 @@
   "devDependencies": {
     "@eslint/js": "^9.39.2",
     "@playwright/test": "^1.57.0",
-    "@types/node": "^25.0.3",
-    "@typescript-eslint/eslint-plugin": "^8.50.1",
-    "@typescript-eslint/parser": "^8.50.1",
+    "@types/node": "^25.5.1",
+    "@typescript-eslint/eslint-plugin": "^8.58.0",
+    "@typescript-eslint/parser": "^8.58.0",
     "eslint": "^9.39.2",
     "globals": "^16.5.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.0",
     "vite-plugin-dts": "^4.5.4",
-    "workbox-build": "7.4.0",
+    "workbox-build": "^7.4.0",
     "workbox-core": "^7.4.0",
-    "workbox-window": "7.4.0"
+    "workbox-window": "^7.4.0"
   },
   "peerDependencies": {
     "workbox-routing": "^7.4.0"
