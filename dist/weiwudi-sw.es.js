@@ -1,5 +1,5 @@
-import { registerRoute as k } from "workbox-routing";
-function v(_) {
+import { registerRoute as v } from "workbox-routing";
+function k(_) {
   const I = 20037508342789244e-9, x = {};
   let m;
   const S = (l, t, c, i) => l.replace("{z}", String(t)).replace("{x}", String(c)).replace("{y}", String(i)).replace("{-y}", String(Math.pow(2, t) - i - 1)), T = (l, t = "", c = 512) => {
@@ -136,8 +136,8 @@ function v(_) {
     const a = await w("Weiwudi"), e = await M(a, "mapSetting", l);
     if (!o) {
       if (!e) return `Error: MapID "${l}" not found`;
-      if (t < (e.minZoom || 0) || t > (e.maxZoom || 0)) r = "zoom";
-      else if (e.minX !== void 0 && e.maxX !== void 0 && e.minY !== void 0 && e.maxY !== void 0) {
+      if (t < (e.minZoom || 0) || t > (e.maxZoom ?? 1 / 0)) r = "zoom";
+      else if (e.maxZoom !== void 0 && e.minX !== void 0 && e.maxX !== void 0 && e.minY !== void 0 && e.maxY !== void 0) {
         const f = Math.pow(2, (e.maxZoom || 0) - t), p = Math.floor((e.minX || 0) / f), b = Math.floor((e.maxX || 0) / f), g = Math.floor((e.minY || 0) / f), u = Math.floor((e.maxY || 0) / f);
         (c < p || c > b || i < g || i > u) && (r = "extent");
       }
@@ -354,5 +354,5 @@ function v(_) {
   };
   _(/^https?:\/\/weiwudi.example.com/, F, "GET");
 }
-v(k);
+k(v);
 //# sourceMappingURL=weiwudi-sw.es.js.map

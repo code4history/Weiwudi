@@ -295,8 +295,10 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
     const setting = await getItem(db, 'mapSetting', mapID) as MapSetting;
     if (!noOutput) {
       if (!setting) return `Error: MapID "${mapID}" not found`;
-      if (z < (setting.minZoom || 0) || z > (setting.maxZoom || 0)) outExtent = 'zoom';
-      else if (setting.minX !== undefined && setting.maxX !== undefined && setting.minY !== undefined && setting.maxY !== undefined) {
+      // maxZoom未定義は「無制限」。TS strict化の際に `|| 0` を入れたことで
+      // 未定義がmaxZoom 0と解釈され、全タイルが404になる退行があった (#27)
+      if (z < (setting.minZoom || 0) || z > (setting.maxZoom ?? Infinity)) outExtent = 'zoom';
+      else if (setting.maxZoom !== undefined && setting.minX !== undefined && setting.maxX !== undefined && setting.minY !== undefined && setting.maxY !== undefined) {
         const factor = Math.pow(2, (setting.maxZoom || 0) - z);
         const minXatZ = Math.floor((setting.minX || 0) / factor);
         const maxXatZ = Math.floor((setting.maxX || 0) / factor);
