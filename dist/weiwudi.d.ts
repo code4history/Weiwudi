@@ -17,6 +17,7 @@ export interface WeiwudiOptions {
     maxLat?: number;
     minLng?: number;
     minLat?: number;
+    cacheTtl?: number;
     [key: string]: unknown;
 }
 export interface WeiwudiInternalOps {

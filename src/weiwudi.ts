@@ -58,6 +58,8 @@ export interface WeiwudiOptions {
     maxLat?: number;
     minLng?: number;
     minLat?: number;
+    // タイルキャッシュの有効期間(ms)。未指定は24時間 (#2)
+    cacheTtl?: number;
     [key: string]: unknown;
 }
 
@@ -134,7 +136,7 @@ export default class Weiwudi extends WeiwudiEventTarget {
         const swCheck = await Weiwudi.swCheck();
         if (!swCheck) throw ('Weiwudi service worker is not implemented.');
         let text;
-        const p = ['type', 'url', 'width', 'height', 'tileSize', 'minZoom', 'maxZoom', 'maxLng', 'maxLat', 'minLng', 'minLat'].reduce((p, key) => {
+        const p = ['type', 'url', 'width', 'height', 'tileSize', 'minZoom', 'maxZoom', 'maxLng', 'maxLat', 'minLng', 'minLat', 'cacheTtl'].reduce((p, key) => {
             if (typeof options[key] !== 'undefined') {
                 if (options[key] instanceof Array) {
                     options[key].map((val: string) => {
