@@ -1,2 +1,6 @@
+packages:
+  - "."
+
+# pnpm 10+ はoverridesをここから読む(pnpm 9はpackage.jsonのpnpm.overridesを読むため両方を維持)
 overrides:
   "@microsoft/api-extractor": 7.58.0
