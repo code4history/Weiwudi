@@ -1,413 +1,118 @@
-# Weiwudi (魏武帝:TileCacheServiceWorker)
-[![CI](https://github.com/code4history/Weiwudi/actions/workflows/ci.yml/badge.svg)](https://github.com/code4history/Weiwudi/actions/workflows/ci.yml)
-Service worker for tile cache.  
-Project name is named from [魏武帝(Weiwudi)](https://zh.wikipedia.org/wiki/%E6%9B%B9%E6%93%8D), who was originally named as 曹操(Cao Cao), and was Chinese warload of the Eastern Han dynasty.
+<!-- SECTION 1: Header (badges, title) -->
+<h1 align="center">Weiwudi</h1>
 
-日本語のREADMEは[こちら](./README.ja.md)
+<p align="center">
+  <a href="https://github.com/code4history/Weiwudi/actions/workflows/ci.yml"><img src="https://github.com/code4history/Weiwudi/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://www.npmjs.com/package/@c4h/weiwudi"><img src="https://img.shields.io/npm/v/@c4h/weiwudi" alt="npm version" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/npm/l/@c4h/weiwudi" alt="License" /></a>
+</p>
 
-## Requirements
+<!-- SECTION 2: Elevator Pitch -->
+## About Weiwudi
 
-- **Node.js**: >= 20.0.0
-- **Package Manager**: pnpm >= 9.0.0 (recommended) or npm
+Weiwudi is a service worker for tile cache. It registers map configurations and
+caches tile images in IndexedDB, so any map library (Leaflet, OpenLayers, etc.)
+can read tiles through the cached URL template without modification.
+The project name comes from
+[魏武帝 (Weiwudi)](https://zh.wikipedia.org/wiki/%E6%9B%B9%E6%93%8D), originally
+known as 曹操 (Cao Cao), a warlord of the Eastern Han dynasty.
 
-## Live Demo
+Weiwudi is open-source under the MIT License.
 
-Try the interactive demo to see Weiwudi in action:
+<!-- SECTION 3: Language switch link -->
+**[Read this document in Japanese / 日本語で読む](README.ja.md)**
 
-```bash
-pnpm install
-pnpm dev
-```
+<!-- SECTION 4: Key Features -->
+## Key Features
 
-Then open `http://localhost:5173/` in your browser. The demo features:
-- 🗺️ Leaflet map with OSM tiles cached via Weiwudi
-- 📊 Real-time cache statistics (tile count, cache size)
-- 🔄 Fetch all tiles button
-- 🗑️ Clear cache functionality
+- Service-worker-based tile cache for XYZ and WMTS tile maps
+- Automatic tile caching in IndexedDB via a cached URL template
+- Bulk prefetch (`fetchAll`) with progress events (`proceed` / `finish` / `stop`)
+- Works with any map library (Leaflet, OpenLayers, etc.) through the URL template
+- Open-source (MIT) with a peer dependency on `workbox-routing`
 
-## Testing
+<!-- SECTION 5: Quick Start -->
+## Quick Start
 
-Run the E2E test suite powered by Playwright:
+> Release-dependent information (ADR-0012). The version `0.3.0` below is the
+> current release; update it on each new release.
 
-```bash
-pnpm run test:e2e
-```
-
-The tests verify:
-- Service Worker registration and activation
-- Tile caching behavior
-- Cache statistics retrieval
-- Cache clearing functionality
-
-## Installation
-
-### NPM Package
-
-Install using **pnpm** (recommended):
+### Install
 
 ```bash
+# pnpm (recommended)
 pnpm add @c4h/weiwudi
-```
 
-Or using npm:
-
-```bash
+# npm
 npm install @c4h/weiwudi
 ```
 
-### Peer Dependencies
+### Minimal usage
 
-Weiwudi requires `workbox-routing` as a peer dependency. Install it alongside:
+```typescript
+import Weiwudi from '@c4h/weiwudi';
 
-```bash
-pnpm add workbox-routing
+// Register the service worker
+await Weiwudi.registerSW('./sw.js', { scope: './' });
+
+// Register an XYZ tile map
+const map = await Weiwudi.registerMap('xyz_map', {
+  type: 'xyz',
+  width: 10000,
+  height: 6000,
+  url: 'http://example.com/{z}/{x}/{y}.jpg'
+});
+
+// Read tiles through the cached URL template
+L.tileLayer(map.url).addTo(leafletMap);
 ```
 
-### Browser (CDN)
+### CDN (jsDelivr)
 
-For browser usage without a build tool, you can load Weiwudi via CDN:
+For browser usage without a build tool, load Weiwudi via CDN:
 
 ```html
-<!-- Load Weiwudi main library -->
-<script src="https://cdn.jsdelivr.net/npm/@c4h/weiwudi@0.2.0/dist/weiwudi.umd.js"></script>
+<!-- Weiwudi main library -->
+<script src="https://cdn.jsdelivr.net/npm/@c4h/weiwudi@0.3.0/dist/weiwudi.umd.js"></script>
 ```
 
-For the service worker file, use:
+For the service worker file:
 
 ```js
 // In your service worker (sw.js)
 importScripts("https://cdn.jsdelivr.net/npm/workbox-routing@7.4.0/build/workbox-routing.prod.umd.min.js");
-importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@0.2.0/dist/weiwudi-sw.umd.js");
+importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@0.3.0/dist/weiwudi-sw.umd.js");
 ```
 
-## How to use
+### API reference
 
-### Service worker side
-Call this js with workbox in your service worker.
-```js
-importScripts("https://cdn.jsdelivr.net/npm/workbox-routing@7.4.0/build/workbox-routing.prod.umd.min.js");
-importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@0.2.0/dist/weiwudi-sw.umd.js");
-```
-
-### Front logic side
-```js
-import Weiwudi from '@c4h/weiwudi';
-
-try {
-    // Register service worker
-    await Weiwudi.registerSW('./sw.js', {scope: './'});
-    // Register map setting to service worker
-    // XYZ map case
-    const map1 = await Weiwudi.registerMap('xyz_map', {
-        type: 'xyz',
-        width: 10000,
-        height: 6000,
-        url: 'http://example.com/{z}/{x}/{y}.jpg'
-    });
-    // WMTS map case
-    const map2 = await Weiwudi.registerMap('wmts_map', {
-        type: 'wmts',
-        minLat: 35.0,
-        maxLat: 35.1,
-        minLng: 135.0,
-        maxLng: 135.1,
-        minZoom: 17,
-        maxZoom: 18,
-        url: 'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png'
-    });
-
-    // Get url template of cached map
-    const map1_url = map1.url;
-    const map2_url = map2.url;
-
-    // If map API access to map tile by using above url template,
-    // Tile images are automatically cached in indexedDB.
-
-    // Get current caching status
-    const status = await map1.stats();
-
-    // Fetch all tiles
-    map2.addEventListener('proceed', (e) => {
-        // Write some codes for handling event of proceeding to fetch tiles
-    });
-    map2.addEventListener('finish', (e) => {
-        // Write some codes for handling event of finishing to fetch tiles
-    });
-    map2.addEventListener('stop', (e) => {
-        // Write some codes for handling event of stopping to fetch tiles by some errors
-    });
-    // Start fetching 
-    await map2.fetchAll();
-
-    // Clean all cached tile images
-    await map2.clean();
-
-    // Remove registered map setting
-    await map2.remove();
-
-
-} catch(e) {
-    // For error cases (E.g. browser doesn't support service worker) 
-    ...
-}
-```
-
-## API Reference
-
-### Static Methods
-
-#### `Weiwudi.registerSW(sw, swOptions?)`
-
-Register a service worker.
-
-**Parameters:**
-- `sw` (string | URL): Path to the service worker file
-- `swOptions` (RegistrationOptions, optional): Service worker registration options
-
-**Returns:** `Promise<ServiceWorkerRegistration>`
-
-**Throws:** 
-- `"Error: Service worker is not supported"`: When the browser doesn't support service workers
-- `"Error: Service worker registration failed with {error}"`: When registration fails
-
-**Example:**
-```js
-await Weiwudi.registerSW('./sw.js', {scope: './'});
-```
-
----
-
-#### `Weiwudi.registerMap(mapID, options)`
-
-Register a map configuration and create a Weiwudi instance.
-
-**Parameters:**
-- `mapID` (string): Unique identifier for the map
-- `options` (WeiwudiOptions): Map configuration object
-
-**Returns:** `Promise<Weiwudi>` - A Weiwudi instance for the registered map
-
-**Throws:** 
-- `"Weiwudi service worker is not implemented."`: When service worker is not active
-- `"Error: {message}"`: When map registration fails
-
-**Example:**
-```js
-const map = await Weiwudi.registerMap('my_map', {
-    type: 'xyz',
-    width: 10000,
-    height: 6000,
-    url: 'https://example.com/{z}/{x}/{y}.jpg'
-});
-```
-
----
-
-#### `Weiwudi.retrieveMap(mapID)`
-
-Retrieve an existing registered map configuration.
-
-**Parameters:**
-- `mapID` (string): Unique identifier for the map
-
-**Returns:** `Promise<Weiwudi>` - A Weiwudi instance for the retrieved map
-
-**Throws:** 
-- `"Weiwudi service worker is not implemented."`: When service worker is not active
-- `"Error: {message}"`: When map retrieval fails
-
----
-
-#### `Weiwudi.removeMap(mapID)`
-
-Remove a registered map configuration.
-
-**Parameters:**
-- `mapID` (string): Unique identifier for the map to remove
-
-**Returns:** `Promise<void>`
-
-**Throws:** 
-- `"Weiwudi service worker is not implemented."`: When service worker is not active
-- `"Error: {message}"`: When map removal fails
-
----
-
-### Instance Methods
-
-#### `stats()`
-
-Get current cache statistics for this map.
-
-**Returns:** `Promise<{count: number, size: number, total?: number, percent?: number}>`
-
-**Throws:** 
-- `"This instance is already released."`: When called on a released instance
-- `"Error: {message}"`: When stats retrieval fails
-
-**Example:**
-```js
-const stats = await map.stats();
-console.log(`Cached tiles: ${stats.count}, Size: ${stats.size} bytes`);
-```
-
----
-
-#### `clean()`
-
-Clear all cached tiles for this map.
-
-**Returns:** `Promise<void>`
-
-**Throws:** 
-- `"This instance is already released."`: When called on a released instance
-- `"Error: {message}"`: When cache cleaning fails
-
----
-
-#### `fetchAll()`
-
-Fetch and cache all tiles for this map (for offline use).
-
-**Returns:** `Promise<void>`
-
-**Throws:** 
-- `"This instance is already released."`: When called on a released instance
-- `"Error: {message}"`: When fetch operation fails
-
-**Events:** Dispatches `proceed`, `finish`, and `stop` events during the fetch process.
-
-**Example:**
-```js
-map.addEventListener('proceed', (e) => {
-    console.log('Fetching tiles...', e.detail);
-});
-map.addEventListener('finish', (e) => {
-    console.log('All tiles fetched!');
-});
-await map.fetchAll();
-```
-
----
-
-#### `cancel()`
-
-Cancel an ongoing `fetchAll()` operation.
-
-**Returns:** `Promise<void>`
-
-**Throws:** 
-- `"This instance is already released."`: When called on a released instance
-- `"Error: {message}"`: When cancellation fails
-
----
-
-#### `remove()`
-
-Remove the map registration and release this instance. After calling this method, the instance cannot be used.
-
-**Returns:** `Promise<void>`
-
-**Throws:** 
-- `"This instance is already released."`: When called on a released instance
-
----
-
-### Instance Properties
-
-#### `url`
-
-**Type:** `string`
-
-The URL template for accessing cached tiles. Use this URL in your map library (e.g., Leaflet, OpenLayers).
-
-**Example:**
-```js
-const map = await Weiwudi.registerMap('my_map', {...});
-L.tileLayer(map.url).addTo(leafletMap);
-```
-
----
-
-### Events
-
-Weiwudi instances extend `WeiwudiEventTarget` and support the following events:
-
-#### `proceed`
-
-Fired periodically during a `fetchAll()` operation to report progress.
-
-**Event Detail:**
-- `mapID` (string): Map identifier
-- Additional progress information
-
----
-
-#### `finish`
-
-Fired when a `fetchAll()` operation completes successfully.
-
-**Event Detail:**
-- `mapID` (string): Map identifier
-
----
-
-#### `stop`
-
-Fired when a `fetchAll()` operation stops due to an error or cancellation.
-
-**Event Detail:**
-- `mapID` (string): Map identifier
-- Error information
-
----
-
-### WeiwudiOptions Interface
-
-Configuration options for map registration.
-
-#### For XYZ Tile Maps
-
-```typescript
-{
-    type: 'xyz',
-    url: string,           // URL template with {z}, {x}, {y} placeholders
-    width: number,         // Map width in pixels
-    height: number,        // Map height in pixels
-    tileSize?: number      // Tile size (default: 256)
-}
-```
-
-#### For WMTS Tile Maps
-
-```typescript
-{
-    type: 'wmts',
-    url: string,           // URL template with {z}, {x}, {y} placeholders
-    minLat: number,        // Minimum latitude
-    maxLat: number,        // Maximum latitude
-    minLng: number,        // Minimum longitude
-    maxLng: number,        // Maximum longitude
-    minZoom: number,       // Minimum zoom level
-    maxZoom: number        // Maximum zoom level
-}
-```
-
----
-
-## Build
+- **API signatures** (release-dependent): see [`docs/api/`](docs/api/)
 
 ### Development
 
-Run the development server with hot reload:
+#### Setup
+Clone the repository and install dependencies.
+
+```bash
+git clone https://github.com/code4history/Weiwudi.git
+cd Weiwudi
+pnpm install
+```
+
+#### Development Server
+Start the development server with hot reload.
 
 ```bash
 pnpm dev
 ```
 
-### Production Build
+Access `http://localhost:5173/` in your browser. The demo features:
+- Leaflet map with OSM tiles cached via Weiwudi
+- Real-time cache statistics (tile count, cache size)
+- Fetch all tiles button
+- Clear cache functionality
 
-Build the library for production:
+#### Build
 
 ```bash
 pnpm build
@@ -420,11 +125,87 @@ This generates:
 - `dist/weiwudi-sw.umd.js` - Service worker UMD bundle
 - `dist/weiwudi.d.ts` - TypeScript type definitions
 
----
+#### Test
 
+```bash
+pnpm run test:e2e
+```
+
+The tests verify:
+- Service Worker registration and activation
+- Tile caching behavior
+- Cache statistics retrieval
+- Cache clearing functionality
+
+<!-- SECTION 6: Prerequisites -->
+## Prerequisites
+
+> Derived from the `engines` field in `package.json` (ADR-0012: release-dependent).
+
+- Node.js: `>= 20.0.0`
+- pnpm: `>= 9.0.0` (recommended; npm also works)
+
+<!-- SECTION 7: Peer Dependencies -->
+## Peer Dependencies
+
+Weiwudi requires `workbox-routing` as a peer dependency. Install it alongside:
+
+```bash
+pnpm add workbox-routing
+```
+
+<!-- SECTION 8: Ecosystem / Related Repositories -->
+## Ecosystem
+
+Weiwudi is part of the Maplat ecosystem by [Code for History](https://github.com/code4history).
+See the full ecosystem map (8 repositories + product/corporate sites):
+
+📖 **Ecosystem Map** — *(the diagram is currently kept in a private planning
+repository; the Sister repositories table below is the public substitute)*
+
+### Sister repositories
+
+| Repository | License | npm | Role |
+|---|---|---|---|
+| [Maplat](https://github.com/code4history/Maplat) | Apache 2.0 | `@maplat/ui` | Main viewer |
+| [MaplatCore](https://github.com/code4history/MaplatCore) | Apache 2.0 | `@maplat/core` | Core library |
+| [MaplatTin](https://github.com/code4history/MaplatTin) | Apache 2.0 | `@maplat/tin` | TIN conversion |
+| [MaplatTransform](https://github.com/code4history/MaplatTransform) | Apache 2.0 | `@maplat/transform` | Coordinate transform |
+| [MaplatEditor](https://github.com/code4history/MaplatEditor) | Apache 2.0 | — | Data authoring tool (desktop) |
+
+> MaplatEditor is the data authoring tool used to create the maps and POIs
+> that the viewers above render. The Maplat ecosystem is end-to-end:
+> author with MaplatEditor, serve with any of the viewer libraries.
+
+<!-- SECTION 9: Nayuta links -->
+<!-- MIT-licensed repositories (Weiwudi / Quyuan / Chuci) carry no Nayuta link (ADR-0012). -->
+
+<!-- SECTION 10: License -->
 ## License
 
+MIT License — see [LICENSE](LICENSE).
+
+```
 Copyright (c) 2020-2026 Code for History
 
-Licensed under the [MIT License](LICENSE).
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+<!-- SECTION 11: Contributors / Sponsors (optional) -->
+<!-- Weiwudi has no Contributors / Sponsors section. -->

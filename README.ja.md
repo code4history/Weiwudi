@@ -1,33 +1,128 @@
-# Weiwudi (魏武帝:TileCacheServiceWorker)
-[![CI](https://github.com/code4history/Weiwudi/actions/workflows/ci.yml/badge.svg)](https://github.com/code4history/Weiwudi/actions/workflows/ci.yml)
-タイルキャッシュ用のサービスワーカー。  
-プロジェクト名は、曹操(Cao Cao)の名でも知られる中国後漢時代の武将[魏武帝(Weiwudi)](https://zh.wikipedia.org/wiki/%E6%9B%B9%E6%93%8D)に由来しています。
+<!-- SECTION 1: Header (badges, title) -->
+<h1 align="center">Weiwudi</h1>
 
-English README is [here](./README.md).
+<p align="center">
+  <a href="https://github.com/code4history/Weiwudi/actions/workflows/ci.yml"><img src="https://github.com/code4history/Weiwudi/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://www.npmjs.com/package/@c4h/weiwudi"><img src="https://img.shields.io/npm/v/@c4h/weiwudi" alt="npm version" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/npm/l/@c4h/weiwudi" alt="License" /></a>
+</p>
 
-## 動作要件
+<!-- SECTION 2: Elevator Pitch -->
+## Weiwudi について
 
-- **Node.js**: >= 20.0.0
-- **パッケージマネージャー**: pnpm >= 9.0.0 (推奨) または npm
+Weiwudi はタイルキャッシュ用のサービスワーカーです。マップ設定を登録するとタイル画像が IndexedDB にキャッシュされ、Leaflet・OpenLayers などのマップライブラリはキャッシュ済みの URL テンプレートを通じて修正なしにタイルを読み込めます。
+プロジェクト名は、曹操 (Cao Cao) の名でも知られる中国後漢時代の武将
+[魏武帝 (Weiwudi)](https://zh.wikipedia.org/wiki/%E6%9B%B9%E6%93%8D) に由来しています。
 
-## ライブデモ
+Weiwudi は MIT License のオープンソースソフトウェアです。
 
-Weiwudiの動作を確認するには、以下のコマンドでインタラクティブデモを起動してください:
+<!-- SECTION 3: Language switch link -->
+**[英語版はこちら / Read this document in English](README.md)**
+
+<!-- SECTION 4: Key Features -->
+## 主な特徴
+
+- Service Worker ベースの XYZ・WMTS タイルマップ向けタイルキャッシュ
+- キャッシュ済み URL テンプレート経由の IndexedDB 自動タイルキャッシュ
+- 一括取得 (`fetchAll`) と進捗イベント (`proceed` / `finish` / `stop`)
+- URL テンプレート経由で Leaflet・OpenLayers など任意のマップライブラリと連携
+- MIT ライセンスのオープンソース・peer dependency は `workbox-routing`
+
+<!-- SECTION 5: Quick Start -->
+## クイックスタート
+
+> 特定リリースに紐づく情報（ADR-0012）。下記のバージョン `0.3.0` は現在の
+> リリース値です。リリースごとに更新してください。
+
+### インストール
 
 ```bash
+# pnpm（推奨）
+pnpm add @c4h/weiwudi
+
+# npm
+npm install @c4h/weiwudi
+```
+
+### 最小利用例
+
+```typescript
+import Weiwudi from '@c4h/weiwudi';
+
+// サービスワーカーを登録
+await Weiwudi.registerSW('./sw.js', { scope: './' });
+
+// XYZ タイルマップを登録
+const map = await Weiwudi.registerMap('xyz_map', {
+  type: 'xyz',
+  width: 10000,
+  height: 6000,
+  url: 'http://example.com/{z}/{x}/{y}.jpg'
+});
+
+// キャッシュ済み URL テンプレート経由でタイルを読み込み
+L.tileLayer(map.url).addTo(leafletMap);
+```
+
+### CDN（jsDelivr）
+
+ビルドツールを使わずにブラウザで利用する場合は、CDN 経由で Weiwudi を読み込みます:
+
+```html
+<!-- Weiwudi メインライブラリ -->
+<script src="https://cdn.jsdelivr.net/npm/@c4h/weiwudi@0.3.0/dist/weiwudi.umd.js"></script>
+```
+
+サービスワーカーファイルでは以下のように使用します:
+
+```js
+// サービスワーカー内 (sw.js)
+importScripts("https://cdn.jsdelivr.net/npm/workbox-routing@7.4.0/build/workbox-routing.prod.umd.min.js");
+importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@0.3.0/dist/weiwudi-sw.umd.js");
+```
+
+### API リファレンス
+
+- **API シグネチャ**（リリース依存）: [`docs/api/`](docs/api/) を参照
+
+### 開発
+
+#### 準備
+リポジトリをクローンし、依存関係をインストールします。
+
+```bash
+git clone https://github.com/code4history/Weiwudi.git
+cd Weiwudi
 pnpm install
+```
+
+#### 開発サーバー
+ホットリロード対応の開発サーバーを起動します。
+
+```bash
 pnpm dev
 ```
 
-その後、ブラウザで `http://localhost:5173/` を開いてください。デモには以下の機能があります:
-- 🗺️ WeiwudiでキャッシュされるOSMタイルを使用したLeafletマップ
-- 📊 リアルタイムキャッシュ統計(タイル数、キャッシュサイズ)
-- 🔄 すべてのタイルを取得するボタン
-- 🗑️ キャッシュクリア機能
+ブラウザで `http://localhost:5173/` にアクセスしてください。デモには以下の機能があります:
+- Weiwudi でキャッシュされる OSM タイルを使用した Leaflet マップ
+- リアルタイムキャッシュ統計（タイル数・キャッシュサイズ）
+- すべてのタイルを取得するボタン
+- キャッシュクリア機能
 
-## テスト
+#### ビルド
 
-Playwrightを使用したE2Eテストスイートを実行:
+```bash
+pnpm build
+```
+
+これにより以下が生成されます:
+- `dist/weiwudi.es.js` - モダンバンドラー用 ES モジュール
+- `dist/weiwudi.umd.js` - ブラウザ用 UMD バンドル
+- `dist/weiwudi-sw.es.js` - サービスワーカー用 ES モジュール
+- `dist/weiwudi-sw.umd.js` - サービスワーカー用 UMD バンドル
+- `dist/weiwudi.d.ts` - TypeScript 型定義
+
+#### テスト
 
 ```bash
 pnpm run test:e2e
@@ -39,392 +134,75 @@ pnpm run test:e2e
 - キャッシュ統計の取得
 - キャッシュクリア機能
 
-## インストール
+<!-- SECTION 6: Prerequisites -->
+## 動作環境
 
-### NPMパッケージ
+> `package.json` の `engines` フィールドから自動抽出（ADR-0012: 特定リリースに紐づく）。
 
-**pnpm** を使用してインストール (推奨):
+- Node.js: `>= 20.0.0`
+- pnpm: `>= 9.0.0`（推奨・npm も可）
 
-```bash
-pnpm add @c4h/weiwudi
-```
+<!-- SECTION 7: Peer Dependencies -->
+## Peer Dependencies
 
-または npm を使用:
-
-```bash
-npm install @c4h/weiwudi
-```
-
-### ピア依存関係
-
-Weiwudiは `workbox-routing` をピア依存関係として必要とします。以下のように併せてインストールしてください:
+Weiwudi は `workbox-routing` を peer dependency として要求します。併せてインストールしてください:
 
 ```bash
 pnpm add workbox-routing
 ```
 
-### ブラウザ (CDN)
+<!-- SECTION 8: Ecosystem / Related Repositories -->
+## エコシステム
 
-ビルドツールを使わずにブラウザで使用する場合は、CDN経由でWeiwudiを読み込むことができます:
+Weiwudi は [Code for History](https://github.com/code4history) が運営する
+Maplat エコシステムの一部です。全容は下記エコシステム図を参照してください。
 
-```html
-<!-- Weiwudiメインライブラリを読み込む -->
-<script src="https://cdn.jsdelivr.net/npm/@c4h/weiwudi@0.2.0/dist/weiwudi.umd.js"></script>
+📖 **エコシステム図** — *（図は現在外部非公開の計画リポジトリにあります。
+公開ビューアからは下記の姉妹リポジトリ表で代替します）*
+
+### 姉妹リポジトリ
+
+| リポジトリ | ライセンス | npm | 役割 |
+|---|---|---|---|
+| [Maplat](https://github.com/code4history/Maplat) | Apache 2.0 | `@maplat/ui` | メインビューア |
+| [MaplatCore](https://github.com/code4history/MaplatCore) | Apache 2.0 | `@maplat/core` | コアライブラリ |
+| [MaplatTin](https://github.com/code4history/MaplatTin) | Apache 2.0 | `@maplat/tin` | TIN 変換 |
+| [MaplatTransform](https://github.com/code4history/MaplatTransform) | Apache 2.0 | `@maplat/transform` | 座標変換 |
+| [MaplatEditor](https://github.com/code4history/MaplatEditor) | Apache 2.0 | — | データ作成ツール（デスクトップ） |
+
+> MaplatEditor は上記ビューアライブラリが描画する地図・POI を作成する
+> データ作成ツールです。Maplat エコシステムはエンドツーエンド:
+> MaplatEditor で作成し、いずれかのビューアライブラリで公開、という流れになります。
+
+<!-- SECTION 9: Nayuta links -->
+<!-- MIT ライセンスのリポジトリ（Weiwudi / Quyuan / Chuci）へは那由多社リンクを置きません（ADR-0012）。 -->
+
+<!-- SECTION 10: License -->
+## License
+
+MIT License — 詳細は [LICENSE](LICENSE) を参照。
+
 ```
-
-サービスワーカーファイルでは、以下のように使用します:
-
-```js
-// サービスワーカー内 (sw.js)
-importScripts("https://cdn.jsdelivr.net/npm/workbox-routing@7.4.0/build/workbox-routing.prod.umd.min.js");
-importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@0.2.0/dist/weiwudi-sw.umd.js");
-```
-
-## 使い方
-
-### サービスワーカー側
-
-サービスワーカー内でworkboxと共にこのJSを呼び出します。
-```js
-importScripts("https://cdn.jsdelivr.net/npm/workbox-routing@7.4.0/build/workbox-routing.prod.umd.min.js");
-importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@0.2.0/dist/weiwudi-sw.umd.js");
-```
-
-### フロントロジック側
-```js
-import Weiwudi from '@c4h/weiwudi';
-
-try {
-    // サービスワーカーを登録
-    await Weiwudi.registerSW('./sw.js', {scope: './'});
-    // マップ設定をサービスワーカーに登録
-    // XYZマップの場合
-    const map1 = await Weiwudi.registerMap('xyz_map', {
-        type: 'xyz',
-        width: 10000,
-        height: 6000,
-        url: 'http://example.com/{z}/{x}/{y}.jpg'
-    });
-    // WMTSマップの場合
-    const map2 = await Weiwudi.registerMap('wmts_map', {
-        type: 'wmts',
-        minLat: 35.0,
-        maxLat: 35.1,
-        minLng: 135.0,
-        maxLng: 135.1,
-        minZoom: 17,
-        maxZoom: 18,
-        url: 'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png'
-    });
-
-    // キャッシュされたマップのURLテンプレートを取得
-    const map1_url = map1.url;
-    const map2_url = map2.url;
-
-    // マップAPIが上記のURLテンプレートを使用してマップタイルにアクセスすると、
-    // タイル画像は自動的にindexedDBにキャッシュされます。
-
-    // 現在のキャッシュ状況を取得
-    const status = await map1.stats();
-
-    // すべてのタイルを取得
-    map2.addEventListener('proceed', (e) => {
-        // タイル取得の進行状況を処理するコードを記述
-    });
-    map2.addEventListener('finish', (e) => {
-        // タイル取得の完了を処理するコードを記述
-    });
-    map2.addEventListener('stop', (e) => {
-        // エラーによるタイル取得の停止を処理するコードを記述
-    });
-    // 取得を開始 
-    await map2.fetchAll();
-
-    // キャッシュされたすべてのタイル画像をクリア
-    await map2.clean();
-
-    // 登録されたマップ設定を削除
-    await map2.remove();
-
-
-} catch(e) {
-    // エラーの場合(例: ブラウザがサービスワーカーをサポートしていない) 
-    ...
-}
-```
-
-## API リファレンス
-
-### 静的メソッド
-
-#### `Weiwudi.registerSW(sw, swOptions?)`
-
-サービスワーカーを登録します。
-
-**パラメータ:**
-- `sw` (string | URL): サービスワーカーファイルへのパス
-- `swOptions` (RegistrationOptions, オプション): サービスワーカー登録オプション
-
-**戻り値:** `Promise<ServiceWorkerRegistration>`
-
-**例外:** 
-- `"Error: Service worker is not supported"`: ブラウザがサービスワーカーをサポートしていない場合
-- `"Error: Service worker registration failed with {error}"`: 登録に失敗した場合
-
-**例:**
-```js
-await Weiwudi.registerSW('./sw.js', {scope: './'});
-```
-
----
-
-#### `Weiwudi.registerMap(mapID, options)`
-
-マップ設定を登録してWeiwudiインスタンスを作成します。
-
-**パラメータ:**
-- `mapID` (string): マップの一意識別子
-- `options` (WeiwudiOptions): マップ設定オブジェクト
-
-**戻り値:** `Promise<Weiwudi>` - 登録されたマップのWeiwudiインスタンス
-
-**例外:** 
-- `"Weiwudi service worker is not implemented."`: サービスワーカーがアクティブでない場合
-- `"Error: {message}"`: マップ登録に失敗した場合
-
-**例:**
-```js
-const map = await Weiwudi.registerMap('my_map', {
-    type: 'xyz',
-    width: 10000,
-    height: 6000,
-    url: 'https://example.com/{z}/{x}/{y}.jpg'
-});
-```
-
----
-
-#### `Weiwudi.retrieveMap(mapID)`
-
-既存の登録済みマップ設定を取得します。
-
-**パラメータ:**
-- `mapID` (string): マップの一意識別子
-
-**戻り値:** `Promise<Weiwudi>` - 取得されたマップのWeiwudiインスタンス
-
-**例外:** 
-- `"Weiwudi service worker is not implemented."`: サービスワーカーがアクティブでない場合
-- `"Error: {message}"`: マップ取得に失敗した場合
-
----
-
-#### `Weiwudi.removeMap(mapID)`
-
-登録されたマップ設定を削除します。
-
-**パラメータ:**
-- `mapID` (string): 削除するマップの一意識別子
-
-**戻り値:** `Promise<void>`
-
-**例外:** 
-- `"Weiwudi service worker is not implemented."`: サービスワーカーがアクティブでない場合
-- `"Error: {message}"`: マップ削除に失敗した場合
-
----
-
-### インスタンスメソッド
-
-#### `stats()`
-
-このマップの現在のキャッシュ統計を取得します。
-
-**戻り値:** `Promise<{count: number, size: number, total?: number, percent?: number}>`
-
-**例外:** 
-- `"This instance is already released."`: 解放済みのインスタンスで呼び出された場合
-- `"Error: {message}"`: 統計取得に失敗した場合
-
-**例:**
-```js
-const stats = await map.stats();
-console.log(`キャッシュ済みタイル: ${stats.count}, サイズ: ${stats.size} バイト`);
-```
-
----
-
-#### `clean()`
-
-このマップのキャッシュされたすべてのタイルをクリアします。
-
-**戻り値:** `Promise<void>`
-
-**例外:** 
-- `"This instance is already released."`: 解放済みのインスタンスで呼び出された場合
-- `"Error: {message}"`: キャッシュクリアに失敗した場合
-
----
-
-#### `fetchAll()`
-
-このマップのすべてのタイルを取得してキャッシュします(オフライン使用向け)。
-
-**戻り値:** `Promise<void>`
-
-**例外:** 
-- `"This instance is already released."`: 解放済みのインスタンスで呼び出された場合
-- `"Error: {message}"`: 取得処理に失敗した場合
-
-**イベント:** 取得処理中に `proceed`、`finish`、`stop` イベントをディスパッチします。
-
-**例:**
-```js
-map.addEventListener('proceed', (e) => {
-    console.log('タイル取得中...', e.detail);
-});
-map.addEventListener('finish', (e) => {
-    console.log('すべてのタイル取得完了!');
-});
-await map.fetchAll();
-```
-
----
-
-#### `cancel()`
-
-実行中の `fetchAll()` 操作をキャンセルします。
-
-**戻り値:** `Promise<void>`
-
-**例外:** 
-- `"This instance is already released."`: 解放済みのインスタンスで呼び出された場合
-- `"Error: {message}"`: キャンセルに失敗した場合
-
----
-
-#### `remove()`
-
-マップ登録を削除してこのインスタンスを解放します。このメソッド呼び出し後、インスタンスは使用できません。
-
-**戻り値:** `Promise<void>`
-
-**例外:** 
-- `"This instance is already released."`: 解放済みのインスタンスで呼び出された場合
-
----
-
-### インスタンスプロパティ
-
-#### `url`
-
-**型:** `string`
-
-キャッシュされたタイルにアクセスするためのURLテンプレート。マップライブラリ(例: Leaflet、OpenLayers)でこのURLを使用します。
-
-**例:**
-```js
-const map = await Weiwudi.registerMap('my_map', {...});
-L.tileLayer(map.url).addTo(leafletMap);
-```
-
----
-
-### イベント
-
-Weiwudiインスタンスは `WeiwudiEventTarget` を継承し、以下のイベントをサポートします:
-
-#### `proceed`
-
-`fetchAll()` 操作中に定期的に発火され、進行状況を報告します。
-
-**イベント詳細:**
-- `mapID` (string): マップ識別子
-- 追加の進行状況情報
-
----
-
-#### `finish`
-
-`fetchAll()` 操作が正常に完了したときに発火されます。
-
-**イベント詳細:**
-- `mapID` (string): マップ識別子
-
----
-
-#### `stop`
-
-`fetchAll()` 操作がエラーまたはキャンセルにより停止したときに発火されます。
-
-**イベント詳細:**
-- `mapID` (string): マップ識別子
-- エラー情報
-
----
-
-### WeiwudiOptions インターフェース
-
-マップ登録用の設定オプション。
-
-#### XYZタイルマップ用
-
-```typescript
-{
-    type: 'xyz',
-    url: string,           // {z}, {x}, {y} プレースホルダーを含むURLテンプレート
-    width: number,         // マップ幅(ピクセル)
-    height: number,        // マップ高さ(ピクセル)
-    tileSize?: number      // タイルサイズ(デフォルト: 256)
-}
-```
-
-#### WMTSタイルマップ用
-
-```typescript
-{
-    type: 'wmts',
-    url: string,           // {z}, {x}, {y} プレースホルダーを含むURLテンプレート
-    minLat: number,        // 最小緯度
-    maxLat: number,        // 最大緯度
-    minLng: number,        // 最小経度
-    maxLng: number,        // 最大経度
-    minZoom: number,       // 最小ズームレベル
-    maxZoom: number        // 最大ズームレベル
-}
-```
-
----
-
-## ビルド
-
-### 開発
-
-ホットリロード付きで開発サーバーを実行:
-
-```bash
-pnpm dev
-```
-
-### プロダクションビルド
-
-本番環境用にライブラリをビルド:
-
-```bash
-pnpm build
-```
-
-これにより以下が生成されます:
-- `dist/weiwudi.es.js` - モダンバンドラー用ESモジュール
-- `dist/weiwudi.umd.js` - ブラウザ用UMDバンドル
-- `dist/weiwudi-sw.es.js` - サービスワーカー用ESモジュール
-- `dist/weiwudi-sw.umd.js` - サービスワーカー用UMDバンドル
-- `dist/weiwudi.d.ts` - TypeScript型定義
-
----
-
-## ライセンス
-
 Copyright (c) 2020-2026 Code for History
 
-[MIT License](LICENSE) でライセンスされています。
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+<!-- SECTION 11: Contributors / Sponsors (optional) -->
+<!-- Weiwudi には Contributors / Sponsors 節はありません。 -->
