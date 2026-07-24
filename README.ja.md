@@ -2,9 +2,9 @@
 <h1 align="center">Weiwudi</h1>
 
 <p align="center">
-  [![CI](https://github.com/code4history/Weiwudi/actions/workflows/ci.yml/badge.svg)](https://github.com/code4history/Weiwudi/actions/workflows/ci.yml)
-  [![npm version](https://img.shields.io/npm/v/@c4h/weiwudi)](https://www.npmjs.com/package/@c4h/weiwudi)
-  [![License](https://img.shields.io/npm/l/@c4h/weiwudi)](LICENSE)
+  <a href="https://github.com/code4history/Weiwudi/actions/workflows/ci.yml"><img src="https://github.com/code4history/Weiwudi/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://www.npmjs.com/package/@c4h/weiwudi"><img src="https://img.shields.io/npm/v/@c4h/weiwudi" alt="npm version" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/npm/l/@c4h/weiwudi" alt="License" /></a>
 </p>
 
 <!-- SECTION 2: Elevator Pitch -->
