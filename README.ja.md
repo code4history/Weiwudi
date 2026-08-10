@@ -3,7 +3,6 @@
 
 <p align="center">
   <a href="https://github.com/code4history/Weiwudi/actions/workflows/ci.yml"><img src="https://github.com/code4history/Weiwudi/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="https://www.npmjs.com/package/@c4h/weiwudi"><img src="https://img.shields.io/npm/v/@c4h/weiwudi" alt="npm version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/npm/l/@c4h/weiwudi" alt="License" /></a>
 </p>
 
@@ -31,17 +30,21 @@ Weiwudi は MIT License のオープンソースソフトウェアです。
 <!-- SECTION 5: Quick Start -->
 ## クイックスタート
 
-> 特定リリースに紐づく情報（ADR-0012）。下記のバージョン `0.3.0` は現在の
-> リリース値です。リリースごとに更新してください。
+<!-- release-pinned:start -->
+> **現在のリリース: `1.0.0-rc1`**（リリース候補）。このブロックは本リポジトリで唯一
+> リリース版数を持つ場所です（ADR-0012）。ブロックの外はすべて 1.0 正式版を前提に
+> 書かれています。
+> npm: [`@c4h/weiwudi`](https://www.npmjs.com/package/@c4h/weiwudi)
+> [![npm rc](https://img.shields.io/npm/v/@c4h/weiwudi/rc)](https://www.npmjs.com/package/@c4h/weiwudi)
 
 ### インストール
 
 ```bash
 # pnpm（推奨）
-pnpm add @c4h/weiwudi
+pnpm add @c4h/weiwudi@rc
 
 # npm
-npm install @c4h/weiwudi
+npm install @c4h/weiwudi@rc
 ```
 
 ### 最小利用例
@@ -70,7 +73,7 @@ L.tileLayer(map.url).addTo(leafletMap);
 
 ```html
 <!-- Weiwudi メインライブラリ -->
-<script src="https://cdn.jsdelivr.net/npm/@c4h/weiwudi@0.3.0/dist/weiwudi.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.0.0-rc1/dist/weiwudi.umd.js"></script>
 ```
 
 サービスワーカーファイルでは以下のように使用します:
@@ -78,7 +81,7 @@ L.tileLayer(map.url).addTo(leafletMap);
 ```js
 // サービスワーカー内 (sw.js)
 importScripts("https://cdn.jsdelivr.net/npm/workbox-routing@7.4.0/build/workbox-routing.prod.umd.min.js");
-importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@0.3.0/dist/weiwudi-sw.umd.js");
+importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.0.0-rc1/dist/weiwudi-sw.umd.js");
 ```
 
 ### API リファレンス
@@ -133,6 +136,7 @@ pnpm run test:e2e
 - タイルキャッシュの動作
 - キャッシュ統計の取得
 - キャッシュクリア機能
+<!-- release-pinned:end -->
 
 <!-- SECTION 6: Prerequisites -->
 ## 動作環境
