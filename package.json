@@ -1,5 +1,6 @@
 {
   "name": "@c4h/weiwudi",
+  "private": false,
   "publishConfig": {
     "access": "public"
   },
