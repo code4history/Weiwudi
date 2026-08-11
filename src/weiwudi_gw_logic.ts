@@ -19,6 +19,8 @@ interface MapSetting {
   width?: number;
   height?: number;
   tileSize?: number;
+  // タイルキャッシュの有効期間(ms)。未指定は24時間 (#2)
+  cacheTtl?: number;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }
@@ -295,8 +297,10 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
     const setting = await getItem(db, 'mapSetting', mapID) as MapSetting;
     if (!noOutput) {
       if (!setting) return `Error: MapID "${mapID}" not found`;
-      if (z < (setting.minZoom || 0) || z > (setting.maxZoom || 0)) outExtent = 'zoom';
-      else if (setting.minX !== undefined && setting.maxX !== undefined && setting.minY !== undefined && setting.maxY !== undefined) {
+      // maxZoom未定義は「無制限」。TS strict化の際に `|| 0` を入れたことで
+      // 未定義がmaxZoom 0と解釈され、全タイルが404になる退行があった (#27)
+      if (z < (setting.minZoom || 0) || z > (setting.maxZoom ?? Infinity)) outExtent = 'zoom';
+      else if (setting.maxZoom !== undefined && setting.minX !== undefined && setting.maxX !== undefined && setting.minY !== undefined && setting.maxY !== undefined) {
         const factor = Math.pow(2, (setting.maxZoom || 0) - z);
         const minXatZ = Math.floor((setting.minX || 0) / factor);
         const maxXatZ = Math.floor((setting.maxX || 0) / factor);
@@ -327,7 +331,9 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
       const cacheDB = await getDB(`Weiwudi_${mapID}`);
       const cached = await getItem(cacheDB, 'tileCache', `${z}_${x}_${y}`, noOutput) as TileCacheItem;
       const nowEpoch = new Date().getTime();
-      if (!cached || !cached.epoch || nowEpoch - cached.epoch > 86400000) {
+      // キャッシュ有効期間は地図登録時のcacheTtl(ms)で指定可能。未指定は従来通り24時間 (#2)
+      const cacheTtl = setting.cacheTtl ?? 86400000;
+      if (!cached || !cached.epoch || nowEpoch - cached.epoch > cacheTtl) {
         // Handle setting.url being potentially undefined or array
         let template = '';
         if (setting.url instanceof Array) {
@@ -343,12 +349,17 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
             headers = {};
             resp.headers.forEach((val, key) => { headers[key] = val; });
             blob = await resp.blob();
-            await putItem(cacheDB, 'tileCache', {
-              'z_x_y': `${z}_${x}_${y}`,
-              headers: headers,
-              blob: blob,
-              epoch: nowEpoch
-            });
+            try {
+              await putItem(cacheDB, 'tileCache', {
+                'z_x_y': `${z}_${x}_${y}`,
+                headers: headers,
+                blob: blob,
+                epoch: nowEpoch
+              });
+            } catch (_e) {
+              // クオータ超過等でキャッシュ保存に失敗しても、取得済みタイルの配信は継続する (#22)
+              if (fetchAllBlocker) fetchAllBlocker.error++;
+            }
           } else {
             if (cached) {
               headers = cached.headers;
@@ -499,6 +510,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
           retVal = checkAttributes(query, ['mapID', 'type', 'url']);
           if (!retVal) {
             query.tileSize = parseInt(query.tileSize || 256);
+            if (query.cacheTtl !== undefined) query.cacheTtl = parseInt(query.cacheTtl);
             switch (query.type) {
               case 'xyz':
                 retVal = checkAttributes(query, ['width', 'height']);

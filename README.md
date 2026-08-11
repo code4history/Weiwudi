@@ -3,7 +3,6 @@
 
 <p align="center">
   <a href="https://github.com/code4history/Weiwudi/actions/workflows/ci.yml"><img src="https://github.com/code4history/Weiwudi/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="https://www.npmjs.com/package/@c4h/weiwudi"><img src="https://img.shields.io/npm/v/@c4h/weiwudi" alt="npm version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/npm/l/@c4h/weiwudi" alt="License" /></a>
 </p>
 
@@ -34,17 +33,21 @@ Weiwudi is open-source under the MIT License.
 <!-- SECTION 5: Quick Start -->
 ## Quick Start
 
-> Release-dependent information (ADR-0012). The version `0.3.0` below is the
-> current release; update it on each new release.
+<!-- release-pinned:start -->
+> **Current release: `1.0.0-rc1`** — a release candidate. This block is the only place in
+> this repository that carries a release version (ADR-0012); everything outside it is
+> written against the 1.0 release.
+> npm: [`@c4h/weiwudi`](https://www.npmjs.com/package/@c4h/weiwudi)
+> [![npm rc](https://img.shields.io/npm/v/@c4h/weiwudi/rc)](https://www.npmjs.com/package/@c4h/weiwudi)
 
 ### Install
 
 ```bash
 # pnpm (recommended)
-pnpm add @c4h/weiwudi
+pnpm add @c4h/weiwudi@rc
 
 # npm
-npm install @c4h/weiwudi
+npm install @c4h/weiwudi@rc
 ```
 
 ### Minimal usage
@@ -73,7 +76,7 @@ For browser usage without a build tool, load Weiwudi via CDN:
 
 ```html
 <!-- Weiwudi main library -->
-<script src="https://cdn.jsdelivr.net/npm/@c4h/weiwudi@0.3.0/dist/weiwudi.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.0.0-rc1/dist/weiwudi.umd.js"></script>
 ```
 
 For the service worker file:
@@ -81,7 +84,7 @@ For the service worker file:
 ```js
 // In your service worker (sw.js)
 importScripts("https://cdn.jsdelivr.net/npm/workbox-routing@7.4.0/build/workbox-routing.prod.umd.min.js");
-importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@0.3.0/dist/weiwudi-sw.umd.js");
+importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.0.0-rc1/dist/weiwudi-sw.umd.js");
 ```
 
 ### API reference
@@ -136,6 +139,7 @@ The tests verify:
 - Tile caching behavior
 - Cache statistics retrieval
 - Cache clearing functionality
+<!-- release-pinned:end -->
 
 <!-- SECTION 6: Prerequisites -->
 ## Prerequisites
@@ -172,6 +176,9 @@ repository; the Sister repositories table below is the public substitute)*
 | [MaplatTin](https://github.com/code4history/MaplatTin) | Apache 2.0 | `@maplat/tin` | TIN conversion |
 | [MaplatTransform](https://github.com/code4history/MaplatTransform) | Apache 2.0 | `@maplat/transform` | Coordinate transform |
 | [MaplatEditor](https://github.com/code4history/MaplatEditor) | Apache 2.0 | — | Data authoring tool (desktop) |
+| [Chuci](https://github.com/code4history/Chuci) | MIT | `@c4h/chuci` | Multimedia swiper & viewer Web Components |
+| [Quyuan](https://github.com/code4history/Quyuan) | MIT | `@c4h/quyuan` | GeoJSON template engine + multimedia viewer Web Components |
+| [Weiwudi](https://github.com/code4history/Weiwudi) | MIT | `@c4h/weiwudi` | Service Worker for tile cache |
 
 > MaplatEditor is the data authoring tool used to create the maps and POIs
 > that the viewers above render. The Maplat ecosystem is end-to-end:

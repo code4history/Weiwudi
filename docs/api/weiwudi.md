@@ -223,7 +223,8 @@ Configuration options for map registration.
     url: string,           // URL template with {z}, {x}, {y} placeholders
     width: number,         // Map width in pixels
     height: number,        // Map height in pixels
-    tileSize?: number      // Tile size (default: 256)
+    tileSize?: number,     // Tile size (default: 256)
+    cacheTtl?: number      // Tile cache lifetime in ms (default: 86400000, i.e. 24h)
 }
 ```
 
@@ -238,9 +239,19 @@ Configuration options for map registration.
     minLng: number,        // Minimum longitude
     maxLng: number,        // Maximum longitude
     minZoom: number,       // Minimum zoom level
-    maxZoom: number        // Maximum zoom level
+    maxZoom?: number,      // Maximum zoom level (unlimited if omitted)
+    cacheTtl?: number      // Tile cache lifetime in ms (default: 86400000, i.e. 24h)
 }
 ```
+
+**Notes:**
+- `maxZoom`: when omitted, tile requests are not rejected at any zoom level
+  (treated as unlimited). Leave it unset for maps without a known maximum
+  zoom.
+- `cacheTtl`: controls how long a cached tile is served before Weiwudi
+  re-fetches it from `url`. If the re-fetch succeeds but writing the new
+  tile to the cache fails (e.g. storage quota exceeded), the freshly fetched
+  tile is still served to the caller.
 
 ---
 

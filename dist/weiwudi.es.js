@@ -54,7 +54,7 @@ class i extends f {
   static async registerMap(e, s) {
     if (!await i.swCheck()) throw "Weiwudi service worker is not implemented.";
     let r;
-    const c = ["type", "url", "width", "height", "tileSize", "minZoom", "maxZoom", "maxLng", "maxLat", "minLng", "minLat"].reduce((l, n) => (typeof s[n] < "u" && (s[n] instanceof Array ? s[n].map((p) => {
+    const c = ["type", "url", "width", "height", "tileSize", "minZoom", "maxZoom", "maxLng", "maxLat", "minLng", "minLat", "cacheTtl"].reduce((l, n) => (typeof s[n] < "u" && (s[n] instanceof Array ? s[n].map((p) => {
       l.append(n, p);
     }) : l.append(n, String(s[n]))), l), new URLSearchParams());
     c.append("mapID", e);

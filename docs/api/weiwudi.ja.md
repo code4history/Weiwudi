@@ -222,7 +222,8 @@ Weiwudiインスタンスは `WeiwudiEventTarget` を継承し、以下のイベ
     url: string,           // {z}, {x}, {y} プレースホルダーを含むURLテンプレート
     width: number,         // マップ幅(ピクセル)
     height: number,        // マップ高さ(ピクセル)
-    tileSize?: number      // タイルサイズ(デフォルト: 256)
+    tileSize?: number,     // タイルサイズ(デフォルト: 256)
+    cacheTtl?: number      // タイルキャッシュ有効期間(ms、デフォルト: 86400000 = 24時間)
 }
 ```
 
@@ -237,9 +238,19 @@ Weiwudiインスタンスは `WeiwudiEventTarget` を継承し、以下のイベ
     minLng: number,        // 最小経度
     maxLng: number,        // 最大経度
     minZoom: number,       // 最小ズームレベル
-    maxZoom: number        // 最大ズームレベル
+    maxZoom?: number,      // 最大ズームレベル(省略時は無制限)
+    cacheTtl?: number      // タイルキャッシュ有効期間(ms、デフォルト: 86400000 = 24時間)
 }
 ```
+
+**補足:**
+- `maxZoom`: 省略した場合、どのズームレベルでもタイルリクエストが拒否
+  されません(無制限として扱われます)。最大ズームが定まらない地図では
+  未指定のままにしてください。
+- `cacheTtl`: キャッシュ済みタイルを配信し続ける期間を制御し、超過後は
+  `url` から再取得します。再取得に成功してもキャッシュへの書き込みが
+  失敗した場合(ストレージ容量超過など)、取得済みのタイルはそのまま
+  呼び出し元へ配信されます。
 
 ---
 
