@@ -36,7 +36,8 @@
     "build:demo": "pnpm run build && vite build -c vite.config.demo.js",
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
-    "lint": "eslint \"src/**/*.ts\""
+    "lint": "eslint \"src/**/*.ts\"",
+    "prepublishOnly": "pnpm run lint && pnpm run typecheck && pnpm run build"
   },
   "repository": {
     "type": "git",
