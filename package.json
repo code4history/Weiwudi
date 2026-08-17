@@ -6,6 +6,14 @@
   },
   "version": "1.0.0-rc1",
   "description": "Service worker for tile cache",
+  "files": [
+    "dist",
+    "src",
+    "public/weiwudi-sw.js",
+    "README.md",
+    "README.ja.md",
+    "LICENSE"
+  ],
   "main": "dist/weiwudi.umd.js",
   "module": "dist/weiwudi.es.js",
   "types": "dist/weiwudi.d.ts",
