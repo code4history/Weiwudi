@@ -31,20 +31,20 @@ Weiwudi は MIT License のオープンソースソフトウェアです。
 ## クイックスタート
 
 <!-- release-pinned:start -->
-> **現在のリリース: `1.0.0-rc1`**（リリース候補）。このブロックは本リポジトリで唯一
+> **現在のリリース: `1.0.0`**。このブロックは本リポジトリで唯一
 > リリース版数を持つ場所です（ADR-0012）。ブロックの外はすべて 1.0 正式版を前提に
 > 書かれています。
 > npm: [`@c4h/weiwudi`](https://www.npmjs.com/package/@c4h/weiwudi)
-> [![npm rc](https://img.shields.io/npm/v/@c4h/weiwudi/rc)](https://www.npmjs.com/package/@c4h/weiwudi)
+> [![npm](https://img.shields.io/npm/v/@c4h/weiwudi)](https://www.npmjs.com/package/@c4h/weiwudi)
 
 ### インストール
 
 ```bash
 # pnpm（推奨）
-pnpm add @c4h/weiwudi@rc
+pnpm add @c4h/weiwudi
 
 # npm
-npm install @c4h/weiwudi@rc
+npm install @c4h/weiwudi
 ```
 
 ### 最小利用例
@@ -73,7 +73,7 @@ L.tileLayer(map.url).addTo(leafletMap);
 
 ```html
 <!-- Weiwudi メインライブラリ -->
-<script src="https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.0.0-rc1/dist/weiwudi.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.0.0/dist/weiwudi.umd.js"></script>
 ```
 
 サービスワーカーファイルでは以下のように使用します:
@@ -81,7 +81,7 @@ L.tileLayer(map.url).addTo(leafletMap);
 ```js
 // サービスワーカー内 (sw.js)
 importScripts("https://cdn.jsdelivr.net/npm/workbox-routing@7.4.0/build/workbox-routing.prod.umd.min.js");
-importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.0.0-rc1/dist/weiwudi-sw.umd.js");
+importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.0.0/dist/weiwudi-sw.umd.js");
 ```
 
 ### API リファレンス
