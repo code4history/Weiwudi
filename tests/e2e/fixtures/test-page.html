@@ -15,10 +15,17 @@
     <script type="module">
         import Weiwudi from '/dist/weiwudi.es.js';
 
+        // リロード回数を sessionStorage で数え、初回プロキシ制御の reload 不在を検証する probe
+        const loadCount = parseInt(sessionStorage.getItem('weiwudiLoadCount') || '0') + 1;
+        sessionStorage.setItem('weiwudiLoadCount', String(loadCount));
+
         window.weiwudiTest = {
             map: null,
             ready: false,
-            error: null
+            error: null,
+            loadCount: loadCount,
+            Weiwudi: Weiwudi,
+            controller: navigator.serviceWorker.controller
         };
 
         async function init() {
@@ -40,6 +47,7 @@
 
                 window.weiwudiTest.map = map;
                 window.weiwudiTest.ready = true;
+                window.weiwudiTest.controller = navigator.serviceWorker.controller;
                 document.getElementById('status').textContent = 'Ready';
 
                 // Update stats

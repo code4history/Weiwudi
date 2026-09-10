@@ -23,6 +23,8 @@ Weiwudi は MIT License のオープンソースソフトウェアです。
 
 - Service Worker ベースの XYZ・WMTS タイルマップ向けタイルキャッシュ
 - キャッシュ済み URL テンプレート経由の IndexedDB 自動タイルキャッシュ
+- ページリロードなしの初回プロキシ有効化（`skipWaiting` + `clients.claim`）
+- マップ単位のキャッシュ容量上限（`cacheMaxBytes`）と LRU 自動削除
 - 一括取得 (`fetchAll`) と進捗イベント (`proceed` / `finish` / `stop`)
 - URL テンプレート経由で Leaflet・OpenLayers など任意のマップライブラリと連携
 - MIT ライセンスのオープンソース・peer dependency は `workbox-routing`
@@ -52,7 +54,8 @@ npm install @c4h/weiwudi
 ```typescript
 import Weiwudi from '@c4h/weiwudi';
 
-// サービスワーカーを登録
+// サービスワーカーを登録（ページが制御下に入った時点で解決。
+// 初回アクセスからリロードなしで制御されます）
 await Weiwudi.registerSW('./sw.js', { scope: './' });
 
 // XYZ タイルマップを登録
@@ -60,12 +63,19 @@ const map = await Weiwudi.registerMap('xyz_map', {
   type: 'xyz',
   width: 10000,
   height: 6000,
-  url: 'http://example.com/{z}/{x}/{y}.jpg'
+  url: 'http://example.com/{z}/{x}/{y}.jpg',
+  cacheMaxBytes: 500 * 1024 * 1024 // キャッシュ容量の上限(byte、省略可)
 });
 
 // キャッシュ済み URL テンプレート経由でタイルを読み込み
 L.tileLayer(map.url).addTo(leafletMap);
 ```
+
+`registerSW` はサービスワーカーが現在のページを制御下に置いた時点で解決します
+（初回アクセスでもリロードなし）。制御できない場合（ページ URL が登録スコープ外
+など）は `"Error: Service worker did not control this page within 10000 ms"` で
+reject します。`cacheMaxBytes` はマップごとのキャッシュ合計サイズを制限し、
+最も使われていないタイルから自動削除します。省略すると容量上限なしです。
 
 ### CDN（jsDelivr）
 

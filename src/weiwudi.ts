@@ -60,6 +60,8 @@ export interface WeiwudiOptions {
     minLat?: number;
     // タイルキャッシュの有効期間(ms)。未指定は24時間 (#2)
     cacheTtl?: number;
+    // キャッシュ容量の上限(byte)。未指定は上限なし (#29)
+    cacheMaxBytes?: number;
     [key: string]: unknown;
 }
 
@@ -74,42 +76,56 @@ export default class Weiwudi extends WeiwudiEventTarget {
     listener: (e: MessageEvent) => void;
 
     static async registerSW(sw: string | URL, swOptions?: RegistrationOptions) {
-        if ('serviceWorker' in navigator) {
-            try {
-                const reg = await navigator.serviceWorker.register(sw, swOptions);
-                //console.log('Service Worker Registered');
-
-                // A wild service worker has appeared in reg.installing and maybe in waiting!
-                const newWorker = reg.installing;
-                const waitingWoker = reg.waiting;
-
-                if (newWorker) {
-                    if (newWorker.state === 'activated' && !waitingWoker) {
-                        // reload to avoid skipWaiting and clients.claim()
-                        window.location.reload();
-                    }
-                    newWorker.addEventListener('statechange', (_e) => {
-                        // newWorker.state has changed
-                        if (newWorker.state === 'activated' && !waitingWoker) {
-                            // reload to avoid skipWaiting and clients.claim()
-                            window.location.reload();
-                        }
-                    });
-                }
-                reg.onupdatefound = () => {
-                    //console.log('Found Service Worker update');
-                    reg.update();
-                };
-
-                await Weiwudi.swCheck();
-
-                return reg;
-            } catch (e) {
-                throw (`Error: Service worker registration failed with ${e}`);
-            }
-        } else {
+        if (!('serviceWorker' in navigator)) {
             throw ('Error: Service worker is not supported');
         }
+        let reg: ServiceWorkerRegistration;
+        try {
+            reg = await navigator.serviceWorker.register(sw, swOptions);
+        } catch (e) {
+            throw (`Error: Service worker registration failed with ${e}`);
+        }
+        // 初回ナビゲーションをリロードせずに SW の制御下へ置くため、
+        // ready + controller 取得を上限付きで待つ（#30）
+        await Weiwudi.waitForController();
+        await Weiwudi.swCheck();
+        return reg;
+    }
+
+    static async waitForController(): Promise<void> {
+        return new Promise((resolve, reject) => {
+            let settled = false;
+            let timeout: ReturnType<typeof setTimeout> | undefined;
+
+            function finish() {
+                if (settled) return;
+                settled = true;
+                if (timeout !== undefined) clearTimeout(timeout);
+                navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+            }
+
+            function onControllerChange() {
+                if (navigator.serviceWorker.controller) {
+                    finish();
+                    resolve();
+                }
+            }
+
+            navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+            timeout = setTimeout(() => {
+                finish();
+                reject('Error: Service worker did not control this page within 10000 ms');
+            }, 10000);
+            navigator.serviceWorker.ready.then(() => {
+                if (navigator.serviceWorker.controller) {
+                    finish();
+                    resolve();
+                }
+            }).catch(() => {
+                // ready が解決しない構成（scope 外 page など）では controllerchange も発火せず、
+                // 上限時間で reject される
+            });
+        });
     }
 
     static async swCheck() {
@@ -136,7 +152,7 @@ export default class Weiwudi extends WeiwudiEventTarget {
         const swCheck = await Weiwudi.swCheck();
         if (!swCheck) throw ('Weiwudi service worker is not implemented.');
         let text;
-        const p = ['type', 'url', 'width', 'height', 'tileSize', 'minZoom', 'maxZoom', 'maxLng', 'maxLat', 'minLng', 'minLat', 'cacheTtl'].reduce((p, key) => {
+        const p = ['type', 'url', 'width', 'height', 'tileSize', 'minZoom', 'maxZoom', 'maxLng', 'maxLat', 'minLng', 'minLat', 'cacheTtl', 'cacheMaxBytes'].reduce((p, key) => {
             if (typeof options[key] !== 'undefined') {
                 if (options[key] instanceof Array) {
                     options[key].map((val: string) => {

@@ -26,6 +26,8 @@ Weiwudi is open-source under the MIT License.
 
 - Service-worker-based tile cache for XYZ and WMTS tile maps
 - Automatic tile caching in IndexedDB via a cached URL template
+- First-visit proxy activation (`skipWaiting` + `clients.claim`) without a page reload
+- Per-map cache capacity limit (`cacheMaxBytes`) with least-recently-used eviction
 - Bulk prefetch (`fetchAll`) with progress events (`proceed` / `finish` / `stop`)
 - Works with any map library (Leaflet, OpenLayers, etc.) through the URL template
 - Open-source (MIT) with a peer dependency on `workbox-routing`
@@ -55,7 +57,8 @@ npm install @c4h/weiwudi
 ```typescript
 import Weiwudi from '@c4h/weiwudi';
 
-// Register the service worker
+// Register the service worker (resolves once the page is controlled,
+// from the first visit, without a reload)
 await Weiwudi.registerSW('./sw.js', { scope: './' });
 
 // Register an XYZ tile map
@@ -63,12 +66,20 @@ const map = await Weiwudi.registerMap('xyz_map', {
   type: 'xyz',
   width: 10000,
   height: 6000,
-  url: 'http://example.com/{z}/{x}/{y}.jpg'
+  url: 'http://example.com/{z}/{x}/{y}.jpg',
+  cacheMaxBytes: 500 * 1024 * 1024 // cache capacity limit in bytes (optional)
 });
 
 // Read tiles through the cached URL template
 L.tileLayer(map.url).addTo(leafletMap);
 ```
+
+`registerSW` resolves only after the service worker controls the current page
+(no reload on first visit). If the page cannot be controlled, it rejects with
+`"Error: Service worker did not control this page within 10000 ms"` (e.g. the
+page URL is outside the registration scope). `cacheMaxBytes` limits the total
+size of cached tiles for a map and evicts the least-recently-used tiles; omit it
+for no capacity limit.
 
 ### CDN (jsDelivr)
 

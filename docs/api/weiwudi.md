@@ -15,9 +15,14 @@ Register a service worker.
 
 **Returns:** `Promise<ServiceWorkerRegistration>`
 
+**Resolves when:** The registered service worker has activated and controls the
+current page. The worker calls `skipWaiting` on install and `clients.claim()` on
+activate, so the page is controlled from the first visit without a page reload.
+
 **Throws:**
 - `"Error: Service worker is not supported"`: When the browser doesn't support service workers
 - `"Error: Service worker registration failed with {error}"`: When registration fails
+- `"Error: Service worker did not control this page within 10000 ms"`: When the page is not controlled within 10000 ms (e.g. the page URL is outside the registration scope)
 
 **Example:**
 ```js
@@ -225,6 +230,7 @@ Configuration options for map registration.
     height: number,        // Map height in pixels
     tileSize?: number,     // Tile size (default: 256)
     cacheTtl?: number      // Tile cache lifetime in ms (default: 86400000, i.e. 24h)
+    cacheMaxBytes?: number // Cache capacity limit in bytes (unlimited if omitted)
 }
 ```
 
@@ -241,6 +247,7 @@ Configuration options for map registration.
     minZoom: number,       // Minimum zoom level
     maxZoom?: number,      // Maximum zoom level (unlimited if omitted)
     cacheTtl?: number      // Tile cache lifetime in ms (default: 86400000, i.e. 24h)
+    cacheMaxBytes?: number // Cache capacity limit in bytes (unlimited if omitted)
 }
 ```
 
@@ -252,6 +259,11 @@ Configuration options for map registration.
   re-fetches it from `url`. If the re-fetch succeeds but writing the new
   tile to the cache fails (e.g. storage quota exceeded), the freshly fetched
   tile is still served to the caller.
+- `cacheMaxBytes`: limits the total size (in bytes) of cached tiles for this
+  map. When the limit is reached, the least-recently-used tiles are evicted.
+  When `cacheMaxBytes` is `0` or a single tile exceeds the limit, the tile
+  response is still delivered to the caller but not cached. When omitted, no
+  capacity limit is applied.
 
 ---
 

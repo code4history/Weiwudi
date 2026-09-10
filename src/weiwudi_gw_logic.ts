@@ -21,6 +21,8 @@ interface MapSetting {
   tileSize?: number;
   // タイルキャッシュの有効期間(ms)。未指定は24時間 (#2)
   cacheTtl?: number;
+  // キャッシュ容量の上限(byte)。未指定は上限なし (#29)
+  cacheMaxBytes?: number;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }
@@ -30,6 +32,8 @@ interface TileCacheItem {
   headers: Record<string, string>;
   blob: Blob;
   epoch: number;
+  // LRU 退避に使う最終アクセス時刻。過去レコードで欠落している場合は epoch を fallback とする (#29)
+  accessedAt?: number;
 }
 
 interface FetchAllBlocker {
@@ -60,6 +64,15 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
   const MERC_MAX = 20037508.342789244;
   const dbCache: DBDict = {};
   let fetchAllBlocker: FetchAllBlocker | undefined;
+
+  // 初回ナビゲーションをリロードせずに SW の制御下へ置くため、install で skipWaiting・
+  // activate で clients.claim を実行する（#30）
+  self.addEventListener('install', (event) => {
+    event.waitUntil(self.skipWaiting());
+  });
+  self.addEventListener('activate', (event) => {
+    event.waitUntil(self.clients.claim());
+  });
 
   const extractTemplate = (template: string, z: number, x: number, y: number) => {
     const result = template.replace('{z}', String(z))
@@ -269,6 +282,67 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
       };
     });
   };
+  // 容量上限付き保存（#29）。単一 readwrite transaction 内で既存レコードを LRU 順
+  // （accessedAt 昇順・同値は z_x_y 昇順）に削除してから新レコードを保存する。
+  // putItem の直後に別 transaction で削除せず、並行する fetchAll にも上限を越える
+  // 観測窓を残さない。
+  const putItemWithEviction = async (
+    db: IDBDatabase,
+    table: string,
+    item: TileCacheItem,
+    cacheMaxBytes: number
+  ): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction([table], 'readwrite');
+      const store = tx.objectStore(table);
+      const records: { key: string; size: number; accessedAt: number }[] = [];
+      const cursorReq = store.openCursor();
+      cursorReq.onsuccess = function (_e) {
+        const cursor = cursorReq.result;
+        if (cursor) {
+          const v = cursor.value as TileCacheItem;
+          if (v && v.z_x_y) {
+            records.push({
+              key: v.z_x_y,
+              size: v.blob ? v.blob.size : 0,
+              accessedAt: typeof v.accessedAt === 'number' ? v.accessedAt : (v.epoch || 0)
+            });
+          }
+          cursor.continue();
+        } else {
+          records.sort((a, b) => {
+            if (a.accessedAt !== b.accessedAt) return a.accessedAt - b.accessedAt;
+            return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+          });
+          const newSize = item.blob.size;
+          const willSave = cacheMaxBytes > 0 && newSize <= cacheMaxBytes;
+          // 保存する場合、同一 key は put で置き換わるため退避候補から除外する
+          const candidates = willSave ? records.filter((r) => r.key !== item.z_x_y) : records.slice();
+          let total = candidates.reduce((s, r) => s + r.size, 0);
+          const budget = willSave ? cacheMaxBytes - newSize : cacheMaxBytes;
+          let i = 0;
+          while (total > budget && i < candidates.length) {
+            store.delete(candidates[i].key);
+            total -= candidates[i].size;
+            i++;
+          }
+          if (willSave) store.put(item);
+        }
+      };
+      cursorReq.onerror = function (e) {
+        reject(e);
+      };
+      tx.oncomplete = function (_e) {
+        resolve();
+      };
+      tx.onabort = function (e) {
+        reject(e);
+      };
+      tx.onerror = function (e) {
+        reject(e);
+      };
+    });
+  };
   const handlerCb: RouteHandlerCallback = async ({ url, event }) => {
     const fetchEvent = event instanceof FetchEvent ? event : undefined;
     const client = fetchEvent && fetchEvent.clientId ? await self.clients.get(fetchEvent.clientId) : undefined;
@@ -350,12 +424,19 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
             resp.headers.forEach((val, key) => { headers[key] = val; });
             blob = await resp.blob();
             try {
-              await putItem(cacheDB, 'tileCache', {
+              const item: TileCacheItem = {
                 'z_x_y': `${z}_${x}_${y}`,
                 headers: headers,
                 blob: blob,
-                epoch: nowEpoch
-              });
+                epoch: nowEpoch,
+                accessedAt: nowEpoch
+              };
+              const cacheMaxBytes = setting.cacheMaxBytes;
+              if (cacheMaxBytes === undefined) {
+                await putItem(cacheDB, 'tileCache', item);
+              } else {
+                await putItemWithEviction(cacheDB, 'tileCache', item, cacheMaxBytes);
+              }
             } catch (_e) {
               // クオータ超過等でキャッシュ保存に失敗しても、取得済みタイルの配信は継続する (#22)
               if (fetchAllBlocker) fetchAllBlocker.error++;
@@ -386,6 +467,13 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
       } else if (!noOutput) {
         headers = cached.headers;
         blob = cached.blob;
+        // cache hit は accessedAt だけを更新する（TTL 判定の epoch は据え置き）(#29)
+        try {
+          cached.accessedAt = nowEpoch;
+          await putItem(cacheDB, 'tileCache', cached);
+        } catch (_e) {
+          // accessedAt 更新の失敗は配信に影響させない
+        }
       }
     }
     return noOutput ? undefined : new Response(blob, {
@@ -511,6 +599,16 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
           if (!retVal) {
             query.tileSize = parseInt(query.tileSize || 256);
             if (query.cacheTtl !== undefined) query.cacheTtl = parseInt(query.cacheTtl);
+            // cacheMaxBytes は有限の 0 以上整数のみ受け付け、無効値は設定を保存しない (#29)
+            if (query.cacheMaxBytes !== undefined) {
+              const raw = String(query.cacheMaxBytes).trim();
+              const parsed = parseInt(raw);
+              if (!Number.isFinite(parsed) || parsed < 0 || String(parsed) !== raw) {
+                retVal = `Error: Attribute "cacheMaxBytes" is not a valid non-negative integer`;
+              } else {
+                query.cacheMaxBytes = parsed;
+              }
+            }
             switch (query.type) {
               case 'xyz':
                 retVal = checkAttributes(query, ['width', 'height']);

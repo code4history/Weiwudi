@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weiwudi Scope Out Test Page</title>
+</head>
+
+<body>
+    <h1>Weiwudi Scope Out E2E Test Page</h1>
+    <div id="status">Initializing...</div>
+
+    <script type="module">
+        import Weiwudi from '/dist/weiwudi.es.js';
+
+        window.scopeOutTest = {
+            done: false,
+            error: null
+        };
+
+        (async () => {
+            try {
+                // この page は /tests/e2e/fixtures/ 直下だが、SW をその内側の
+                // /tests/e2e/fixtures/scoped/ に登録する。SW は install/activate するが
+                // page は scope 外のため claim されず、controllerchange も発火しない。
+                // registerSW は 10000 ms の上限で reject する（#30）
+                await Weiwudi.registerSW('./test-sw.js', { scope: '/tests/e2e/fixtures/scoped/' });
+                window.scopeOutTest.done = true;
+                document.getElementById('status').textContent = 'Resolved (unexpected)';
+            } catch (e) {
+                window.scopeOutTest.error = e.toString();
+                window.scopeOutTest.done = true;
+                document.getElementById('status').textContent = 'Rejected: ' + e.toString();
+            }
+        })();
+    </script>
+</body>
+
+</html>

@@ -18,6 +18,7 @@ export interface WeiwudiOptions {
     minLng?: number;
     minLat?: number;
     cacheTtl?: number;
+    cacheMaxBytes?: number;
     [key: string]: unknown;
 }
 export interface WeiwudiInternalOps {
@@ -28,6 +29,7 @@ export default class Weiwudi extends WeiwudiEventTarget {
     url?: string;
     listener: (e: MessageEvent) => void;
     static registerSW(sw: string | URL, swOptions?: RegistrationOptions): Promise<ServiceWorkerRegistration>;
+    static waitForController(): Promise<void>;
     static swCheck(): Promise<boolean>;
     static registerMap(mapID: string, options: WeiwudiOptions): Promise<Weiwudi>;
     static retrieveMap(mapID: string): Promise<Weiwudi>;

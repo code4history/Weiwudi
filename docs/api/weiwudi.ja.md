@@ -14,9 +14,14 @@
 
 **戻り値:** `Promise<ServiceWorkerRegistration>`
 
+**解決条件:** 登録したサービスワーカーがアクティベートされ、現在のページを制御下に
+置いた時点で解決します。ワーカーは install で `skipWaiting`、activate で
+`clients.claim()` を呼ぶため、初回アクセスからページのリロードなしで制御されます。
+
 **例外:**
 - `"Error: Service worker is not supported"`: ブラウザがサービスワーカーをサポートしていない場合
 - `"Error: Service worker registration failed with {error}"`: 登録に失敗した場合
+- `"Error: Service worker did not control this page within 10000 ms"`: 10000 ms 以内にページが制御下に入らなかった場合（例: ページ URL が登録スコープ外）
 
 **例:**
 ```js
@@ -224,6 +229,7 @@ Weiwudiインスタンスは `WeiwudiEventTarget` を継承し、以下のイベ
     height: number,        // マップ高さ(ピクセル)
     tileSize?: number,     // タイルサイズ(デフォルト: 256)
     cacheTtl?: number      // タイルキャッシュ有効期間(ms、デフォルト: 86400000 = 24時間)
+    cacheMaxBytes?: number // キャッシュ容量の上限(byte、省略時は上限なし)
 }
 ```
 
@@ -240,6 +246,7 @@ Weiwudiインスタンスは `WeiwudiEventTarget` を継承し、以下のイベ
     minZoom: number,       // 最小ズームレベル
     maxZoom?: number,      // 最大ズームレベル(省略時は無制限)
     cacheTtl?: number      // タイルキャッシュ有効期間(ms、デフォルト: 86400000 = 24時間)
+    cacheMaxBytes?: number // キャッシュ容量の上限(byte、省略時は上限なし)
 }
 ```
 
@@ -251,6 +258,11 @@ Weiwudiインスタンスは `WeiwudiEventTarget` を継承し、以下のイベ
   `url` から再取得します。再取得に成功してもキャッシュへの書き込みが
   失敗した場合(ストレージ容量超過など)、取得済みのタイルはそのまま
   呼び出し元へ配信されます。
+- `cacheMaxBytes`: このマップのキャッシュ済みタイルの合計サイズ(byte)を
+  制限します。上限に達すると最も使われていないタイルから自動削除
+  (LRU)します。`cacheMaxBytes` が `0` の場合、または単一タイルが上限を
+  超える場合は、タイル応答は呼び出し元へ配信されますがキャッシュされ
+  ません。省略時は容量上限なしです。
 
 ---
 
