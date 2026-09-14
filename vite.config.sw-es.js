@@ -24,8 +24,7 @@ export default defineConfig({
     plugins: [
         dts({
             include: ['src/weiwudi_gw.ts', 'src/weiwudi_gw_logic.ts'],
-            outDir: 'dist',
-            insertTypesEntry: true
+            outDir: 'dist'
         })
     ]
 });
