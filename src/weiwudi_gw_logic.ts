@@ -611,7 +611,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
             }
             switch (query.type) {
               case 'xyz':
-                retVal = checkAttributes(query, ['width', 'height']);
+                if (!retVal) retVal = checkAttributes(query, ['width', 'height']); // cacheMaxBytes の誤りを上書きしない（wmts と同じ守り・#44）
                 if (!retVal) {
                   query.width = parseInt(query.width);
                   query.height = parseInt(query.height);

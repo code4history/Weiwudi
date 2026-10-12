@@ -311,7 +311,7 @@ function W(S) {
             }
             switch (t.type) {
               case "xyz":
-                if (o = l(t, ["width", "height"]), !o) {
+                if (o || (o = l(t, ["width", "height"])), !o) {
                   t.width = parseInt(t.width), t.height = parseInt(t.height);
                   const e = (n) => Math.ceil(Math.log(n / t.tileSize) / Math.log(2));
                   t.maxZoom = Math.max(e(t.width), e(t.height)), t.minZoom = t.minZoom ? parseInt(t.minZoom) : 0, t.minX = 0, t.minY = 0, t.maxX = Math.ceil(t.width / t.tileSize) - 1, t.maxY = Math.ceil(t.height / t.tileSize) - 1;

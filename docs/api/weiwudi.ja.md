@@ -262,7 +262,9 @@ Weiwudiインスタンスは `WeiwudiEventTarget` を継承し、以下のイベ
   制限します。上限に達すると最も使われていないタイルから自動削除
   (LRU)します。`cacheMaxBytes` が `0` の場合、または単一タイルが上限を
   超える場合は、タイル応答は呼び出し元へ配信されますがキャッシュされ
-  ません。省略時は容量上限なしです。
+  ません。省略時は容量上限なしです。0 以上の整数でなければ `registerMap` は
+  `Error: Attribute "cacheMaxBytes" is not a valid non-negative integer` で
+  reject し、地図は登録されません。
 
 ---
 
