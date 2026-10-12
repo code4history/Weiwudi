@@ -138,10 +138,13 @@ pnpm build
 #### テスト
 
 ```bash
-pnpm run test:e2e
+pnpm run test:unit   # ユニットテスト（Vitest・tests/unit/）
+pnpm test            # E2E テスト（Playwright・tests/e2e/）
 ```
 
-テストでは以下を検証します:
+ユニットテストは Service Worker のゲートウェイロジック（`src/weiwudi_gw_logic.ts`）の API の分岐・タイルの取得とキャッシュ・容量上限を検証します。
+
+E2E テストでは以下を検証します:
 - サービスワーカーの登録とアクティベーション
 - タイルキャッシュの動作
 - キャッシュ統計の取得
