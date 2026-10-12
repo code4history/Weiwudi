@@ -66,10 +66,12 @@
     "@typescript-eslint/eslint-plugin": "^8.66.0",
     "@typescript-eslint/parser": "^8.66.0",
     "eslint": "^10.10.0",
+    "fake-indexeddb": "^6.2.5",
     "globals": "^16.5.0",
     "typescript": "^5.9.3",
     "vite": "^7.3.5",
     "vite-plugin-dts": "^5.1.0",
+    "vitest": "^4.1.11",
     "workbox-build": "^7.4.0",
     "workbox-core": "^7.4.0",
     "workbox-window": "^7.4.0"
