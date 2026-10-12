@@ -142,10 +142,13 @@ This generates:
 #### Test
 
 ```bash
-pnpm run test:e2e
+pnpm run test:unit   # Unit tests (Vitest, tests/unit/)
+pnpm test            # E2E tests (Playwright, tests/e2e/)
 ```
 
-The tests verify:
+The unit tests cover the service-worker gateway logic (`src/weiwudi_gw_logic.ts`): API branching, tile fetching and caching, and the cache size limit.
+
+The E2E tests verify:
 - Service Worker registration and activation
 - Tile caching behavior
 - Cache statistics retrieval

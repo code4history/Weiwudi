@@ -20,11 +20,11 @@ This document (`AGENTS.md`) itself is written in English, independent of princip
 
 ## Project Structure & Module Organization
 
-Service-worker tile-cache logic lives in `src/` (`weiwudi.ts` client API, `weiwudi_sw.ts` service-worker entry, `weiwudi_gw.ts`/`weiwudi_gw_logic.ts` gateway logic). `workbox-config.js` configures the Workbox-based service worker build. Playwright end-to-end specs live in `tests/e2e/` (`cache.spec.js`); there is no separate unit-test suite. `public/` hosts the built service-worker output consumed by the demo/integration pages.
+Service-worker tile-cache logic lives in `src/` (`weiwudi.ts` client API, `weiwudi_sw.ts` service-worker entry, `weiwudi_gw.ts`/`weiwudi_gw_logic.ts` gateway logic). `workbox-config.js` configures the Workbox-based service worker build. Vitest unit tests live in `tests/unit/` (`weiwudi-gw-logic.test.ts`, with the service-worker environment stubs in `sw-harness.ts`) and Playwright end-to-end specs live in `tests/e2e/` (`cache.spec.js`). `public/` hosts the built service-worker output consumed by the demo/integration pages.
 
 ## Build, Test, and Development Commands
 
-`pnpm dev` starts the Vite dev server. `pnpm build` runs three separate Vite configs in sequence (`vite.config.lib.js` for the library bundle, `vite.config.sw-es.js` and `vite.config.sw-umd.js` for the service-worker bundles) and copies the UMD service-worker output into `public/weiwudi-sw.js`. `pnpm build:demo` runs `pnpm build` then `vite build -c vite.config.demo.js`. `pnpm typecheck` runs `tsc --noEmit`. `pnpm test` runs the Playwright suite (this repository has no Vitest unit tests). `pnpm lint` runs ESLint over `src/**/*.ts`. `pnpm preview` serves the built demo locally.
+`pnpm dev` starts the Vite dev server. `pnpm build` runs three separate Vite configs in sequence (`vite.config.lib.js` for the library bundle, `vite.config.sw-es.js` and `vite.config.sw-umd.js` for the service-worker bundles) and copies the UMD service-worker output into `public/weiwudi-sw.js`. `pnpm build:demo` runs `pnpm build` then `vite build -c vite.config.demo.js`. `pnpm typecheck` runs `tsc --noEmit`. `pnpm run test:unit` runs the Vitest unit tests; `pnpm test` runs the Playwright suite. `pnpm lint` runs ESLint over `src/**/*.ts`. `pnpm preview` serves the built demo locally.
 
 ## Coding Style & Naming Conventions
 
@@ -32,7 +32,7 @@ TypeScript with `strict: true` in `tsconfig.json` (no `@/*` path alias in this r
 
 ## Testing Guidelines
 
-Playwright is the only test framework in this repository (`pnpm test`); specs live in `tests/e2e/` (`cache.spec.js`) and exercise the service-worker cache behavior against a running dev server (`playwright.config.js` starts `webServer` at `http://localhost:5173`). There is no unit-test layer to run separately.
+Unit tests use Vitest (`pnpm run test:unit`); specs live in `tests/unit/` and exercise `src/weiwudi_gw_logic.ts` in Node with the service-worker globals stubbed (`fake-indexeddb` for IndexedDB). `vitest.config.ts` collects only `tests/unit/**/*.test.ts`. E2E tests use Playwright (`pnpm test`); specs live in `tests/e2e/` (`cache.spec.js`) and exercise the service-worker cache behavior against a running dev server (`playwright.config.js` starts `webServer` at `http://localhost:5173`).
 
 ## Commit & Pull Request Guidelines
 
