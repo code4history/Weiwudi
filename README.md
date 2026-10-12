@@ -36,7 +36,7 @@ Weiwudi is open-source under the MIT License.
 ## Quick Start
 
 <!-- release-pinned:start -->
-> **Current release: `1.0.0`**. This block is the only place in
+> **Current release: `1.1.0`**. This block is the only place in
 > this repository that carries a release version (ADR-0012); everything outside it is
 > written against the 1.0 release.
 > npm: [`@c4h/weiwudi`](https://www.npmjs.com/package/@c4h/weiwudi)
@@ -87,7 +87,7 @@ For browser usage without a build tool, load Weiwudi via CDN:
 
 ```html
 <!-- Weiwudi main library -->
-<script src="https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.0.0/dist/weiwudi.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.1.0/dist/weiwudi.umd.js"></script>
 ```
 
 For the service worker file:
@@ -95,7 +95,7 @@ For the service worker file:
 ```js
 // In your service worker (sw.js)
 importScripts("https://cdn.jsdelivr.net/npm/workbox-routing@7.4.0/build/workbox-routing.prod.umd.min.js");
-importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.0.0/dist/weiwudi-sw.umd.js");
+importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.1.0/dist/weiwudi-sw.umd.js");
 ```
 
 ### API reference
