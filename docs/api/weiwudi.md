@@ -263,7 +263,9 @@ Configuration options for map registration.
   map. When the limit is reached, the least-recently-used tiles are evicted.
   When `cacheMaxBytes` is `0` or a single tile exceeds the limit, the tile
   response is still delivered to the caller but not cached. When omitted, no
-  capacity limit is applied.
+  capacity limit is applied. Must be a non-negative integer; otherwise
+  `registerMap` rejects with `Error: Attribute "cacheMaxBytes" is not a valid non-negative integer`
+  and the map is not registered.
 
 ---
 
