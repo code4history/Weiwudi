@@ -31,6 +31,7 @@
   },
   "scripts": {
     "test": "playwright test",
+    "test:unit": "vitest run",
     "dev": "vite --host",
     "build": "vite build -c vite.config.lib.js && vite build -c vite.config.sw-es.js && vite build -c vite.config.sw-umd.js && node -e \"import('fs').then(fs => fs.copyFileSync('dist/weiwudi-sw.umd.js', 'public/weiwudi-sw.js'))\"",
     "build:demo": "pnpm run build && vite build -c vite.config.demo.js",
