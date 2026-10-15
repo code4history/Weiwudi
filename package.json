@@ -70,7 +70,7 @@
     "fake-indexeddb": "^6.2.5",
     "globals": "^16.5.0",
     "typescript": "^5.9.3",
-    "vite": "^7.3.5",
+    "vite": "^8.3.4",
     "vite-plugin-dts": "^5.1.0",
     "vitest": "^4.1.11",
     "workbox-build": "^7.4.0",
