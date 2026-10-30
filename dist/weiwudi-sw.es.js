@@ -1,6 +1,6 @@
 import { registerRoute as W } from "workbox-routing";
 function J(R) {
-  const u = 20037508342789244e-9, D = {}, Z = /* @__PURE__ */ new Set();
+  const u = 20037508342789244e-9, D = {}, M = /* @__PURE__ */ new Set();
   let A;
   self.addEventListener("install", (s) => {
     s.waitUntil(self.skipWaiting());
@@ -17,7 +17,7 @@ function J(R) {
       o.push(i);
     }
     return new Blob(o, { type: t });
-  }, T = (s) => {
+  }, S = (s) => {
     const t = new Error(`Opening database "${s}" is blocked by another connection`);
     return t.name = "BlockedError", t;
   }, v = (s, t, r, c) => new Promise((o, l) => {
@@ -28,35 +28,40 @@ function J(R) {
         r && c && !e.objectStoreNames.contains(r) && e.createObjectStore(r, { keyPath: c });
       }, a.onsuccess = function() {
         const e = a.result;
-        Z.delete(s), e.onversionchange = function() {
+        M.delete(s), e.onversionchange = function() {
           e.close(), D[s] === e && delete D[s];
         }, D[s] = e, o(e);
       }, a.onerror = function() {
-        Z.delete(s), l(a.error);
+        M.delete(s), l(a.error);
       }, a.onblocked = function() {
-        Z.add(s), l(T(s));
+        M.add(s), l(S(s));
       };
     } catch (a) {
       l(a);
     }
-  }), M = async (s, t, r) => {
-    if (Z.has(s)) throw T(s);
+  }), $ = async (s, t, r) => {
+    if (M.has(s)) throw S(s);
     const c = D[s] ?? await v(s, void 0, t, r);
     if (!t || !r || c.objectStoreNames.contains(t)) return c;
     const { version: o } = c;
     return c.close(), D[s] === c && delete D[s], v(s, o + 1, t, r);
-  }, $ = () => M("Weiwudi", "mapSetting", "mapID"), Y = async (s) => (D[s] && (D[s].close(), delete D[s]), new Promise((t, r) => {
-    try {
-      const c = indexedDB.deleteDatabase(s);
-      c.onsuccess = async (o) => {
-        t();
-      }, c.onerror = function(o) {
-        r(o);
-      };
-    } catch (c) {
-      r(c);
-    }
-  })), C = async (s, t) => new Promise((r, c) => {
+  }, _ = () => $("Weiwudi", "mapSetting", "mapID"), Y = async (s) => {
+    if (M.has(s)) throw S(s);
+    return D[s] && (D[s].close(), delete D[s]), new Promise((t, r) => {
+      try {
+        const c = indexedDB.deleteDatabase(s);
+        c.onsuccess = async (o) => {
+          M.delete(s), t();
+        }, c.onerror = function(o) {
+          M.delete(s), r(o);
+        }, c.onblocked = function() {
+          M.add(s), r(S(s));
+        };
+      } catch (c) {
+        r(c);
+      }
+    });
+  }, C = async (s, t) => new Promise((r, c) => {
     const o = s.transaction([t], "readwrite"), a = o.objectStore(t).clear();
     a.onsuccess = function(e) {
     }, a.onerror = function(e) {
@@ -86,7 +91,7 @@ function J(R) {
     }, o.onerror = function(i) {
       c(i);
     };
-  }), E = async (s, t, r, c) => new Promise((o, l) => {
+  }), Z = async (s, t, r, c) => new Promise((o, l) => {
     const a = s.transaction([t], "readonly"), e = a.objectStore(t), n = c ? e.getKey(r) : e.get(r);
     n.onsuccess = function(i) {
     }, n.onerror = function(i) {
@@ -98,7 +103,7 @@ function J(R) {
     }, a.onerror = function(i) {
       l(i);
     };
-  }), S = async (s, t, r) => new Promise((c, o) => {
+  }), T = async (s, t, r) => new Promise((c, o) => {
     const l = s.transaction([t], "readwrite"), e = l.objectStore(t).put(r);
     e.onsuccess = function(n) {
     }, e.onerror = function(n) {
@@ -178,7 +183,7 @@ function J(R) {
     return new Response("Not Found", { status: 404 });
   }, B = async (s, t, r, c, o) => {
     let l;
-    const a = await $(), e = await E(a, "mapSetting", s);
+    const a = await _(), e = await Z(a, "mapSetting", s);
     if (!o) {
       if (!e) return `Error: MapID "${s}" not found`;
       if (t < (e.minZoom || 0) || t > (e.maxZoom ?? 1 / 0)) l = "zoom";
@@ -193,7 +198,7 @@ function J(R) {
         "content-type": "image/png"
       }, i = X("iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAMAAABrrFhUAAAAB3RJTUUH3QgIBToaSbAjlwAAABd0RVh0U29mdHdhcmUAR0xEUE5HIHZlciAzLjRxhaThAAAACHRwTkdHTEQzAAAAAEqAKR8AAAAEZ0FNQQAAsY8L/GEFAAAAA1BMVEX///+nxBvIAAAAAXRSTlMAQObYZgAAAFRJREFUeNrtwQEBAAAAgJD+r+4ICgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABgBDwABHHIJwwAAAABJRU5ErkJggg==", n["content-type"]));
     else {
-      const f = await M(`Weiwudi_${s}`), p = await E(f, "tileCache", `${t}_${r}_${c}`, o), g = (/* @__PURE__ */ new Date()).getTime(), b = e.cacheTtl ?? 864e5;
+      const f = await $(`Weiwudi_${s}`), p = await Z(f, "tileCache", `${t}_${r}_${c}`, o), g = (/* @__PURE__ */ new Date()).getTime(), b = e.cacheTtl ?? 864e5;
       if (!p || !p.epoch || g - p.epoch > b) {
         let I = "";
         e.url instanceof Array ? I = e.url[Math.floor(Math.random() * e.url.length)] : typeof e.url == "string" && (I = e.url);
@@ -201,8 +206,8 @@ function J(R) {
         try {
           const d = await fetch(x);
           if (d.ok) {
-            n = {}, d.headers.forEach((w, _) => {
-              n[_] = w;
+            n = {}, d.headers.forEach((w, E) => {
+              n[E] = w;
             }), i = await d.blob();
             try {
               const w = {
@@ -211,14 +216,14 @@ function J(R) {
                 blob: i,
                 epoch: g,
                 accessedAt: g
-              }, _ = e.cacheMaxBytes;
-              _ === void 0 ? await S(f, "tileCache", w) : await P(f, "tileCache", w, _);
+              }, E = e.cacheMaxBytes;
+              E === void 0 ? await T(f, "tileCache", w) : await P(f, "tileCache", w, E);
             } catch {
               A && A.error++;
             }
           } else
-            p ? (n = p.headers, i = p.blob) : (m = d.status, h = d.statusText, n = {}, d.headers.forEach((w, _) => {
-              n[_] = w;
+            p ? (n = p.headers, i = p.blob) : (m = d.status, h = d.statusText, n = {}, d.headers.forEach((w, E) => {
+              n[E] = w;
             }), i = await d.blob()), A && A.error++;
         } catch {
           p ? (n = p.headers, i = p.blob) : (m = 404, h = "Not Found"), A && A.error++;
@@ -226,7 +231,7 @@ function J(R) {
       } else if (!o) {
         n = p.headers, i = p.blob;
         try {
-          p.accessedAt = g, await S(f, "tileCache", p);
+          p.accessedAt = g, await T(f, "tileCache", p);
         } catch {
         }
       }
@@ -238,7 +243,7 @@ function J(R) {
     });
   }, U = async (s, t) => {
     let r = 0, c = 0;
-    const o = await M(`Weiwudi_${t.mapID}`), l = await L(o, "tileCache");
+    const o = await $(`Weiwudi_${t.mapID}`), l = await L(o, "tileCache");
     try {
       const a = [], e = t.minZoom || 0, n = t.maxZoom || 0;
       for (let h = e; h <= n; h++) {
@@ -304,7 +309,7 @@ function J(R) {
           break;
         case "info":
           if (o = l(t, ["mapID"]), !o) {
-            const a = await $(), e = await E(a, "mapSetting", t.mapID);
+            const a = await _(), e = await Z(a, "mapSetting", t.mapID);
             e ? o = new Response(JSON.stringify(e), {
               headers: new Headers({
                 "content-type": "application/json"
@@ -313,7 +318,7 @@ function J(R) {
           }
           break;
         case "add": {
-          const a = await $();
+          const a = await _();
           if (o = l(t, ["mapID", "type", "url"]), !o) {
             if (t.tileSize = parseInt(t.tileSize || 256), t.cacheTtl !== void 0 && (t.cacheTtl = parseInt(t.cacheTtl)), t.cacheMaxBytes !== void 0) {
               const e = String(t.cacheMaxBytes).trim(), n = parseInt(e);
@@ -350,7 +355,7 @@ function J(R) {
                 t.totalTile += (h - i + 1) * (f - m + 1);
               }
             }
-            await S(a, "mapSetting", t), await M(`Weiwudi_${t.mapID}`, "tileCache", "z_x_y"), o = new Response(JSON.stringify(t), {
+            await T(a, "mapSetting", t), await $(`Weiwudi_${t.mapID}`, "tileCache", "z_x_y"), o = new Response(JSON.stringify(t), {
               headers: new Headers({
                 "content-type": "application/json"
               })
@@ -362,7 +367,7 @@ function J(R) {
           if (o = l(t, ["mapID"]), A && A.mapID == t.mapID)
             o = `Error: ${t.mapID} is under fetching process. Please cancel it first`;
           else if (!o) {
-            const a = await M(`Weiwudi_${t.mapID}`);
+            const a = await $(`Weiwudi_${t.mapID}`);
             await C(a, "tileCache"), o = `Cleaned: ${t.mapID}`;
           }
           break;
@@ -371,7 +376,7 @@ function J(R) {
             o = `Error: ${t.mapID} is under fetching process. Please cancel it first`;
           else if (!o) {
             await Y(`Weiwudi_${t.mapID}`);
-            const a = await $();
+            const a = await _();
             await F(a, "mapSetting", t.mapID), o = `Deleted: ${t.mapID}`;
           }
           break;
@@ -380,10 +385,10 @@ function J(R) {
           break;
         case "stats":
           if (o = l(t, ["mapID"]), !o) {
-            const a = await $(), e = await E(a, "mapSetting", t.mapID);
+            const a = await _(), e = await Z(a, "mapSetting", t.mapID);
             if (!e) o = `Error: MapID "${t.mapID}" not found`;
             else {
-              const n = await M(`Weiwudi_${t.mapID}`), i = await z(n, "tileCache");
+              const n = await $(`Weiwudi_${t.mapID}`), i = await z(n, "tileCache");
               e.totalTile && (i.total = e.totalTile, i.percent = Math.floor(i.count / i.total * 100)), o = new Response(JSON.stringify(i), {
                 headers: new Headers({
                   "content-type": "application/json"
@@ -399,7 +404,7 @@ function J(R) {
         }
         case "fetchAll":
           if (o = l(t, ["mapID"]), !o && c) {
-            const a = await $(), e = await E(a, "mapSetting", t.mapID);
+            const a = await _(), e = await Z(a, "mapSetting", t.mapID);
             e ? e.totalTile ? A ? o = `Error: Another fetching process is running: "${A.mapID}" (${A.count} / ${A.total})` : (setTimeout(() => {
               A = {
                 mapID: t.mapID,
