@@ -765,5 +765,5 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
     if (retVal) return retVal;
   };
 
-  registerRoute(/^https?:\/\/weiwudi.example.com/, handlerCb, 'GET');
+  registerRoute(/^https?:\/\/weiwudi\.example\.com(?=[/?#]|$)/, handlerCb, 'GET');
 }
