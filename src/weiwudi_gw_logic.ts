@@ -152,6 +152,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
   };
   const getSettingDB = (): Promise<IDBDatabase> => getDB('Weiwudi', 'mapSetting', 'mapID');
   const deleteDB = async (dbname: string): Promise<void> => {
+    if (blockedDBs.has(dbname)) throw blockedError(dbname);
     if (dbCache[dbname]) {
       const db = dbCache[dbname];
       db.close();
@@ -162,10 +163,17 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
         const deleteReq = indexedDB.deleteDatabase(dbname);
 
         deleteReq.onsuccess = async (_event) => {
+          blockedDBs.delete(dbname);
           resolve();
         };
         deleteReq.onerror = function (error) {
+          blockedDBs.delete(dbname);
           reject(error);
+        };
+        // open と同じく、閉じない接続が残ると完了しない。要求は生きていて、閉じられれば消える
+        deleteReq.onblocked = function () {
+          blockedDBs.add(dbname);
+          reject(blockedError(dbname));
         };
       } catch (e) {
         reject(e);

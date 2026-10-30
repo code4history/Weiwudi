@@ -483,6 +483,18 @@ describe('登録の DB を最初に開く API（#47）', () => {
     const res = await h.requestFromClient('/api/fetchAll?mapID=x', { postMessage: vi.fn() });
     expect(await res.text()).toBe('Error: MapID "x" not found');
   });
+
+  it.each([
+    ['cache', (h: ReturnType<typeof createSwHarness>) => h.request('/api/cache/x/0/0/0')],
+    ['delete', (h: ReturnType<typeof createSwHarness>) => h.request('/api/delete?mapID=x')],
+    ['fetchAll', (h: ReturnType<typeof createSwHarness>) =>
+      h.requestFromClient('/api/fetchAll?mapID=x', { postMessage: vi.fn() })],
+  ])('空の DB で %s のあとも add が通り、地図の情報が読める', async (_name, first) => {
+    const h = createSwHarness();
+    await first(h);
+    expect(await (await h.request(ADD)).json()).toMatchObject({ mapID: 'x' });
+    expect(await (await h.request('/api/info?mapID=x')).json()).toMatchObject({ mapID: 'x' });
+  });
 });
 
 describe('store の無い DB の修復（#47）', () => {
@@ -558,6 +570,17 @@ describe('store の無い DB の修復（#47）', () => {
       expect(await (await h.request(ADD)).json()).toMatchObject({ mapID: 'x' });
     });
     expect(await (await h.request('/api/info?mapID=x')).json()).toMatchObject({ mapID: 'x' });
+  });
+
+  it('地図の DB を閉じない接続が残るときも、delete は止まらず Error の文を返す', async () => {
+    const { factory, connection } = await brokenFactory('Weiwudi_x');
+    const h = startSw(factory);
+    expect(await (await h.request('/api/delete?mapID=x')).text()).toMatch(/^Error: BlockedError: .*blocked/);
+    expect(await (await h.request('/api/delete?mapID=x')).text()).toMatch(/^Error: BlockedError: .*blocked/);
+    connection.close();
+    await vi.waitFor(async () => {
+      expect(await (await h.request('/api/delete?mapID=x')).text()).toBe('Deleted: x');
+    });
   });
 });
 
