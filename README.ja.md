@@ -90,7 +90,8 @@ reject します。`cacheMaxBytes` はマップごとのキャッシュ合計サ
 
 ```js
 // サービスワーカー内 (sw.js)
-importScripts("https://cdn.jsdelivr.net/npm/workbox-routing@7.4.0/build/workbox-routing.prod.umd.min.js");
+importScripts("https://cdn.jsdelivr.net/npm/workbox-core@7.4.0/build/workbox-core.prod.js");
+importScripts("https://cdn.jsdelivr.net/npm/workbox-routing@7.4.0/build/workbox-routing.prod.js");
 importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.1.0/dist/weiwudi-sw.umd.js");
 ```
 
