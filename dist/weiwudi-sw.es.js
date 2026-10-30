@@ -418,7 +418,7 @@ function J(R) {
     }
     if (o) return o;
   };
-  R(/^https?:\/\/weiwudi.example.com/, N, "GET");
+  R(/^https?:\/\/weiwudi\.example\.com(?=[/?#]|$)/, N, "GET");
 }
 J(W);
 //# sourceMappingURL=weiwudi-sw.es.js.map

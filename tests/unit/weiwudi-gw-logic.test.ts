@@ -45,6 +45,14 @@ describe('Weiwudi_Internal の初期化', () => {
     expect(h.capture.test('https://example.com/')).toBe(false);
   });
 
+  it('捕捉の正規表現はホスト名の境界で止まり、似た名前のホストに当たらない', () => {
+    const h = createSwHarness();
+    expect(h.capture.test('https://weiwudi.example.com.evil.test/api/add')).toBe(false);
+    expect(h.capture.test('https://weiwudiXexampleYcom/api/add')).toBe(false);
+    expect(h.capture.test('https://weiwudi.example.com')).toBe(true);
+    expect(h.capture.test('https://weiwudi.example.com?x=1')).toBe(true);
+  });
+
   it('install・activate のハンドラを登録し、install は skipWaiting を waitUntil に渡す', () => {
     const h = createSwHarness();
     expect(Object.keys(h.listeners).sort()).toEqual(['activate', 'install']);
