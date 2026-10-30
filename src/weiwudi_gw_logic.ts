@@ -63,6 +63,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
   "use strict";
   const MERC_MAX = 20037508.342789244;
   const dbCache: DBDict = {};
+  const blockedDBs = new Set<string>();
   let fetchAllBlocker: FetchAllBlocker | undefined;
 
   // 初回ナビゲーションをリロードせずに SW の制御下へ置くため、install で skipWaiting・
@@ -100,30 +101,56 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
     const blob = new Blob(byteArrays, { type: contentType });
     return blob;
   };
-  const getDB = async (dbname: string, table?: string, key?: string): Promise<IDBDatabase> => {
+  const blockedError = (dbname: string): Error => {
+    const error = new Error(`Opening database "${dbname}" is blocked by another connection`);
+    error.name = 'BlockedError';
+    return error;
+  };
+  const openDatabase = (dbname: string, version?: number, table?: string, key?: string): Promise<IDBDatabase> => {
     return new Promise((resolve, reject) => {
       try {
-        if (dbCache[dbname]) resolve(dbCache[dbname]);
-        else {
-          const openDB = indexedDB.open(dbname);
-          openDB.onupgradeneeded = function (event) {
-            const db = (event.target as IDBOpenDBRequest).result;
-            if (table && key) db.createObjectStore(table, { keyPath: key });
+        const openReq = version === undefined ? indexedDB.open(dbname) : indexedDB.open(dbname, version);
+        openReq.onupgradeneeded = function () {
+          const db = openReq.result;
+          if (table && key && !db.objectStoreNames.contains(table)) db.createObjectStore(table, { keyPath: key });
+        };
+        openReq.onsuccess = function () {
+          const db = openReq.result;
+          blockedDBs.delete(dbname);
+          // 他の接続が version を上げる・DB を消すときは、こちらが閉じないと相手が進めない
+          db.onversionchange = function () {
+            db.close();
+            if (dbCache[dbname] === db) delete dbCache[dbname];
           };
-          openDB.onsuccess = function (event) {
-            const db = (event.target as IDBOpenDBRequest).result;
-            dbCache[dbname] = db;
-            resolve(db);
-          };
-          openDB.onerror = function (_error) {
-            reject(openDB.error);
-          };
-        }
+          dbCache[dbname] = db;
+          resolve(db);
+        };
+        openReq.onerror = function () {
+          blockedDBs.delete(dbname);
+          reject(openReq.error);
+        };
+        // 閉じない接続が残ると open は完了しない。要求は生きているので、閉じられれば onsuccess が走る
+        openReq.onblocked = function () {
+          blockedDBs.add(dbname);
+          reject(blockedError(dbname));
+        };
       } catch (e) {
         reject(e);
       }
     });
   };
+  const getDB = async (dbname: string, table?: string, key?: string): Promise<IDBDatabase> => {
+    // 止まっている開き直しの後ろに並ぶと、次の open は blocked も通知されずに待ち続ける
+    if (blockedDBs.has(dbname)) throw blockedError(dbname);
+    const db = dbCache[dbname] ?? await openDatabase(dbname, undefined, table, key);
+    if (!table || !key || db.objectStoreNames.contains(table)) return db;
+    // 古い版が store なしで作った DB は version が同じだと onupgradeneeded が走らないので、上げて作る
+    const { version } = db;
+    db.close();
+    if (dbCache[dbname] === db) delete dbCache[dbname];
+    return openDatabase(dbname, version + 1, table, key);
+  };
+  const getSettingDB = (): Promise<IDBDatabase> => getDB('Weiwudi', 'mapSetting', 'mapID');
   const deleteDB = async (dbname: string): Promise<void> => {
     if (dbCache[dbname]) {
       const db = dbCache[dbname];
@@ -367,7 +394,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
   };
   const getImage = async (mapID: string, z: number, x: number, y: number, noOutput?: boolean) => {
     let outExtent;
-    const db = await getDB('Weiwudi');
+    const db = await getSettingDB();
     const setting = await getItem(db, 'mapSetting', mapID) as MapSetting;
     if (!noOutput) {
       if (!setting) return `Error: MapID "${mapID}" not found`;
@@ -581,7 +608,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
         case 'info':
           retVal = checkAttributes(query, ['mapID']);
           if (!retVal) {
-            const db = await getDB('Weiwudi', 'mapSetting', 'mapID');
+            const db = await getSettingDB();
             const setting = await getItem(db, 'mapSetting', query.mapID);
             if (!setting) retVal = `Error: MapID "${query.mapID}" not found`;
             else {
@@ -594,7 +621,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
           }
           break;
         case 'add': {
-          const db = await getDB('Weiwudi', 'mapSetting', 'mapID');
+          const db = await getSettingDB();
           retVal = checkAttributes(query, ['mapID', 'type', 'url']);
           if (!retVal) {
             query.tileSize = parseInt(query.tileSize || 256);
@@ -688,7 +715,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
             retVal = `Error: ${query.mapID} is under fetching process. Please cancel it first`;
           } else if (!retVal) {
             await deleteDB(`Weiwudi_${query.mapID}`);
-            const db = await getDB('Weiwudi');
+            const db = await getSettingDB();
             await deleteItem(db, 'mapSetting', query.mapID);
             retVal = `Deleted: ${query.mapID}`;
           }
@@ -705,7 +732,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
         case 'stats':
           retVal = checkAttributes(query, ['mapID']);
           if (!retVal) {
-            const db = await getDB('Weiwudi');
+            const db = await getSettingDB();
             const setting = await getItem(db, 'mapSetting', query.mapID) as MapSetting;
             if (!setting) retVal = `Error: MapID "${query.mapID}" not found`;
             else {
@@ -735,7 +762,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
         case 'fetchAll':
           retVal = checkAttributes(query, ['mapID']);
           if (!retVal && client) {
-            const db = await getDB('Weiwudi');
+            const db = await getSettingDB();
             const setting = await getItem(db, 'mapSetting', query.mapID) as MapSetting;
             if (!setting) retVal = `Error: MapID "${query.mapID}" not found`;
             else if (!setting.totalTile) retVal = `Error: Map "${query.mapID}" cannot fetch all tiles`;
