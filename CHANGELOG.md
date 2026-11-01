@@ -2,7 +2,11 @@
 
 このプロジェクトの主な変更を記録します。版数は [Semantic Versioning](https://semver.org/) に従います。
 
-## [Unreleased]
+## [1.1.1] - 2026-11-02
+
+1.1.1-rc.1 と同じ内容の正式版です（版番号のみ変更）。変更点は 1.1.1-rc.1 までの各項を参照してください。
+
+## [1.1.1-rc.1] - 2026-10-26
 
 ### Fixed
 - Service Worker が `weiwudi.example.com` で始まる別のホスト（`weiwudi.example.com.evil.test` など）への要求も捕捉していたのを直した。ホスト名の境界まで一致したときだけ捕捉する
