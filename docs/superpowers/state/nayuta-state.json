@@ -1,0 +1,66 @@
+{
+  "schema_version": 2,
+  "cycle": {
+    "id": 1,
+    "uid": "2026-11-02-weiwudi-vector-cache",
+    "slug": "weiwudi-vector-cache",
+    "root_type": "project",
+    "created_at": "2026-11-02",
+    "scope_declaration": [
+      "Weiwudi/**（code4history/Weiwudi の vector-cache ブランチ。利用側の Maplat・MaplatCore は触らない）"
+    ],
+    "orchestration": {}
+  },
+  "lane": "light",
+  "branch_policy": {
+    "base_branch": "vector-cache",
+    "merge_branch": "vector-cache",
+    "notes": [
+      {
+        "at": "2026-11-02",
+        "text": "人間の決定（2026-11-02）: 長期ブランチ。master から vector-cache を切り、タスクの PR はここへ入れる。全里程の完了後に vector-cache を master へ合流する。公開は合流後の次の月次トレイン。master は定期的に取り込む。作業 clone は ~/zcode/weiwudi-work/Weiwudi（root checkout の Weiwudi/ は触らない）"
+      }
+    ]
+  },
+  "project_name": "Weiwudi ベクタタイル対応と新インタフェース",
+  "status": "in_progress",
+  "current_milestone": "m1",
+  "milestones": [
+    {
+      "id": "m1",
+      "title": "基礎固めと新インタフェース仕様（#42 の仕様・#34・#33・#32）",
+      "status": "in_progress",
+      "plan": null,
+      "ledger": null,
+      "security_review": "pending"
+    },
+    {
+      "id": "m2",
+      "title": "URL 直接フックの新コア（#42・#37・#36 の差し込み口）",
+      "status": "pending",
+      "plan": null,
+      "ledger": null,
+      "security_review": "pending"
+    },
+    {
+      "id": "m3",
+      "title": "ベクタ資源（スタイル・タイル・フォント・スプライト。#39・#40・#38）",
+      "status": "pending",
+      "plan": null,
+      "ledger": null,
+      "security_review": "pending"
+    },
+    {
+      "id": "m4",
+      "title": "範囲取得と解放・保持期間・旧 IF の上乗せと移行・#41・master への合流",
+      "status": "pending",
+      "plan": null,
+      "ledger": null,
+      "security_review": "pending"
+    }
+  ],
+  "design_references": [
+    "docs/superpowers/reports/2026-11-02-onboard-summary.md"
+  ],
+  "next_action": "実行するのはこのサイクルのセッション（進行役）。m1 の仕様と計画を書き、計画の作者ではない担当が事前点検する。"
+}
