@@ -34,6 +34,8 @@ export interface SwHarness {
   fetch: Mock;
   /** パス（クエリ込み）を SW のハンドラへ渡し、Response を返す */
   request: (path: string) => Promise<Response>;
+  /** ページ（client）から届いた要求としてハンドラへ渡す */
+  requestFromClient: (path: string, client: unknown) => Promise<Response>;
 }
 
 export const createSwHarness = (): SwHarness => {
@@ -53,7 +55,10 @@ export const createSwHarness = (): SwHarness => {
   vi.stubGlobal('self', fakeSelf);
   vi.stubGlobal('indexedDB', new IDBFactory());
   vi.stubGlobal('IDBKeyRange', IDBKeyRange);
-  vi.stubGlobal('FetchEvent', class FetchEvent {});
+  class FakeFetchEvent {
+    clientId = 'client-1';
+  }
+  vi.stubGlobal('FetchEvent', FakeFetchEvent);
   vi.stubGlobal('fetch', fetchMock);
 
   const registerRoute = vi.fn();
@@ -68,6 +73,11 @@ export const createSwHarness = (): SwHarness => {
     return handler({ url, event: undefined });
   };
 
+  const requestFromClient = async (path: string, client: unknown): Promise<Response> => {
+    fakeSelf.clients.get.mockResolvedValueOnce(client as never);
+    return handler({ url: new URL(SW_ORIGIN + path), event: new FakeFetchEvent() });
+  };
+
   return {
     capture,
     method,
@@ -76,6 +86,7 @@ export const createSwHarness = (): SwHarness => {
     self: fakeSelf,
     fetch: fetchMock,
     request,
+    requestFromClient,
   };
 };
 

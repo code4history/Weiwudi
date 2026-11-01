@@ -1,5 +1,6 @@
-// Demo Service Worker - Uses Workbox from CDN
-importScripts('https://storage.googleapis.com/workbox-cdn/releases/7.0.0/workbox-sw.js');
+// Demo Service Worker - Uses the Workbox files served with the demo
+importScripts('./workbox/workbox-sw.js');
+workbox.setConfig({ modulePathPrefix: './workbox/' });
 
 // Load Weiwudi UMD module
 importScripts('./weiwudi-sw.js');

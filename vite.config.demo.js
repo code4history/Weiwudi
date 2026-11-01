@@ -1,7 +1,9 @@
 import { defineConfig } from 'vite';
+import { copyWorkboxPlugin } from './scripts/vite-plugin-copy-workbox.mjs';
 
 export default defineConfig({
     base: './', // Use relative paths for assets
+    plugins: [copyWorkboxPlugin()],
     build: {
         outDir: 'dist-demo',
         emptyOutDir: true,

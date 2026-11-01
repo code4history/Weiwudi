@@ -1,9 +1,11 @@
 import { defineConfig } from 'vite';
 import fs from 'fs';
 import path from 'path';
+import { copyWorkboxPlugin } from './scripts/vite-plugin-copy-workbox.mjs';
 
 export default defineConfig({
     appType: 'mpa', // Multi-Page App mode
+    plugins: [copyWorkboxPlugin()],
     server: {
         port: 5173,
     },
