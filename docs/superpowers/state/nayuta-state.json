@@ -20,7 +20,8 @@
         "at": "2026-11-02",
         "text": "人間の決定（2026-11-02）: 長期ブランチ。master から vector-cache を切り、タスクの PR はここへ入れる。全里程の完了後に vector-cache を master へ合流する。公開は合流後の次の月次トレイン。master は定期的に取り込む。作業 clone は ~/zcode/weiwudi-work/Weiwudi（root checkout の Weiwudi/ は触らない）"
       }
-    ]
+    ],
+    "merge_condition": "移行（仕様 §14.2）が無い状態で master へ入れない"
   },
   "project_name": "Weiwudi ベクタタイル対応と新インタフェース",
   "status": "in_progress",
@@ -36,11 +37,12 @@
     },
     {
       "id": "m2",
-      "title": "URL 直接フックの新コア（#42・#37・#36 の差し込み口）",
+      "title": "URL 直接フックの新コア（#42・#37・#36 の差し込み口）と旧 IF の上乗せ（仕様 §16 で m4 から前倒し）",
       "status": "pending",
       "plan": null,
       "ledger": null,
-      "security_review": "pending"
+      "security_review": "pending",
+      "carried_from_precheck": "m1 の事前点検で見送った CORS・resource-conflict・範囲取得の細部（台帳の第 6 回の節）を m2 の事前点検で改めて見る。S-I は m1 で反映済みだが m2 の点検で確かめ直す"
     },
     {
       "id": "m3",
@@ -52,7 +54,7 @@
     },
     {
       "id": "m4",
-      "title": "範囲取得と解放・保持期間・旧 IF の上乗せと移行・#41・master への合流",
+      "title": "範囲取得と解放・保持期間・移行・#41・master への合流",
       "status": "pending",
       "plan": null,
       "ledger": null,
@@ -63,5 +65,5 @@
     "docs/superpowers/reports/2026-11-02-onboard-summary.md",
     "docs/superpowers/specs/2026-11-02-new-interface-spec.md"
   ],
-  "next_action": "実行するのはこのサイクルのセッション（進行役）。事前点検 第 5 回（4afece2）は不合格（S 1: S-H）。作者が c6ff4a7 で反映済み。次は第 6 回の再点検（新しいサブエージェント・S-H の反映箇所だけに絞る。S 0 なら m1 の事前点検は合格。CORS・resource-conflict・範囲取得の残る細部は m2 の事前点検で見る）。S 0 になるまで m1 の実装に入らない。詳細は台帳。"
+  "next_action": "実行するのはこのサイクルのセッション（進行役）。m1 の事前点検は第 6 回で m1 の範囲について合格（進行役の Ruling。台帳）。次は m1 の t1（計画の冒頭の環境手順から）。人間の判断 2 件（mapbox:// の標準搭載・旧 API の非推奨時期）は推奨案で進めてよく、m3・m4 までに要る。"
 }
