@@ -48,6 +48,9 @@ overrides:
   # 型定義の生成ツール（@microsoft/api-extractor）が固定で引く minimatch 10.2.3 も同じ勧告に当たる。
   # api-extractor が使うのは minimatch() だけなので、親に限って 11 系へ上げる
   "@microsoft/api-extractor>minimatch": "^11.0.1"
+  # workbox-build > … > ejs > jake > filelist が引く minimatch 5 系も同じ勧告に当たる。filelist が使うのは
+  # minimatch.match() だけで 11 系にもある（ejs は jake を CLI でしか読まないので、ビルドでは読み込まれない）
+  "filelist>minimatch": "^11.0.1"
   # glob: >=9.0.0 <=14.0.1 の medium（GHSA-3g3m-2fjr-6pw4）。親が使う API（globSync・hasMagic）は
   # 14 にもあるので、親に限って 14 へ上げる（14 は minimatch 11 を引く）
   "workbox-build>glob": "^14.0.2"
