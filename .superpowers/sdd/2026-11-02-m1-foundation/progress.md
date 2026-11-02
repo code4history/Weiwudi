@@ -150,4 +150,20 @@ Ruling: m1-t1 のレビューの推奨 4 件（テスト 4 の受信 +1・テス
 m2 への申し送り（t1 から）: tile-server は `[::1]:5174` だけで待ち受ける。試験と設定に `127.0.0.1` を書かない。一時ディレクトリ `weiwudi-e2e-*`（各 1.9 MB）は走行ごとに残るので、m2 で SIGTERM と exit に `rmSync` を足す
 m1-t2（#34）: 実装 `955d22d`。レビュー水準 1 は第 1 回で合格（新旧の gw_logic を偽の SW 環境で突き合わせ、JSON 文字列・列挙順・乱数 4000 回が一致。変異 3 種で 28 本中 17 本が落ちる）。PR https://github.com/code4history/Weiwudi/pull/69
 Ruling: 計画の「`lat2MercY(90)` の Infinity」は事実と違う。`Math.tan(Math.PI/2)` が 16331239353195370 になり、`latToMercY(90)` は有限の 238107693.26496765、`latToMercY(0)` は -7.081154551613622e-10。式は直さず試験に実測の値を書いた（実装担当の判断を採る） — 現行の挙動を残す方針どおり — 誤りなら m4 の `bounds` の入口で極付近を Infinity 前提で扱う設計が狂う ∴ m4 の設計はこの値を前提にする
+m1-t3（#33）: 実装 `5256d9c`。レビュー水準 1（Claude）は合格・推奨 5（旧文面は新旧を同じ入力で全箇所突き合わせて一致・quota の試験は上限を外すと落ちる）。水準 2（Codex・読み取り専用）は必須 4・推奨 2。差し戻し済み
+Ruling: Codex 必須の 1〜3（別コピーの判定・保存失敗の Event 経路・文面の照合順）と推奨 2 件（任意 object の誤分類・新 API の code を今のうちに union へ）を採る — 公開後に直すと互換を壊す — 誤りなら型が早めに広がるだけ
+Ruling: Codex 必須 4（`legacyMessage` の package export）は採らない — 計画の公開 export は `WeiwudiError`・`WeiwudiErrorCode`・`TileFailure` だけで、`legacyMessage` は内部の文面の出どころ。依頼文の要旨で進行役が「公開 API」と誤記した — 誤りなら利用者が旧文面を組み立てる手段が無い（必要なら後の minor で足せる）
+Ruling: quota.spec.js の Ruling 1（既定のコンテキストでは効かない）は実測と違った（使う前なら既定でも効く）。永続コンテキストにする理由は「登録後に掛けると効かず、既定のコンテキストは起動し直すと保存を引き継げない」 — 水準 1 の対照 Q2・Q3 で実測
+m1-t3 第 2 回: 差し戻し分 `d308fa8`。水準 1 は合格・推奨 3（照合が長い不一致で長さの 3 乗に遅い ほか）。水準 2（Codex）は差し戻し・必須 3（入れ子優先で外側の文面が負ける誤分類・照合の二乗的遅延・印だけの偽装が素通り）
+Ruling: 文面の照合は「元の文面を再生成できる候補に限り、先頭の固定部分が長いものを外側とする（同点は固定部分の総長、表の順）」 — 入れ子数の優先は外側が負ける。同じ文字列が複数の文面から作れる組は原理的に区別できないので、規則で決めて文書に保証として書く — 誤りなら曖昧な組で利用者の期待と違う code になる（文字列からは決められない）
+Ruling: 照合は startsWith／endsWith で絞り indexOf で切れ目を列挙、区切りの出現数に上限 — `from` が SW の同期経路で呼ばれ、長い入力で秒単位に止まる — 誤りなら極端に区切りの多い正しい文面が `internal` に落ちる
+m1-t3 第 3 回: `47dad6e`。水準 1 は合格・推奨 2（Error.isError があっても DOMException を Error と見なさないブラウザで quota が落ちる恐れ ほか）。水準 2 は差し戻し・必須 4（Error.isError の無い Node 22 で toStringTag の偽装が素通り・Proxy の試験が Node 22 で落ちる・from が getter の throw で throw・保証範囲の記述なし）
+Ruling: 偽装対策は「本物の Error（Error.isError、無ければ instanceof）＋既知の code を自前の文字列で持つ＋印か name」とし、DOMException は `instanceof DOMException` で拾う。toString の印は Symbol.toStringTag で装えるので使わない — 誤りなら別 realm の Error が internal になる
+m1-t3 第 4 回: `1a412ab`。水準 2 は差し戻し・必須 1（Node 22 で既存試験 8 本が落ちる退行。name の経路を Error.isError の無い環境で塞いだ）
+Ruling: name の経路は Error.isError の有無によらず認める — instanceof Error を通る本物の Error で既知の code を持つなら保証を満たす — 誤りなら Node 22 で name だけ似せた Error を同一視する（保証の範囲内）
+Ruling: Error.isError の無い環境で `Object.create(WeiwudiError.prototype)` に code と印か name を付けた object が素通りするのは原理的な限界として許容し、試験で固定して文書に条件を書く — 偽装を渡せるのは呼び出し側だけで安全上の境界ではない（水準 2 も条件付きで許容）
+m1-t3 第 5 回: `37dd82b`。水準 2 は Node 22.22.3 と 24.22.1 の実機で errors.test.ts 301 passed。必須 1 は文書の条件の書き足りなさ（「印か name と code」）だけ
+Ruling: 第 5 回の必須（文書の文言）と推奨（name 経路の限界と code だけの負の例の試験）は進行役が直接直した（`3ce1f18`）。指摘どおりの文言と試験なので再レビューは置かず、CI（Node 22・24）で確かめる — 動くもの最優先 — 誤りなら文書の細部の誤記が残る
+m1-t3 の合流: PR https://github.com/code4history/Weiwudi/pull/71 を `efddaa0` で vector-cache へ（CI は Node 22・24 とも pass）
+m4 への申し送り（t3 から）: master への合流時の `build: rebuild dist` で、`dist/errors.d.ts` がある・`dist/weiwudi.d.ts` に `WeiwudiError`・UMD／ES に named export・`public/weiwudi-sw.js` に `x-weiwudi-error` の 4 点を確かめる（飛ばすと npm／CDN の利用者に新 API が見えない）
 申し送り: 12 月サイクルへ移管を連絡済み。`DEC26-WEIWUDI-AUG-ISSUES` は 12 月側で closed。`DEC26-LARGE-ITEMS-TRIAGE` は他の項目を含むので open のまま
