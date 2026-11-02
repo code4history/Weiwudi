@@ -481,6 +481,32 @@ describe.each(PATHS)('%s', (_label, impl) => {
     });
   });
 
+  it('Object.create(WeiwudiError.prototype) で作り name と code を自前データで付けた object: Error.isError がある経路では作り直し、無い経路では素通りする（限界）', () => {
+    withIsError(impl, () => {
+      const crafted = Object.create(WeiwudiError.prototype) as object;
+      Object.defineProperty(crafted, 'name', { value: 'WeiwudiError', enumerable: false });
+      Object.defineProperty(crafted, 'code', { value: 'quota', enumerable: true });
+      const e = WeiwudiError.from(crafted);
+      if (impl) {
+        expect(e).not.toBe(crafted);
+        expect(e.code).toBe('internal');
+      } else {
+        expect(e).toBe(crafted);
+        expect(e.code).toBe('quota');
+      }
+    });
+  });
+
+  it('Object.create(WeiwudiError.prototype) に code だけを付けた object は、どちらの経路でも作り直して internal', () => {
+    withIsError(impl, () => {
+      const crafted = Object.create(WeiwudiError.prototype) as object;
+      Object.defineProperty(crafted, 'code', { value: 'quota', enumerable: true });
+      const e = WeiwudiError.from(crafted);
+      expect(e).not.toBe(crafted);
+      expect(e.code).toBe('internal');
+    });
+  });
+
   it('DOMException(QuotaExceededError) → quota', () => {
     withIsError(impl, () => {
       expect(WeiwudiError.from(new DOMException('full', 'QuotaExceededError')).code).toBe('quota');

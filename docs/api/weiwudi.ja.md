@@ -251,8 +251,9 @@ try {
   Weiwudi が作った `WeiwudiError` や、`name` が `'WeiwudiError'` の `Error` を含む）。
   それ以外は新しい `WeiwudiError` に作り直します。`Error.isError` の無い環境（Node 22
   など）では、本物の `Error` かどうかを `instanceof` でしか確かめられないので、
-  `Object.create(WeiwudiError.prototype)` などでプロトタイプを継いで作り `code` を付けた
-  object は、そのまま返ることがあります。偽装した object を渡せるのは呼び出し側自身だけで、
+  `Object.create(WeiwudiError.prototype)` などでプロトタイプを継いで作り、既知の `code` と、
+  印（列挙されない自前のデータプロパティ）か `name: 'WeiwudiError'` を自前で付けた
+  object は、そのまま返ることがあります（`code` だけでは作り直します）。偽装した object を渡せるのは呼び出し側自身だけで、
   これは安全上の境界ではありません。
 - 表にある文面なら `code` は表のとおりで、差し込み値は文字列のまま `detail` に
   入ります（例: `map-not-found` → `{ mapID: 'x' }`）。差し込み値が別の文面を含み、

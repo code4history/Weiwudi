@@ -254,8 +254,10 @@ try {
   new `WeiwudiError`. Where `Error.isError` is not available (e.g. Node 22),
   whether a value is a genuine `Error` can only be checked with `instanceof`,
   so an object that inherits the prototype, such as one made with
-  `Object.create(WeiwudiError.prototype)`, and is given a `code` may still be
-  returned as is there. Only the caller can pass such a crafted object, so
+  `Object.create(WeiwudiError.prototype)`, and is given its own known `code`
+  plus either the brand (an own non-enumerable data property) or
+  `name: 'WeiwudiError'` may still be returned as is there (a `code` alone is
+  not enough; such an object is converted). Only the caller can pass such a crafted object, so
   this is not a security boundary.
 - For a known message, `code` is taken from the table below and the inserted
   values go into `detail` as strings (e.g. `map-not-found` → `{ mapID: 'x' }`).
