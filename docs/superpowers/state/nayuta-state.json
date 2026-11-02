@@ -25,15 +25,17 @@
   },
   "project_name": "Weiwudi ベクタタイル対応と新インタフェース",
   "status": "in_progress",
-  "current_milestone": "m1",
+  "current_milestone": "m2",
   "milestones": [
     {
       "id": "m1",
       "title": "基礎固めと新インタフェース仕様（#42 の仕様・#34・#33・#32）",
-      "status": "in_progress",
+      "status": "completed",
+      "completed_at": "2026-11-03",
       "plan": "docs/superpowers/plans/2026-11-02-m1-foundation.md",
       "ledger": ".superpowers/sdd/2026-11-02-m1-foundation/progress.md",
-      "security_review": "pending"
+      "summary": "docs/superpowers/reports/2026-11-03-m1-foundation-summary.md",
+      "security_review": "passed"
     },
     {
       "id": "m2",
@@ -65,5 +67,5 @@
     "docs/superpowers/reports/2026-11-02-onboard-summary.md",
     "docs/superpowers/specs/2026-11-02-new-interface-spec.md"
   ],
-  "next_action": "実行するのはこのサイクルのセッション（進行役）。m1 の事前点検は第 6 回で m1 の範囲について合格（進行役の Ruling。台帳）。m1-t1 は PR #67（0d34e10）、m1-t2 は PR #69（dec9098）、m1-t3 は PR #71（efddaa0。水準 1・水準 2 を 5 回で通過、CI は Node 22・24 とも緑）で vector-cache へ合流済み。m1 のタスクはすべて終わった。次は m1 の区切り（軽い道 §6 の全体レビュー・セキュリティ確認・まとめ）、その後 m2 の設計と事前点検。人間の判断 2 件（mapbox:// の標準搭載・旧 API の非推奨時期）は推奨案で進めてよく、m3・m4 までに要る。"
+  "next_action": "実行するのはこのサイクルのセッション（進行役）。m1 の事前点検は第 6 回で m1 の範囲について合格（進行役の Ruling。台帳）。m1-t1 は PR #67（0d34e10）、m1-t2 は PR #69（dec9098）、m1-t3 は PR #71（efddaa0。水準 1・水準 2 を 5 回で通過、CI は Node 22・24 とも緑）で vector-cache へ合流済み。m1 は 2026-11-03 に完了（区切りのレビュー合格・セキュリティ Critical 0／Major 0。まとめは reports/2026-11-03-m1-foundation-summary.md）。次は m2 の計画づくりと事前点検。申し送り（まとめの「m2 への申し送り」6 件と m2.carried_from_precheck）を計画に入れる。人間の判断 2 件（mapbox:// の標準搭載・旧 API の非推奨時期）は推奨案で進めてよく、m3・m4 までに要る。"
 }
