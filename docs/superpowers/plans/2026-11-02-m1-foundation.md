@@ -17,14 +17,16 @@ m2 へ渡すもの: 依存を持たない `tile_math.ts`（範囲判定・範囲
 
 **環境の準備（着手前に 1 回。PR にしない）**
 
-作業場所の clone に `node_modules` は無い。install は次の手順で行う。`pnpm-workspace.yaml` は commit しない。
+作業場所の clone に `node_modules` は無い。install は次の手順で行う。
 
 ```
 cd /Users/kochizufan/zcode/weiwudi-work/Weiwudi
 cp ci/pnpm-workspace.ci.yaml pnpm-workspace.yaml
+echo pnpm-workspace.yaml >> .git/info/exclude
 pnpm install --frozen-lockfile
-rm pnpm-workspace.yaml
 ```
+
+**`pnpm-workspace.yaml` は消さず、残したまま除外する。** 消すと `pnpm run`・`pnpm exec` の依存確認が install を起動し、lock の overrides が落ちて `pnpm-workspace.yaml` が壊れた形で作られる（`test:unit`・`playwright test`・webServer の `pnpm run dev` が exit 1 になる。事前点検で実測）。残す形で単体・build・e2e・typecheck・eslint が通ることも確認済み。
 
 `--ignore-workspace` は付けない（lock の overrides が落ちる）。ディスクの残りが少ないので、install の前に `df -h` で 2 GB 以上の空きを確かめる。
 
@@ -42,11 +44,13 @@ cd /Users/kochizufan/zcode/weiwudi-work/Weiwudi && node_modules/.bin/eslint "src
 
 e2e は `/dist/weiwudi.es.js` と `/weiwudi-sw.js` を読むので、`build` の後に走らせる。
 
-**`dist/` と `public/weiwudi-sw.js` は git で追跡されている。** タスクの PR には含めない（`git checkout -- dist public/weiwudi-sw.js` で戻す）。rebuild は合流時の `build: rebuild dist` でまとめる。
+**`dist/` と `public/weiwudi-sw.js` は git で追跡されている。** タスクの PR には含めない。commit はパスを指定して `git add` し、commit の前に `git restore dist public/weiwudi-sw.js && git clean -fdq dist` で戻す（t3 で増える `dist/errors.d.ts` などの未追跡も消すため）。rebuild は合流時の `build: rebuild dist` でまとめる。
 
-**全タスクの受け入れ条件に含むもの**: 上の 5 コマンドがすべて exit 0。`git diff --name-only <BASE>..` にタスクの対象外のファイルが無い。
+**全タスクの受け入れ条件に含むもの**: 上の 5 コマンドがすべて exit 0。`git diff --name-only <BASE>..` にタスクの対象外のファイルが無い。`git diff --quiet <BASE>.. -- pnpm-lock.yaml` が exit 0（`pnpm-workspace.yaml` が git の差分に出ないことも含む）。
 
 **e2e の前提**: 既存の `tests/e2e/cache.spec.js` は `tile.openstreetmap.org` と `storage.googleapis.com` に依存するので、ネットワークが要る。新しい `offline.spec.js` は外部へ出ない。
+
+**未確認のまま残る点**: t2・t3 の実装は未走行である（本書の形は実物のコードと突き合わせただけ）。e2e は Chromium だけで、WebKit・Firefox は本計画の対象外（仕様 §2）。
 
 ---
 
@@ -73,7 +77,7 @@ e2e は `/dist/weiwudi.es.js` と `/weiwudi-sw.js` を読むので、`build` の
 - `GET /tiles/{z}/{x}/{y}.png`: `content-type: image/png`・`access-control-allow-origin: *`・本体は `tile:{z}/{x}/{y}` の ASCII。受けた回数を数える
 - `GET /__requests`: それまでの受信数を JSON の `{ "count": n }` で返す（CORS 付き）
 - `GET /__health`: 200
-- `GET /workbox/*`: 起動時に `copyWorkbox(<OS の一時ディレクトリ>)`（`scripts/vite-plugin-copy-workbox.mjs`）で写した一式を配る。`text/javascript`。**写し終えてから listen する**（`__health` が返れば揃っている）
+- `GET /workbox/*`: 起動時に `copyWorkbox(fs.mkdtempSync(path.join(os.tmpdir(), 'weiwudi-e2e-')))`（`scripts/vite-plugin-copy-workbox.mjs`）で写した一式を配る。`copyWorkbox` は渡した場所の `workbox/` を消して作り直すので、共有の `/tmp` を直接渡さない。`text/javascript`。**写し終えてから listen する**（`__health` が返れば揃っている）
 
 **`offline-sw.js`**: 外部へ出ない SW。
 
@@ -240,6 +244,7 @@ export const expandTileTemplate: (template: string, z: number, x: number, y: num
 | `src/weiwudi.ts` | 変更 |
 | `vite.config.lib.js` | 変更（`dts` の `include` に `src/errors.ts` を足す） |
 | `tests/unit/weiwudi-gw-logic.test.ts` | 追記のみ |
+| `tests/e2e/quota.spec.js` | 新規 |
 | `docs/api/weiwudi.md`・`docs/api/weiwudi.ja.md`・`README.md`・`README.ja.md` | 変更（rule-0001） |
 
 `vite.config.lib.js` を直さないと `dist/weiwudi.d.ts` の `./errors` の参照が宙に浮く。
@@ -249,12 +254,16 @@ export const expandTileTemplate: (template: string, z: number, x: number, y: num
 `src/errors.ts`。依存なし。ページと SW の両方が import する。
 
 ```ts
-export type WeiwudiErrorCode =
+/** 旧 API に文面があるコード（下の表の 16 行） */
+export type LegacyErrorCode =
   | 'sw-unsupported' | 'sw-register-failed' | 'sw-not-controlling' | 'sw-not-implemented'
   | 'map-id-required' | 'instance-released'
   | 'attribute-missing' | 'attribute-invalid' | 'unknown-type'
   | 'map-not-found' | 'map-busy' | 'no-fetch-process' | 'cache-path-invalid'
-  | 'cannot-fetch-all' | 'fetch-busy' | 'api-not-found'
+  | 'cannot-fetch-all' | 'fetch-busy' | 'api-not-found';
+
+export type WeiwudiErrorCode =
+  | LegacyErrorCode
   | 'db-blocked' | 'quota' | 'network' | 'upstream' | 'storage' | 'internal';
 
 export type TileFailure = 'network' | 'upstream' | 'quota' | 'storage';
@@ -268,7 +277,7 @@ export class WeiwudiError extends Error {
 }
 
 /** 旧 API の文面の唯一の出どころ */
-export const legacyMessage: (code: WeiwudiErrorCode, params?: Record<string, string | number>) => string;
+export const legacyMessage: (code: LegacyErrorCode, params?: Record<string, string | number>) => string;
 ```
 
 表（`code`・文面・`from` の照合）を 1 か所に持つ。現行の文面をそのまま写す。
@@ -300,10 +309,13 @@ export const legacyMessage: (code: WeiwudiErrorCode, params?: Record<string, str
 | `BlockedError` | `db-blocked` |
 | それ以外 | `internal` |
 
-`from` が文字列を受けたら、表を上から照合し、当たれば `detail` に差し込み値を入れる。当たらなければ `internal`。文字列でも Error でもない値は `String(value)` で `internal`。
+`from` が文字列を受けたら、表を上から照合し、当たれば `detail` に差し込み値を入れる。当たらなければ上の例外名で分類する。文字列でも Error でもない値は `String(value)` で `internal`。`network`・`upstream`・`storage` は文面を持たず、`from` では作られない（SW がコンストラクタで作る）。
+
+`:797` の包括の文面のうち、変わるものが 1 つある。`putItem` が `Event` を reject していたので `add` の保存失敗が `Error: [object Event]` だったが、下の修正で `Error: QuotaExceededError: …` などになる（仕様 §9）。
 
 **`weiwudi_gw_logic.ts`**:
 
+- **`putItem`・`putItemWithEviction` の reject を直す。** `tx.onabort` は `tx.error`、`putReq.onerror`・`cursorReq.onerror` は `req.error` を reject する。実際の容量超過は `put` が成功した後に `tx.abort`（`tx.error` が `QuotaExceededError`）で起き、`put` は同期で投げず、`req.onerror` も走らない（事前点検で Chromium の `Storage.overrideQuotaForOrigin` により実測）。現行の `reject(e)` は `Event` を渡すので、`name` で分類できず常に `storage` になる
 - 上の表の文字列リテラルを `legacyMessage(…)` へ置き換える。`getImage` の `Error:` も同じ
 - タイルの応答に `x-weiwudi-error` を足す。文面は変えない:
 
@@ -323,7 +335,7 @@ export const legacyMessage: (code: WeiwudiErrorCode, params?: Record<string, str
 **`weiwudi.ts`**:
 
 - `export { WeiwudiError, type WeiwudiErrorCode, type TileFailure } from './errors'`
-- `throw ('…')` のリテラルを `throw (legacyMessage(…))` にする。**投げるものは文字列のまま**。`throw (text)` はそのまま
+- `throw ('…')` と `reject('…')` のリテラルを `legacyMessage(…)` にする。**投げるものは文字列のまま**。`throw (text)` はそのまま
 
 ### 使うもの
 
@@ -334,29 +346,40 @@ export const legacyMessage: (code: WeiwudiErrorCode, params?: Record<string, str
 
 `tests/unit/errors.test.ts`:
 
-- 全 code について `WeiwudiError.from(legacyMessage(code, 例)).code === code`（往復）。`it.each` で表の全行
+- `LegacyErrorCode` の 16 件について `WeiwudiError.from(legacyMessage(code, 例)).code === code`（往復）。`it.each` で表の全行
 - 差し込み値が `detail` に入る（`map-not-found` → `{ mapID: 'x' }`）
 - `Error: QuotaExceededError: …` → `quota`。`Error: BlockedError: …` → `db-blocked`。`Error: Foo` → `internal`
 - `DOMException('…', 'QuotaExceededError')` → `quota`
 - `WeiwudiError` を渡すと同じものが返る。`new WeiwudiError(…) instanceof Error`
-- 文面の固定: 表の全行について `legacyMessage` の結果が文字列の直書きと一致（ここだけ直書きする）
+- 文面の固定: 表の 16 行について `legacyMessage` の結果が文字列の直書きと一致（ここだけ直書きする）
 
 `tests/unit/weiwudi-gw-logic.test.ts` に追記:
 
 - `fetch` 例外・保存なし → 404・`x-weiwudi-error: network`
 - `fetch` 例外・保存あり → 200・`network`
 - 上流 500・保存なし → 500・`upstream`
-- `IDBObjectStore.put` が `QuotaExceededError` → 200・`quota`
+- 保存の abort が `QuotaExceededError` → 200・`quota`。`put` を例外にする形では実物と違うので使わない。`put` の spy で元の呼び出しの**成功イベントの後に** `tx.error` を `DOMException('…', 'QuotaExceededError')` にして `tx.abort()` する（成功より先に abort すると `req.onerror` が `AbortError` で走り、別の経路になる）
+- 保存の abort がそれ以外の名前 → 200・`storage`
 - `fetchAll` の `finish` に `errors` が入る
+
+`tests/e2e/quota.spec.js`（実ブラウザの確認。単体の再現が実物からずれないため）:
+
+| テスト名（この文字列のまま） | 手順 | 期待 |
+|---|---|---|
+| `reports quota when the real storage quota is exceeded` | t1 のページと地図を使う。CDP の `Storage.overrideQuotaForOrigin` で小さな上限を掛けてから未取得のタイルを取る | 200・本体は正しい・`x-weiwudi-error: quota`・`stats().count` が増えない |
+
+上限の値（既存の使用量より小さく、DB の接続は生きている値）は実装者が決め、Ruling に残す。
 
 ### 受け入れ条件
 
 - `pnpm -C <clone> run test:unit` が exit 0
 - 既存の試験を変えていない: `git diff --numstat <BASE>.. -- tests/unit/weiwudi-gw-logic.test.ts` の削除数が 0、`tests/unit/add-cachemaxbytes.test.ts` に差分なし
-- 文字列リテラルの throw が残っていない: `grep -c "throw ('" src/weiwudi.ts` が 0、`grep -c 'throw (`' src/weiwudi.ts` が 0
-- `gw_logic` に文面の直書きが残っていない: `grep -c 'retVal = .Error: ' src/weiwudi_gw_logic.ts` の結果が 1（包括の `:797` だけ）
+- 文字列リテラルの throw・reject が残っていない: `grep -c "throw ('" src/weiwudi.ts`・`grep -c 'throw (`' src/weiwudi.ts`・`grep -c "reject('" src/weiwudi.ts` がいずれも 0
+- `gw_logic` に文面の直書きが残っていない: `grep -c 'Error: ' src/weiwudi_gw_logic.ts` の結果が 1（包括の `:797` だけ。`:408`・`:607` の `return` も含めて見る）
+- `pnpm -C <clone> exec playwright test tests/e2e/quota.spec.js --reporter=list` が exit 0
 - `pnpm -C <clone> run build` の後、`dist/errors.d.ts` がある。`grep -c 'WeiwudiError' dist/weiwudi.d.ts` が 1 以上
 - `offline.spec.js` が全部 passed
+- **レビューに水準 2（別ベンダーの AI）を含める**（公開 API の追加。軽い道 §4）
 - `docs/api/weiwudi.md` と `.ja.md` に `WeiwudiError.from` の節と code の表があり、「reject は文字列のまま」と書いてある: `grep -c 'WeiwudiError.from' docs/api/weiwudi.md docs/api/weiwudi.ja.md` がいずれも 1 以上
 
 ---
@@ -365,4 +388,5 @@ export const legacyMessage: (code: WeiwudiErrorCode, params?: Record<string, str
 
 - #32・#33・#34 の完了条件を PR の本文で 1 件ずつ対応付ける（`Closes` は `vector-cache` では効かないので、Issue を閉じるのは master への合流時。PR 本文には `Refs #32` と書く）
 - 軽い道 §6 の全体のレビュー・セキュリティ点検・要約
-- state の更新は進行役が行う: m1 の `plan` にこの文書のパス、仕様 §16 の里程の題名の変更
+- t3 の水準 2 のレビューの記録が台帳にあること
+- state と台帳の更新は進行役が行う: m1 の `plan` にこの文書のパス、`ledger` に `.superpowers/sdd/2026-11-02-m1-foundation/progress.md`（事前点検の票・Ruling・タスクの記録の置き場）、仕様 §16 の里程の題名の変更

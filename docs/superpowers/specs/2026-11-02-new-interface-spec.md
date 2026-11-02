@@ -35,14 +35,18 @@
 | 8 | SW 停止（CDP `ServiceWorker.stopAllWorkers`）後の最初の要求より先に IndexedDB は読めない（照合表は空） | 確認 | — | — |
 | 9 | Workbox 7.4.1 で、`queueMicrotask` で登録したルートは利用者のルートより後ろに付き、§4.3 の振り分けが成立する | 確認 | — | — |
 
-Firefox は Playwright 組み込みの Firefox で SW の準備完了が返らず、測れなかった。m2 の先頭で別の手段（`firefox` の実機か Selenium）を試し、測れなければ「未確認」のまま README に書く。
+**未確認として残す点**:
+
+- Firefox は Playwright 組み込みの Firefox で SW の準備完了が返らず、測れなかった。m2 の先頭で別の手段（`firefox` の実機か Selenium）を試し、測れなければ「未確認」のまま README に書く
+- WebKit の結果は Playwright 1.62.1 と webkit-2336 のものである。lock の Playwright 1.64 が要求する webkit-2370 では未測定で、事前点検でも再現していない
+- 本書の設計は実装では未走行である（走らせたのは §2 の計測だけ）
 
 コードで確かめた事実:
 
 - `RegExpRoute` は別オリジンでは URL 先頭からの一致だけを受ける（`workbox-routing/RegExpRoute.js`）。`match` は同期でなければならず、Promise を返すと開発ビルドで警告される（`Router.js`）。ルートは登録順に評価する
 - `@c4h/weiwudi/sw` は副作用 import で使われる（`Maplat/src/service-worker/index.ts`・`MaplatCorePro/weiwudi-sw.ts`）。後者は `@c4h/weiwudi` を `1.0.0` に固定している
 - MapLibre 6.9.0 の `makeRequest` は `http(s)` なら Worker 内で `fetch` する。ベクタタイルの 404 は `err.status !== 404` の判定で黙って空タイルになる（`vector_tile_source.ts:254`）。`mapbox://` は解釈しない
-- MLT の復号器は `while (offset < tile.length)` なので、0 バイトの本体でも落ちない（`@maplibre/mlt` 1.2.1）
+- MLT の復号器は `while (offset < tile.length)` なので、0 バイトの本体でも落ちない（読んだのは `@maplibre/mlt` 1.2.1。MaplatCorePro の宣言は下限で、実体の 1.3.0 は m3 で確かめる）
 - 現行の範囲外は「広がりの外＝透明 PNG／ズームの外＝404」である。#42 の「範囲外は 404」はズームの側だけを指す（`src/weiwudi_gw_logic.ts:425-438`）。ズームの 404 は `0cd978f` で意図して変えられたが、理由の記録は無い
 
 ## 3. 全体構成
@@ -54,7 +58,7 @@ Firefox は Playwright 組み込みの Firefox で SW の準備完了が返ら�
 │ WeiwudiSource     │─────────────▶│   ↓                                   │
 │                   │ POST /v2/*   │ control.ts  登録・統計・範囲取得        │
 │ 地図ライブラリ     │              │   ↓                                   │
-│  実 URL の要求 ───┼─────────────▶│ hook.ts     照合表と 2 つのルート       │
+│  実 URL の要求 ───┼─────────────▶│ hook.ts     照合表とルート              │
 └───────────────────┘              │   ↓                                   │
                                    │ core.ts     serve()：配信の決定（§6）   │
                                    │   ↓            ↓                      │
@@ -65,22 +69,22 @@ Firefox は Playwright 組み込みの Firefox で SW の準備完了が返ら�
 
 `src/` の最終形（名前は旧ファイルの流儀に合わせる）:
 
-| ファイル | 役割 | 依存してよいもの |
+| ファイル | 役割 | 値を import してよいもの |
 |---|---|---|
 | `tile_math.ts` | 座標・タイル計算（#34。m1） | なし |
 | `errors.ts` | `WeiwudiError` と旧文面の表（#33。m1） | なし |
 | `url_pattern.ts` | テンプレートの解析・照合・キーの正規化 | `tile_math` |
+| `plugins.ts`・`providers/` | 差し込み口（#36）・提供元（#40） | `errors` |
 | `store.ts` | IndexedDB の全操作。型 `ResourceMeta` などの正本（#37） | `errors` |
-| `core.ts` | `serve()`・退避・保持・範囲取得 | `store`・`plugins`・`tile_math`・`errors` |
-| `hook.ts` | 照合表・ルート登録 | `core`・`url_pattern` |
-| `control.ts` | `/v2/*` の処理 | `core`・`store` |
-| `legacy.ts` | `/api/*` の翻訳と `MapSetting` の変換 | `core`・`control` |
 | `migrate.ts` | 旧 DB からの移行 | `store` |
-| `plugins.ts`・`providers/` | 差し込み口（#36）・提供元（#40） | なし（型は `store`） |
-| `weiwudi.ts` | ページ側 API | `errors` |
+| `core.ts` | `serve()`・退避・保持・範囲取得 | 上の全部 |
+| `hook.ts` | 照合表・ルート登録 | `core`・`url_pattern` |
+| `control.ts` | `/v2/*` の処理 | `core`・`store`・`providers/` |
+| `legacy.ts` | `/api/*` の翻訳と `MapSetting` の変換 | `core`・`control`・`migrate` |
 | `weiwudi_gw_logic.ts` | 配線だけ（`Weiwudi_Internal`） | 上の全部 |
+| `weiwudi.ts` | ページ側 API | `errors` |
 
-依存は上から下への一方向にする。`core` は `legacy` を知らない。
+値の依存は表の上の行への一方向にする。`core` は `legacy` を知らない。型だけの `import type` は制限しない（`store.ts` が `TileBox` を、`weiwudi.ts` が `ResourceMeta` を使う）。配布の `weiwudi.d.ts` に型が届くよう、m2 で `vite.config.lib.js` の `dts` の `include` を直す。
 
 ## 4. 実 URL の捕捉
 
@@ -93,32 +97,42 @@ Firefox は Playwright 組み込みの Firefox で SW の準備完了が返ら�
 
 制御に疑似ホストを残す理由: 試作の `postMessage` 案（`sw-entry.ts` の `message` 処理は未実装のまま）と違い、経路が 1 本で済み、`sw-harness.ts` でそのまま試験でき、ページが SW の制御下に無ければ失敗で分かる。POST にするのは資格情報を URL に載せないため（§10）。
 
+**送信の前に `navigator.serviceWorker.controller` を確かめる。** 制御下に無いページで POST すると、資格情報の入った本文が SW を通らず実ホスト宛てに出る。無ければ何も送らず `sw-not-controlling` で失敗させる。
+
 実 URL 方式の利点: ページが SW の制御下に無くても**要求はそのまま上流へ出る**（キャッシュされないだけ）。疑似ホスト方式では同じ状況で失敗する。
 
 ### 4.2 URL パターンの登録
 
 - 登録は `Weiwudi.register()`（§12）。`url`（文字列か配列）にテンプレートを渡す
 - テンプレートの字句: `{z}` `{x}` `{y}` `{-y}` `{quadkey}` `{ratio}` `{prefix}` `{fontstack}` `{range}`。これ以外（`{bbox-epsg-3857}` など）は `unsupported-template` で拒否する。座標を逆算できないと範囲判定も範囲取得もできないため
-- 相対 URL はページ側で `new URL(url, location.href)` により絶対化してから送る
+- 相対 URL はページ側で絶対化してから送る。`new URL()` は `{z}` を `%7Bz%7D` へ符号化するので、**字句を `__WEIWUDI_0__` のような退避名へ置き換えてから解決し、解決後に戻す**
 - ワイルドカードのホストは無い。`http:` `https:` だけ
-- 照合は `origin + pathname` だけで行い、クエリは照合に使わない。クエリはキーの生成で扱う（§5.3）
+- 照合は `origin + pathname` と、**テンプレートに書かれたクエリ項目**で行う。値全体が 1 字句の項目（WMTS KVP の `TileCol={x}` など）はそこから座標を取り、固定値の項目は一致を求める（同じパスで `layer=a` と `layer=b` を分けるため）。テンプレートに無いクエリ項目は照合に使わず、キーの生成で扱う（§5.3）。値の一部だけが字句の項目は `unsupported-template`
 - 照合表は `Map<origin, 照合規則[]>` にする。全要求が通る経路なので、無関係なオリジンは 1 回の Map 引きで抜ける
 
 ### 4.3 どの要求を、どのルートで受けるか
 
 `match` は同期でなければならず、SW は使われないと止まる。止まった SW を起こす要求の時点では IndexedDB を読めない（§2 の 8）。かといって表が空のときに見逃すと、**オフラインで地図へ戻った最初のタイル群が失敗する**。これがオフライン用途の中心の場面である。試作は全要求を `respondWith` して `fetch(request)` へ流すことで避けたが、利用者の Workbox ルート（プリキャッシュなど）を奪う。
 
-そこで 2 本のルートにする。
+そこで実 URL 用に 2 本のルートを置く。登録するルートは全部で次の 4 本になる。
 
-1. **照合ルート**（`Weiwudi_Internal` の実行中に同期で登録）: `table.loaded && table.match(url)` のときだけ受ける
-2. **門番ルート**（`queueMicrotask` で登録＝SW スクリプトの評価が終わった直後で、利用者のルートより後ろになる）: `!table.loaded && 候補()` のときだけ受ける。ハンドラは読み込み完了を待ち、一致すれば `serve()`、外れれば `fetch(request)` で素通しする
+| ルート | 捕捉 | 方式 | 登録の時期 |
+|---|---|---|---|
+| 旧 API | `weiwudi.example.com` への GET（現行の正規表現のまま。`/v2/ping` もここで受けて振り分ける） | GET | 同期 |
+| 制御 | `weiwudi.example.com` への POST（`/v2/*`） | POST | 同期 |
+| 照合 | `table.loaded && table.match(url)` | GET | 同期 |
+| 門番 | `!table.loaded && 候補()` | GET | `queueMicrotask`（スクリプトの評価が終わった直後で、同じ評価中に登録された利用者のルートより後ろになる） |
+
+門番のハンドラは読み込み完了を待ち、一致すれば `serve()`、外れれば `fetch(request)` で素通しする。
+
+**読み込みの失敗と停止**: 門番の待ちは上限 3 秒とする。読み込みが失敗するか上限を越えたら、その要求は素通しし、次の要求で読み込みをやり直す（`loaded` は立てない）。要求を止めるほうが、キャッシュされないより悪い。
 
 候補の条件: `GET` かつ `mode !== 'navigate'` かつ `destination` が `''` か `'image'`。スクリプト・CSS・文書には触らない。
 
 - 表の読み込みは SW の起動時に始める。読み込み後は門番は何も受けない
-- 利用者のルートが門番より先に評価されるので、プリキャッシュは表が空の間も奪われない（§2 の 9）。利用者が `/.*/` のような全捕捉ルートを持つ場合だけ、この窓の間は負ける。README に書く
+- 利用者のルートが門番より先に評価されるので、プリキャッシュは表が空の間も奪われない（§2 の 9）。利用者が `/.*/` のような全捕捉ルートを持つ場合は、`@c4h/weiwudi/sw` の import より後に登録すればこの窓の間だけ負け、前に登録すれば常に負ける。README に「import を先に書く」と書く
 - 表の更新は登録を処理した SW のメモリに即時反映し、同じオリジンの別スコープの SW へは `BroadcastChannel('weiwudi')` で再読込を伝える
-- `Weiwudi_Internal` の引数の型は `RegExp | MatchCallback` へ広げる。呼び方は変えない
+- `Weiwudi_Internal` が受ける `registerRoute` の第 1 引数の型を `RegExp | RouteMatchCallback`（`workbox-core`）にする。呼び方は変えない
 - `sw-harness.ts` は「`registerRoute` の呼び出しは 1 回」を前提にしている。m2 で複数ルートに合わせて直す
 
 ### 4.4 SW のスコープ
@@ -129,11 +143,23 @@ Firefox は Playwright 組み込みの Firefox で SW の準備完了が返ら�
 
 ### 4.5 上流の取得と CORS
 
-`Request` の形を次のように決める。
+上流への要求の形は、要求の種類で分ける。
 
-1. 上流へは **`mode: 'cors'`・`credentials: 'omit'`** で取りに行く。ページの要求が `no-cors`（`<img>`）でも同じ（§2 の 5）
+| 要求 | 上流へ出す形 |
+|---|---|
+| 匿名の要求 | 組み替える: **`mode: 'cors'`・`credentials: 'omit'`**。ページの要求が `no-cors`（`<img>`）でも同じ（§2 の 5） |
+| §4.6 の認証付きの要求 | **元の `Request` のまま**。組み替えない。下の 2〜4 も通らない |
+| テンプレートから作る要求（範囲取得・旧 API） | 組み替えた形と同じ |
+
+以下は匿名の要求の手順である。
+
+1. 組み替えた形で取得する
 2. `TypeError` になり、元の要求が `no-cors` なら、元の要求で 1 回取り直す。opaque ならページへ渡すが**保存しない**。理由: 本体が読めず（§2 の 6）IndexedDB に入らない。状態も大きさも分からない。Cache Storage へ入れても容量の水増しで集計が壊れる
-3. 2 が起きた `Resource` は `corsless: true` にしてメモリと store に残し、次から 1 を省く。`stats` で見え、最初の 1 回だけ `opaque` イベントを出す。`fetchRange` は `opaque` エラーで止まる
+3. CORS の拒否とネットワーク失敗はどちらも `TypeError` で区別できない。**2 の取り直しが opaque で成功したときだけ**、CORS 非対応の候補として数える。両方失敗（オフライン）は数えず、1 の成功で数を 0 に戻す。不安定な回線の瞬断で誤判定しないよう、次のようにする
+   - 連続 3 回で `Resource.corslessUntil = now + 24 時間` を保存する。その間は 1 を省いて元の要求を出す。`stats` で見え、このとき 1 回だけ `opaque` イベントを出す
+   - 期限を過ぎたら 1 に戻す。1 が成功すれば解除、失敗して 2 が opaque ならまた数える
+   - `source.update()` は無条件に解除する
+   - 範囲取得は `corslessUntil` を見ずに 1 で取る。`TypeError` のタイルは `mode: 'no-cors'` で確かめ、opaque が連続 3 回なら `opaque` で止める。両方失敗は `network` として数える
 4. 元の要求が `cors` なら 2 は行わない。opaque は返せない（ネットワークエラーになる）
 
 テンプレートから URL を作るとき（範囲取得と旧 API）は、現行どおりミラーから無作為に 1 つ選ぶ。実 URL の捕捉では要求の URL をそのまま使う。
@@ -142,8 +168,10 @@ Firefox は Playwright 組み込みの Firefox で SW の準備完了が返ら�
 
 ### 4.6 認証付きの要求
 
-- 要求に `Authorization` がある、または `mode: 'cors'` で `credentials: 'include'` のときは、**捕捉しても保存しない**（配信だけ）。`<img>` の `credentials: include` は既定値なので対象にしない（§2 の 4）
-- 保存したい場合は登録に `cachePrivate: true` を付ける。IndexedDB は同じオリジンのスクリプトから読めるので、既定を「保存しない」にする
+- 要求に `Authorization` がある、または `mode: 'cors'` で `credentials: 'include'` のときは、**捕捉しても保存しない**。元の `Request` のまま上流へ出して配信する（§4.5）。`<img>` の `credentials: include` は既定値なので対象にしない（§2 の 4）
+- 保存したい場合は登録に `cachePrivate: true` を付ける。上流へは同じく元の `Request` のまま出す。IndexedDB は同じオリジンのスクリプトから読めるので、既定を「保存しない」にする。キーは利用者を区別しないので、1 つのブラウザプロファイルを 1 人が使う前提である
+- 登録の `credentials`（§10）で SW が足した資格情報は、ここで言う認証付きに当たらない。登録した者が共有を意図したものとして保存する
+- 範囲取得には元の要求が無い。`credentials` ストアの内容で取り、Cookie だけで認証するサーバは対象外である（`upstream` で数える）
 - `Range` ヘッダ付きの要求は素通しする（§11）
 
 ## 5. 資源モデルと IndexedDB
@@ -176,9 +204,11 @@ export interface ResourceMeta {
   templates: string[];        // 資格情報を除いた URL テンプレート
   sourceIds: string[];        // 多対多。旧 API の Resource は mapID 1 つ
   provider?: string;          // 'mapbox' など。#38 の提供元別集計の鍵（無ければ origin）
-  tile?: TileExtent;          // type === 'tile' のときの範囲
+  extents?: TileExtent[];     // type === 'tile' のときの範囲。Source ごとの和（§5.6）
+  scheme?: 'xyz' | 'tms';
   encoding?: 'raster' | 'vector';
-  corsless?: boolean;
+  policy: ResourcePolicy;     // 実効方針（§5.6）
+  corslessUntil?: number;     // §4.5
   count: number;              // Entry の件数（同じトランザクションで更新）
   bytes: number;              // 同じ
   pinnedBytes: number;        // 固定分
@@ -187,7 +217,15 @@ export interface ResourceMeta {
 export interface TileExtent {
   minZoom: number; maxZoom: number;
   box?: TileBox;              // maxZoom での x/y の範囲（tile_math.ts の型）
-  scheme: 'xyz' | 'tms';
+  sourceId: string;
+}
+
+export interface ResourcePolicy {
+  cacheTtl: number;
+  cacheRetention?: number;    // undefined は無期限
+  store: boolean;             // false なら認証付きの要求を保存しない
+  outOfRange: { extent: OutOfRange; zoom: OutOfRange };
+  credentialParams: string[];
 }
 
 export interface EntryMeta {
@@ -231,7 +269,7 @@ export interface EntryBody {
 |---|---|---|---|
 | `sources` | `id` | | 登録内容。旧 API は `MapSetting` をそのまま `legacy` に持つ |
 | `resources` | `id` | `sourceIds`（multiEntry） | |
-| `entries` | `key` | `[resourceId, accessedAt]`・`accessedAt`・`fetchedAt`・`[resourceId, z]` | `EntryMeta`。本体を持たない |
+| `entries` | `key` | `[resourceId, pinned, accessedAt]`・`[pinned, accessedAt]`・`[pinned, fetchedAt]`・`[resourceId, z]` | `EntryMeta`。本体を持たない |
 | `bodies` | `key` | | `EntryBody` |
 | `regions` | `id` | `sourceId` | §7.2 |
 | `credentials` | `sourceId` | | §10 |
@@ -241,7 +279,7 @@ export interface EntryBody {
 
 - メタと本体を分ける: 現行は cache hit のたびに Blob ごと `put` し直す（`getImage` の accessedAt 更新）。分ければメタだけで済む
 - `count`・`bytes` を `resources` に持ち、Entry の増減と同じトランザクションで更新する: 現行の `stats` は全件走査、`putItemWithEviction` は保存のたびに全件走査で、`fetchAll` 全体が O(N²)
-- LRU は `accessedAt` 索引のカーソルで古い順に引く
+- LRU と期限の掃除は `pinned = 0` の範囲を索引で引く。固定が多くても読み飛ばさない
 - 資源の一括削除は `delete(IDBKeyRange.bound(id + '\0', id + '\0￿'))` 1 回で済む（#38）
 - `fetchAll` の「既に有るか」は `allKeys.indexOf` をやめ、バッチごとに `getKey` する
 
@@ -258,13 +296,38 @@ export interface EntryBody {
 5. **別オリジンのスタイルが、ページと同じオリジンの URL を指していたら登録しない**（`warnings` に残す）。第三者のスタイルで同一オリジンの API を捕捉させないため
 6. `register()` は冪等である。`source.update()` で取り直し、参照が消えた `Resource` は `sourceIds` から外して空なら削除する
 
+### 5.6 合流と実効方針
+
+捕捉した要求から決まるのは `Resource` だけで、どの `Source` の要求かは分からない。そこで `Resource` に実効方針を持たせる。`sourceIds` が変わるたびに、参照している全 `Source` の指定から計算し直して `resources` に保存する。
+
+| 項目 | 合成の規則 | 理由 |
+|---|---|---|
+| 範囲（`extents`） | 和集合。範囲の指定が無い `Source` が 1 つでもあれば、広がりの制限なし | 東京の A と大阪の B が同じ URL を登録しても、片方が透明画像にならない |
+| ズーム | 同上（`Source` ごとに `TileExtent` を持つので自動で和になる） | 同上 |
+| `cacheTtl` | 最短 | 新しさを求める側に合わせる |
+| `cacheRetention` | 最長。指定なしの `Source` があれば無期限 | 残したい側のデータを消さない |
+| `outOfRange` | 全 `Source` で同じならその値、違えば型の既定（§6） | どちらかに寄せる根拠が無い |
+| `store`（`cachePrivate`） | 全 `Source` が `true` のときだけ認証付きの要求を保存する | 保存を望まない登録を優先する |
+| 資格情報 | `sourceIds` の登録順で、持っている最初の `Source` のもの | 1 つに決める必要がある。`Source` を消せば次へ移る |
+| `credentialParams` | 和集合 | 漏らさない側に倒す |
+
+`cacheMaxBytes` は `Source` の方針のまま（§7.1）。`fetchRange` の `'all'` も `Source` 自身の範囲を指す。
+
+**合流を拒否する場合**（`resource-conflict`）。`key` の形が変わるのに、既存の Entry を書き換えないため。
+
+- `credentialParams` の和が変わり、その `Resource` に Entry が既にあるとき（Entry が無ければ合流する）
+- `type`・`encoding`・`scheme` が違うとき
+- URL 配列が **2 つ以上の既存 `Resource`** に重なるとき。`Resource` の統合はキーの書き換えを伴うので行わない。利用者が片方を消して登録し直す
+
+拒否はキャッシュの整合のためで、地図は動かせる（別の URL か、`Source` の削除で解決できる）。旧 API の `Resource` は合流しないので、この節の対象外である。
+
 ## 6. 配信の決定（`serve()`）
 
 全経路（照合ルート・門番・旧 `/api/cache`・範囲取得）がこの 1 関数を通る。#15 の「キャッシュ確認→取得→保存の共通化」を満たす。
 
 | 順 | 条件 | 応答 | `x-weiwudi-status` |
 |---|---|---|---|
-| 1 | 範囲外 | 下の表 | `out-of-range` |
+| 1 | 範囲外（`extents` の和の外。§5.6） | 下の表 | `out-of-range` |
 | 2 | 新しい Entry がある（`now - fetchedAt <= cacheTtl`） | 保存した本体 | `hit` |
 | 3 | 上流が成功 | 上流の本体（保存を試みる） | `miss`／更新なら `refresh` |
 | 4 | 上流が失敗（HTTP）・Entry あり | 古い本体 | `stale` |
@@ -272,7 +335,7 @@ export interface EntryBody {
 | 6 | ネットワーク失敗・Entry あり | 古い本体 | `stale` |
 | 7 | ネットワーク失敗・Entry なし | 404 | `offline-miss` |
 
-- これは現行の `getImage` の順序そのものである（既存の試験が契約）。`x-weiwudi-status` だけが増える。実 URL では `access-control-expose-headers` に入れる
+- これは現行の `getImage` の順序そのものである（既存の試験が契約）。`x-weiwudi-status` だけが増える。SW が合成した応答はページから見て `basic` なので、別オリジンの URL でもこのヘッダを読める（§2 の計測で確認）
 - 保存に失敗しても配信は続ける（#22 の現行の決まり）。応答に `x-weiwudi-error`（§9）を付ける
 - 7 を透明画像にしないのは、地図ライブラリが親タイルへ戻る動きを止めないため
 - 同じ `key` の同時要求は `Map<key, Promise>` で 1 本にまとめる
@@ -280,7 +343,7 @@ export interface EntryBody {
 
 ### 範囲外の応答
 
-`outOfRange: { extent, zoom }`。値は `'transparent'`（ラスタの既定）・`'empty'`（ベクタの既定）・`'not-found'`。
+`outOfRange: { extent, zoom }`。`Resource` の実効方針（§5.6）を使う。値は `'transparent'`（ラスタの既定）・`'empty'`（ベクタの既定）・`'not-found'`。
 
 | 資源 | 広がりの外 | ズームの外 |
 |---|---|---|
@@ -300,16 +363,16 @@ export interface EntryBody {
 
 | 軸 | 指定 | 既定 | 効果 | 現行との関係 |
 |---|---|---|---|---|
-| 鮮度 | `cacheTtl`（ms） | 24 時間 | 越えたら上流へ。失敗なら古いものを返す。**消さない** | 現行のまま |
-| 削除期限 | `cacheRetention`（ms） | なし（無期限） | `fetchedAt` から越えたら消す | 新設（#9「キャッシュ期間管理」） |
+| 鮮度 | `cacheTtl`（ms。§5.6 の実効値） | 24 時間 | 越えたら上流へ。失敗なら古いものを返す。**消さない** | 現行のまま |
+| 削除期限 | `cacheRetention`（ms。§5.6 の実効値） | なし（無期限） | `fetchedAt` から越えたら消す | 新設（#9「キャッシュ期間管理」） |
 | 容量 | `cacheMaxBytes`（Source 単位）・`setLimits({maxBytes})`（全体） | なし | 超えたら LRU で退避。単体で上限を超える応答は保存しない | 現行のまま＋全体上限 |
 | 固定 | `fetchRange` の `pin`（既定 `true`） | — | 固定した Entry は LRU と削除期限の対象外 | 新設 |
 
-- `cacheRetention` の掃除は SW の起動時とジョブの完了時に、`fetchedAt` 索引をバッチで走査する（タイマは SW で信用できない）。配信時にも期限切れは「無いもの」として扱う
-- `cacheMaxBytes` の範囲は Source。Source の `Resource` 群の `[resourceId, accessedAt]` を併合して古い順に消す。共有 `Resource` の Entry も消える（キャッシュなので許容し、固定で守れる）
+- `cacheRetention` の掃除は、SW の起動後の最初のイベントとジョブの完了時に、`[pinned, fetchedAt]` 索引をバッチで走査する（タイマは SW で信用できない）。配信時にも期限切れは「無いもの」として扱う
+- `cacheMaxBytes` の範囲は Source。Source の `Resource` 群の `[resourceId, 0, accessedAt]` を併合して古い順に消す。共有 `Resource` の Entry も消える（キャッシュなので許容し、固定で守れる）
 - 固定分だけで `cacheMaxBytes` を超えるときは `fetchRange` が `quota` で止まる
 - `QuotaExceededError` のときは、固定以外を全体 LRU で 10% 退避して 1 回だけ再試行する。全体上限の既定が無いので、これが無いとブラウザの上限に当たった後はキャッシュが自力で回復しない
-- `fetchRange` の開始時に `navigator.storage.persist()` を試す（失敗は無視）。ブラウザの自動削除に対する唯一の手段
+- ページ側の `fetchRange` が、制御の要求を送る前に `navigator.storage.persist()` を試す（失敗は無視）。`persist` はページの API で SW には無い（`estimate` は SW でも使える）。ブラウザの自動削除に対する唯一の手段
 - 旧 API の `cacheTtl`・`cacheMaxBytes` は Source の同名の項目へそのまま写す
 
 ### 7.2 範囲取得と解放
@@ -384,15 +447,20 @@ export class WeiwudiError extends Error {
 | 経路 | 形 |
 |---|---|
 | 新 API | `WeiwudiError` で reject。`/v2/*` は `{ ok: false, error: { code, message, detail } }` を返す |
-| 旧 API | **現行と 1 字も違わない文字列で reject し続ける**。`WeiwudiError.from(e)` で `code` を得られる |
+| 旧 API | **現行と 1 字も違わない文字列で reject し続ける**（例外は下）。`WeiwudiError.from(e)` で `code` を得られる |
 | タイルの応答 | 応答ヘッダ `x-weiwudi-error: network｜upstream｜quota｜storage` |
 | 範囲取得のイベント | `stop` に `code`。`proceed`・`finish` に `errors: { network, upstream, quota, storage }`。`error`（合計）は残す |
 
 文字列を `Error` に置き換えない理由: 公開文書が `"Error: {message}"` を約束しており（`docs/api/weiwudi.md`）、`typeof e === 'string'` や `e.match()` で分岐する利用者を壊す。リリースポリシー §5.3・§9.1 では major と非推奨の手順が要る。`from` なら 0 件の破壊で #33 の「原因に応じて分岐できる」を満たす。利用側（MaplatCore・MaplatCorePro）は握りつぶしているので影響を受けない。
 
+文面を変える例外は 2 つだけで、どちらも内部の都合が漏れていた文である。
+
+- `Error: [object Event]`: `putItem` が abort の `Event` を reject していたため。m1-t3 で `tx.error` を reject するように直すので `Error: QuotaExceededError: …` になる
+- 未登録の地図の `clean` の `Error: NotFoundError: …`: store の無い DB を開いた結果であり、m2 の載せ替えで `Error: MapID "x" not found`（`stats` と同じ）にする。どちらも `Error: ` で始まり、reject することは変わらない
+
 文字列の reject は次の major で `WeiwudiError` へ変える。非推奨の予告は §13 の時期に合わせる。
 
-新 API で増えるコード: `unsupported-template`・`invalid-style`・`opaque`・`sw-outdated`・`credential-rejected`・`source-not-found`。`quota`・`network`・`upstream`・`storage`・`fetch-busy` などは m1 の表にあるものを使う。
+新 API で増えるコード: `unsupported-template`・`invalid-style`・`opaque`・`sw-outdated`・`credential-rejected`・`source-not-found`・`resource-conflict`。`quota`・`network`・`upstream`・`storage`・`fetch-busy` などは m1 の表にあるものを使う。
 
 ## 10. 提供元の URL と資格情報（#40）
 
@@ -423,6 +491,7 @@ type Credentials = { query?: Record<string, string>; headers?: Record<string, st
 - 登録の `credentials` は `credentials` ストアだけに入れる。`sources`・`resources`・`entries`・イベント・エラー文面・`stats` には現れない
 - 要求の URL に載っている資格情報は、`credentialParams` によりキーから落ちる（§5.3）
 - `templates` は登録時に資格情報の項目を除いて保存する。TileJSON の `tiles` に載っているものも同様
+- **`bodies` のスタイル・TileJSON の本体**: `credentials` を登録した `Source` では、保存の前に本体内の URL から `credentialParams` を除く（SW が上流で足せるので失うものが無い）。`credentials` の登録が無いときは本体を変えない。除くと地図ライブラリの要求にトークンが載らず、上流が拒否する。その場合のトークンは配信元がページへ渡したもので、ページの JS からもともと見える
 - 上流へ出す直前に、要求に資格情報が無ければ `applyCredentials` で足す。これで `source.url`（資格情報なし）をページに渡せる
 - エラー文面と `warnings` に URL を入れるときは、クエリを落とす
 - `credentials` を IndexedDB に置くのは、ページが閉じた後の再開と SW 再起動のため。同じオリジンのスクリプトからは読めるが、そのトークンはもともとページの JS が持っている
@@ -497,6 +566,7 @@ export class WeiwudiSource extends WeiwudiEventTarget {
 ```
 
 - 提供元別の使用量（#38）は `usage().byProvider`。鍵は `ResourceMeta.provider`、無ければ origin
+- `/v2/*` の要求の前に制御下かを確かめる（§4.1）
 - `/v2/ping` が `{ api: 2, version }` を返す。古い SW（更新待ち）に当たると 404 になるので、ページ側は `sw-outdated` を投げる。旧 `/api/ping` の `Implemented` は変えない
 
 **利用側の使い方**（MapLibre・第一の経路）
@@ -529,7 +599,19 @@ await style.fetchRange({ bounds: [139.7, 35.6, 139.8, 35.7], minZoom: 10, maxZoo
 
 **例外（理由つき）**: 疑似ホストのルート自体は残る。旧 API の利用者は `map.url` を地図ライブラリへ渡しており、これをインタフェース上消せない。ただしそのハンドラは翻訳だけで、キャッシュの処理を持たない。旧 API の範囲外の応答（ズーム外 404）は `serve()` の引数の値の差で、分岐したコードではない。
 
-既存の `tests/unit/` は**旧 API の契約試験**としてそのまま通し続ける（`sw-harness.ts` の起動部分だけ直す）。`tests/e2e/cache.spec.js` の `should evict…` は IndexedDB の `tileCache` を直接読むので、公開 API の確認へ書き換える（内部の形は公開の約束ではない）。
+**試験の扱い**。`tests/unit/` の大半は旧 API の契約試験としてそのまま通し続けるが、内部を固定している試験は次のように分ける（`tests/unit/weiwudi-gw-logic.test.ts` の describe 単位）。
+
+| 扱い | 対象 | 内容 |
+|---|---|---|
+| 残す | `handlerCb`・`checkAttributes`・`add xyz`・`add wmts`・`add cacheMaxBytes`・`info`・`getImage` の各群・`putItemWithEviction`・`countDB・stats`・`clean`・`delete`・`cancel`・`cache`・`fetchAll の入口`・`登録の DB を最初に開く API（#47）`・`tests/unit/add-cachemaxbytes.test.ts` | 入出力は変えない。AC は「m2 で差分なし」 |
+| 書き換える | `Weiwudi_Internal の初期化` の :40・:48 | `registerRoute` 1 回の前提をやめ、`sw-harness.ts` と一緒に 4 本（§4.3）へ直す。`capture` は旧 API のルートの正規表現を指す。門番は `queueMicrotask` の後に現れるので、ハーネスを `await` する形にする |
+| 書き換える | :56 の install・activate のリスナ | リスナを増やさないので通るはず。`BroadcastChannel` はハーネスで差し替える |
+| 書き換える | `store の無い DB の修復` の :553・:563 | 対象を `Weiwudi` から `WeiwudiStore` へ移し、`store.ts` の試験にする（別接続の開き直し・`blocked` で止まらない）。「store が無ければ版を上げる」がなくなるので版の検査は落とす |
+| 書き換える | :544 | `clean` の `NotFoundError` は公開の挙動として残さない（§9）。`map-not-found` を確かめ、`add` の後の保存が動くことは残す |
+| 移す | :526・:535・:575 | 移行の試験へ。旧 `Weiwudi` が store を持たなくても移行が空で完了して `add` が通ること、旧 DB が `blocked` でも `delete` は成功し、旧 DB の削除は次の起動へ回ること |
+| 退役 | 旧 `Weiwudi` の版が 2 であることの検査 | 旧 DB を修復しなくなるので意味を失う |
+
+`前提: fake-indexeddb の Blob の往復` は残す。`tests/e2e/cache.spec.js` の `should evict…` は IndexedDB の `tileCache` を直接読むので、公開 API の確認へ書き換える（内部の形は公開の約束ではない）。
 
 **載せ替えの時期**: state は「旧 IF の上乗せ」を m4 に置いているが、**載せ替え自体を m2 の最後へ前倒しする**（§16）。旧 API の試験 595 行が新コアの最良の検証になり、二重実装の期間も短くなる。
 
@@ -541,7 +623,7 @@ await style.fetchRange({ bounds: [139.7, 35.6, 139.8, 35.7], minZoom: 10, maxZoo
 
 **minor（`feat:`）で足す。** 公開 API は追加だけで、旧 API の入出力は変わらない。リリースポリシー §5.3 の「新機能はマイナーで先行投入」に当たる。`next` ブランチも `feat!` も使わない。
 
-- `Weiwudi_Internal` の型は広がるだけ（§4.3）
+- `Weiwudi_Internal` の引数の型は変わる（§4.3）。第 1 引数が広がるので、`(capture: RegExp, …)` の自作関数を渡す TypeScript の利用者には型エラーになる。ただし `package.json` の `exports` は `weiwudi_gw_logic` を公開していないので、公開 API の変更ではない。Workbox の `registerRoute` はそのまま渡せる
 - `peerDependencies`（`workbox-routing`）は変えない。実行時依存も増やさない
 - MaplatCorePro の `1.0.0` 固定は影響を受けない
 - SW の差し替えは `skipWaiting`＋`clients.claim` なので、旧ページが新 SW に当たる。旧 API を残すので動く。新ページが旧 SW に当たる窓は `sw-outdated`（§12）
@@ -550,12 +632,13 @@ await style.fetchRange({ bounds: [139.7, 35.6, 139.8, 35.7], minZoom: 10, maxZoo
 
 **捨てない。** `fetchAll` で地図を落としてオフラインで使っている利用者には、キャッシュが資産である。試作の「失敗したら旧データを消す」は採らない。
 
-- 移行の単位は地図で、`kv` に地図ごとの状態（`pending`・`copying`・`done`）を持つ
-- 旧 DB を開いて `tileCache` を 200 件ずつ読み、新 DB へ書いてから旧レコードを消す。DB をまたぐトランザクションは無いので、途中で止まると両方に残るが、キーが同じなので再実行は冪等である。容量は 2 倍にならない
-- 実行は SW の起動時に始め、`event.waitUntil` の届く範囲で進む。止まれば次の起動で続く。`activate` を待たせない（数 GB あるとブラウザに打ち切られる）
+- 移行の単位は地図で、`kv` に地図ごとの状態（`pending`・`copying`・`done`・`failed`）を持つ
+- 旧 DB は `indexedDB.databases()` で有無を確かめてから開く。`open` は無い DB を新しく作ってしまう
+- **第 1 段**: `Weiwudi` の `mapSetting` を全件 `sources` へ写す（`kv.settingsCopied`）。旧 `Weiwudi` が無い、または store が無い（#47 の壊れた DB）なら空で完了する。第 1 段が終わるまで、旧 API の地図の参照は `sources` に無ければ `mapSetting` も見る
+- **第 2 段**: 地図ごとに `tileCache` を 200 件ずつ読み、新 DB へ書いてから旧レコードを消す。`tileCache` の無い DB はそのまま `done` にする。DB をまたぐトランザクションは無いので、途中で止まると両方に残るが、キーが同じなので再実行は冪等である。容量は 2 倍にならない
+- SW の起動そのものには `waitUntil` を呼べるイベントが無い。**`fetch`（制御・旧 API・照合のルート）を受けたときに、移行が動いていなければ 1 バッチを `event.waitUntil` に結び付けて進める**。`activate` は待たせない（数 GB あるとブラウザに打ち切られる）。止まれば次のイベントで続く
 - **移行中の配信は読み通しにする**: 旧 API の地図で新 DB に無ければ、`Weiwudi_<mapID>` を見て、あれば配信して新 DB へ移す。移行の途中でオフラインになっても地図が欠けない
 - `epoch`→`fetchedAt`・`accessedAt`（無ければ `epoch`）・`z_x_y`→`z,x,y`・`blob.size`→`size`。`pinned` は 0
-- `mapSetting` は `sources` へ写す
 - 全地図が `done` になったら `Weiwudi_<mapID>` と `Weiwudi` を消す。`onblocked` は次の起動へ回す
 - 1 レコードの失敗は飛ばして続ける。地図単位で 3 回失敗したら `failed` にして読み通しのまま残す
 
@@ -585,14 +668,14 @@ state の題名からの変更点は太字（進行役が state を直す）。
 
 | 里程 | 内容 |
 |---|---|
-| m1 | 本書・#34・#33・#32 |
-| m2 | `store.ts`（#37）・`url_pattern.ts`・`core.ts` の `serve()`・`hook.ts`（2 ルート）・`control.ts`・`plugins.ts`（#36）・`raster` の登録・**旧 API の載せ替え（§13）**。先頭で Firefox の測定を試す |
-| m3 | スタイルの芋づる登録（§5.5）・ベクタの範囲外・グリフの結合（#39）・`providers/mapbox.ts`（#40）・資源単位の削除と提供元別の使用量（#38） |
+| m1 | 本書・#32・#34・#33 |
+| m2 | `store.ts`（#37）・`url_pattern.ts`・`core.ts` の `serve()`・`hook.ts`（§4.3 のルート）・`control.ts`・`plugins.ts`（#36）・`raster` の登録・**旧 API の載せ替え（§13）**。先頭で Firefox の測定を試す |
+| m3 | スタイルの芋づる登録（§5.5）・合流と実効方針の多対多の部分（§5.6）・ベクタの範囲外・グリフの結合（#39）・`providers/mapbox.ts`（#40）・資源単位の削除と提供元別の使用量（#38） |
 | m4 | 範囲取得と解放・保持（§7）・**旧 DB からの移行（§14.2）**・#41・文書・master への合流 |
 
 m2 の最後から m4 の移行までの間、`vector-cache` は既存キャッシュを読まない。公開前のブランチなので問題にならないが、**移行の無い状態で master へ入れてはならない**（m4 の合流の条件にする）。
 
-外へ出る API なので、m2 と m3 の区切りのレビューに水準 2（別ベンダーの AI）を含める（軽い道 §4）。
+外へ出る API なので、m1 の t3（`WeiwudiError` の追加）と m2・m3 の区切りのレビューに水準 2（別ベンダーの AI）を含める（軽い道 §4）。
 
 ## 17. 人間の判断
 
