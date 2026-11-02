@@ -329,7 +329,9 @@ export interface EntryBody {
 
 **新しい登録の拒否は登録の失敗にしない**。`register()` は `kind` によらず（`style`・`raster`・`vector`・`asset`）、衝突した資源があっても**成功して `Source` を保存する**。衝突した資源は合流させず、`warnings` に `resource-conflict` と `Resource.id` を書く。`Source` が保存されるので、利用者は `remove()` で外せる（存在しない `Source` の id が残ることはない）。`resource-conflict` を例外として投げるのは、自分自身の `update()` だけである（上）。
 
-**拒否しても範囲だけは足す**（新しい登録のとき）。範囲（`TileExtent`）はキーを変えないので、拒否の理由に当たらない。拒否した `Source` を重なった各 `Resource` の `rangeOnlySourceIds` に入れ、その `Source` の `TileExtent` を `extents` の和に加える（他の方針の合成には入れない）。`scheme` の違いで拒否したときは、y を反転して（`maxZoom` での `box` を `minY' = 2^maxZoom − 1 − maxY`・`maxY' = 2^maxZoom − 1 − minY`）既存の `Resource` の `scheme` に読み替えて加える。ズームは `scheme` に関係なくそのまま使う。
+**既存の id への `register()`**（同じ id の Source を方針を変えて登録し直したとき）は、その Source が既に属している `Resource` については自分自身の `update()` の規則に従う。古い方針と古い範囲のまま `sourceIds` に残す。ただし例外にはせず、`warnings` に `resource-conflict` を書く。`sourceIds` から `rangeOnlySourceIds` へは移さない（外すと `sourceIds` が空になった `Resource` と Entry が消え、両方に入れると方針の合成が二重になるため）。
+
+**拒否しても範囲だけは足す**（新しい id の登録か、その Source がまだ属していない `Resource` との衝突のときに限る）。範囲（`TileExtent`）はキーを変えないので、拒否の理由に当たらない。拒否した `Source` を重なった各 `Resource` の `rangeOnlySourceIds` に入れ、その `Source` の `TileExtent` を `extents` の和に加える（他の方針の合成には入れない）。`scheme` の違いで拒否したときは、y を反転して（`maxZoom` での `box` を `minY' = 2^maxZoom − 1 − maxY`・`maxY' = 2^maxZoom − 1 − minY`）既存の `Resource` の `scheme` に読み替えて加える。ズームは `scheme` に関係なくそのまま使う。これで §6 の 1 の範囲外判定が、拒否された `Source` の地図を透明画像・空本体にしない（上の表の範囲の行と同じ理由）。
 
 `rangeOnlySourceIds` の保守:
 
@@ -342,7 +344,7 @@ export interface EntryBody {
 
 - `source.resources`・`stats().byResource` に `rangeOnly: true` を付けて含める（地図が使う URL を利用者が見られるように）
 - 範囲取得（§7.2）の対象に含める。保存は既存の `Resource` の方針で行い、固定は region に結び付く（解放の規則は §7.2 のまま）
-- `source.clean()` では、他の `Source` が参照する共有の `Resource` と同じく Entry を消さない。`clean(range)` も同じこれで §6 の 1 の範囲外判定が、拒否された `Source` の地図を透明画像・空本体にしない（上の表の範囲の行と同じ理由）。
+- `source.clean()` では、他の `Source` が参照する共有の `Resource` と同じく Entry を消さない。`clean(range)` も同じ
 
 拒否はキャッシュの整合のためで、地図は動かせる（別の URL か、`Source` の削除で解決できる）。旧 API の `Resource` は合流しないので、この節の対象外である。
 
