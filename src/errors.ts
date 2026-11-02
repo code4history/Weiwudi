@@ -78,6 +78,8 @@ type Matcher = typeof MATCHERS[number];
 /**
  * 1 行の文面として切れるかを調べ、切れたら差し込み値を返す。先頭と末尾の固定部分で絞り、
  * 間の区切りは右から lastIndexOf で探す（どの区切りも最後の出現を採る。手間は文字列の長さに比例）。
+ * 区切りは各区切りの最後の出現で分ける。差し込みが 2 つ以上ある行の detail の分け方は保証しない
+ * （code の判定と、文面を作り直せることだけを保証する）。
  * 区切りの並びが成り立つ切り方が 1 つでもあれば、右からの探し方で必ず見つかる
  */
 const splitLegacy = (m: Matcher, text: string): string[] | undefined => {
@@ -139,16 +141,30 @@ const codeOfName = (name: string | undefined): WeiwudiErrorCode => {
   return 'internal';
 };
 
-// Error.isError（ES2026）は [[ErrorData]] を見るので、Error を装う Proxy を通さない
-const nativeIsError = (Error as unknown as { isError?: (v: unknown) => boolean }).isError;
+// Error.isError（ES2026）は [[ErrorData]] を見るので、Error を装う Proxy や素の object を通さない。
+// 試験で差し替えられるよう、呼ぶたびに読む
+const getNativeIsError = (): ((v: unknown) => boolean) | undefined => {
+  const f = (Error as unknown as { isError?: unknown }).isError;
+  return typeof f === 'function' ? (f as (v: unknown) => boolean) : undefined;
+};
 
-/** 本物の Error・DOMException だけを例外として扱う（name を持つだけの object は含めない） */
+const isDOMException = (value: unknown): boolean =>
+  typeof DOMException === 'function' && value instanceof DOMException;
+
+/**
+ * 本物の Error・DOMException だけを例外として扱う（name を持つだけの object は含めない）。
+ * - Error.isError がある環境: Error.isError か DOMException の instanceof。Firefox・WebKit では
+ *   Error.isError(DOMException) が false になりうるので、DOMException は instanceof でも拾う
+ * - Error.isError が無い環境（Node 22 など）: Error か DOMException の instanceof。
+ *   instanceof はプロトタイプを差し替えた object や Proxy で装えるので、ここでは見分けきれない
+ *   （そのため、そのまま返すかどうかは isWeiwudiErrorLike で自前のプロパティも見る）。
+ *   toString の印は Symbol.toStringTag で装えるので使わない
+ * 読み取りが throw する値は呼び出し側（from）で受け止める
+ */
 const isErrorLike = (value: unknown): value is Error => {
-  if (typeof nativeIsError === 'function') return nativeIsError(value);
-  // Error.isError の無い環境の代わり。instanceof と toString の印を見る（Proxy は見分けきれない）
-  if (value instanceof Error) return true;
-  const tag = Object.prototype.toString.call(value);
-  return tag === '[object Error]' || tag === '[object DOMException]';
+  const nativeIsError = getNativeIsError();
+  if (nativeIsError) return nativeIsError(value) || isDOMException(value);
+  return value instanceof Error || isDOMException(value);
 };
 
 /** String(value) が投げる値（Symbol.toPrimitive を持たない Proxy など）でも文字列にする */
@@ -156,20 +172,55 @@ const safeString = (value: unknown): string => {
   try {
     return String(value);
   } catch (_e) {
-    return '[object Object]';
+    return '[unprintable]';
   }
 };
 
+/** 自前の（継承でも getter でもない）データプロパティの値。無ければ undefined */
+const ownDataValue = (value: object, key: string | symbol): { value: unknown; enumerable: boolean } | undefined => {
+  const desc = Object.getOwnPropertyDescriptor(value, key);
+  if (!desc || !('value' in desc)) return undefined;
+  return { value: desc.value, enumerable: !!desc.enumerable };
+};
+
 /**
- * 別のコピーの WeiwudiError か。本物の Error で、code が既知の文字列であることを必須とし、
- * そのうえで印（別のバンドルの errors.ts が付けたもの）か name が WeiwudiError なら認める。
- * 印だけの object・印を付けた素の object・Proxy は通さない
+ * 別のコピーの WeiwudiError として、そのまま返してよいか。
+ * **そのまま返すのは、本物の Error で、既知の code を自前の文字列として持つものだけ。**
+ * そのうえで次のどちらかを求める。
+ * - 印（Symbol.for('@c4h/weiwudi/error')）を、列挙されない自前のデータプロパティとして持つ
+ * - Error.isError がある環境に限り、name が 'WeiwudiError'（印を付けない別の作り方の救済）
+ * Error.isError の無い環境では、本物の Error かどうかを instanceof でしか見られないので、
+ * 印と code を自前のデータとして持つ object を作れば装える（その限界は文書にも書く）
  */
 const isWeiwudiErrorLike = (value: unknown): value is WeiwudiError => {
+  if (typeof value !== 'object' || value === null) return false;
   if (!isErrorLike(value)) return false;
-  const v = value as unknown as { name?: unknown; code?: unknown } & Record<symbol, unknown>;
-  if (typeof v.code !== 'string' || !KNOWN_CODES.has(v.code)) return false;
-  return v[BRAND] === true || v.name === 'WeiwudiError';
+  const code = ownDataValue(value, 'code');
+  if (!code || typeof code.value !== 'string' || !KNOWN_CODES.has(code.value)) return false;
+  const brand = ownDataValue(value, BRAND);
+  if (brand && brand.value === true && !brand.enumerable) return true;
+  if (!getNativeIsError()) return false;
+  const name = ownDataValue(value, 'name')?.value ?? (value as { name?: unknown }).name;
+  return name === 'WeiwudiError';
+};
+
+const fromUnsafe = (value: unknown): WeiwudiError => {
+  if (isWeiwudiErrorLike(value)) return value;
+  if (typeof value === 'string') {
+    const legacy = matchLegacy(value);
+    if (legacy) return new WeiwudiError(legacy.code, value, legacy.detail);
+    // 包括の `Error: ${e}` は、後ろの例外名で分類する。名前の直後は `:` か文末に限る
+    // （`Error: QuotaExceededErrorX` や `Error: QuotaExceededError foo` は分類しない）
+    const named = value.match(/^Error: (\w+)(?::|$)/);
+    return new WeiwudiError(codeOfName(named ? named[1] : undefined), value);
+  }
+  if (isErrorLike(value)) {
+    const name = value.name;
+    const message = value.message;
+    return new WeiwudiError(codeOfName(typeof name === 'string' ? name : undefined),
+      typeof message === 'string' ? message : safeString(value));
+  }
+  return new WeiwudiError('internal', safeString(value));
 };
 
 export class WeiwudiError extends Error {
@@ -181,23 +232,20 @@ export class WeiwudiError extends Error {
     this.name = 'WeiwudiError';
     this.code = code;
     if (detail !== undefined) this.detail = detail;
-    Object.defineProperty(this, BRAND, { value: true });
+    // 別のコピーの errors.ts からも見分けられる印。列挙されない自前のデータプロパティにする
+    Object.defineProperty(this, BRAND, { value: true, enumerable: false, writable: false, configurable: false });
   }
 
-  /** 文字列・Error・その他から作る。WeiwudiError はそのまま返す */
+  /**
+   * 文字列・Error・その他から作る。どんな値を渡しても throw しない。
+   * そのまま返すのは、本物の Error で既知の code を持つ WeiwudiError（別のコピーを含む）だけ。
+   * 読み取りの途中で例外が起きる値（throw する getter・Proxy など）は internal で作り直す
+   */
   static from(value: unknown): WeiwudiError {
-    if (isWeiwudiErrorLike(value)) return value;
-    if (typeof value === 'string') {
-      const legacy = matchLegacy(value);
-      if (legacy) return new WeiwudiError(legacy.code, value, legacy.detail);
-      // 包括の `Error: ${e}` は、後ろの例外名で分類する。名前の直後は `:` か文末に限る
-      // （`Error: QuotaExceededErrorX` や `Error: QuotaExceededError foo` は分類しない）
-      const named = value.match(/^Error: (\w+)(?::|$)/);
-      return new WeiwudiError(codeOfName(named ? named[1] : undefined), value);
+    try {
+      return fromUnsafe(value);
+    } catch (_e) {
+      return new WeiwudiError('internal', safeString(value));
     }
-    if (isErrorLike(value)) {
-      return new WeiwudiError(codeOfName(value.name), typeof value.message === 'string' ? value.message : String(value));
-    }
-    return new WeiwudiError('internal', safeString(value));
   }
 }

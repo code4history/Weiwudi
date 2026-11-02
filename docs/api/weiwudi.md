@@ -247,12 +247,20 @@ try {
 ```
 
 - Returns a `WeiwudiError` (a subclass of `Error`) with `code`, `message` and
-  `detail`. A `WeiwudiError` is returned as is.
+  `detail`. It never throws, whatever value is passed.
+- **Only a genuine `Error` that carries a known `code` is returned as is**: a
+  `WeiwudiError`, including one created by another copy of Weiwudi. Anything
+  else is converted into a new `WeiwudiError`. Where `Error.isError` is not
+  available (e.g. Node 22), whether a value is a genuine `Error` can only be
+  checked with `instanceof`, so an object crafted to look like a
+  `WeiwudiError` may still be returned as is there.
 - For a known message, `code` is taken from the table below and the inserted
   values go into `detail` as strings (e.g. `map-not-found` → `{ mapID: 'x' }`).
   When an inserted value contains another message and the same string can be
   produced by more than one message, the code of the message with the longer
-  fixed text before its first inserted value is used.
+  fixed text before its first inserted value is used. A message with several
+  inserted values is split at the last occurrence of each separator; how the
+  values are split into `detail` is not guaranteed in that case.
 - Other `"Error: {message}"` strings (wrapped exceptions such as IndexedDB
   errors) are classified by the exception name after `Error: `:
   `QuotaExceededError` → `quota`, `BlockedError` → `db-blocked`, anything else →
@@ -261,7 +269,9 @@ try {
   setting in `registerMap` hits the storage quota, real browsers reject with
   `Error: QuotaExceededError` (often followed by `: ` and a description).
 - An `Error` or `DOMException` is classified by its `name` the same way. Any
-  other value becomes `internal` with `String(value)` as the message.
+  other value (including objects that only have a `name`) becomes `internal`
+  with `String(value)` as the message (`[unprintable]` if it cannot be
+  converted). A value that throws while being read also becomes `internal`.
 
 **Codes with a fixed message:**
 

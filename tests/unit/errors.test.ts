@@ -342,3 +342,153 @@ describe('新 API の code（#33 レビュー）', () => {
     expect(new WeiwudiError(code, 'x').code).toBe(code);
   });
 });
+
+// ---- 第 3 回レビュー: Error.isError の有無・偽装・from が throw しないこと ----
+
+type IsError = (v: unknown) => boolean;
+const ORIGINAL_IS_ERROR = Object.getOwnPropertyDescriptor(Error, 'isError');
+const realIsError = (Error as unknown as { isError?: IsError }).isError;
+
+/** Error.isError を外す（undefined）か差し替えて fn を走らせ、元に戻す */
+const withIsError = (impl: IsError | undefined, fn: () => void) => {
+  if (impl === undefined) delete (Error as unknown as { isError?: IsError }).isError;
+  else Object.defineProperty(Error, 'isError', { value: impl, configurable: true, writable: true });
+  try {
+    fn();
+  } finally {
+    if (ORIGINAL_IS_ERROR) Object.defineProperty(Error, 'isError', ORIGINAL_IS_ERROR);
+    else delete (Error as unknown as { isError?: IsError }).isError;
+  }
+};
+
+const BRAND_KEY = Symbol.for('@c4h/weiwudi/error');
+
+// 「ある経路」は本物の Error.isError（node 24）。無い環境の試験なら、[[ErrorData]] の判定を真似た関数で代える
+const PATHS: [string, IsError | undefined][] = [
+  ['Error.isError がある経路', realIsError ?? ((v) => v instanceof Error && Object.prototype.toString.call(v) === '[object Error]')],
+  ['Error.isError が無い経路（Node 22 相当）', undefined],
+];
+
+describe.each(PATHS)('%s', (_label, impl) => {
+  it('前提: Error.isError の有無が切り替わっている', () => {
+    withIsError(impl, () => {
+      expect(typeof (Error as unknown as { isError?: IsError }).isError).toBe(impl ? 'function' : 'undefined');
+    });
+  });
+
+  it('Symbol.toStringTag で Error を名乗り、name・code・印を付けた素の object → 作り直して internal', () => {
+    withIsError(impl, () => {
+      const fake = { [Symbol.toStringTag]: 'Error', name: 'WeiwudiError', code: 'quota', message: 'x', [BRAND_KEY]: true };
+      const e = WeiwudiError.from(fake);
+      expect(e).not.toBe(fake);
+      expect(e.code).toBe('internal');
+    });
+  });
+
+  it('印付きの { code: quota } → 作り直して internal', () => {
+    withIsError(impl, () => {
+      const fake = { [BRAND_KEY]: true, code: 'quota' };
+      const e = WeiwudiError.from(fake);
+      expect(e).not.toBe(fake);
+      expect(e.code).toBe('internal');
+    });
+  });
+
+  it('Error を装う Proxy（instanceof・toString・印・code）→ 作り直して internal', () => {
+    withIsError(impl, () => {
+      const fake = new Proxy({}, {
+        getPrototypeOf: () => WeiwudiError.prototype,
+        get: (_t, k) => (k === BRAND_KEY ? true : k === 'code' ? 'quota' : k === 'name' ? 'WeiwudiError'
+          : k === Symbol.toStringTag ? 'Error' : undefined),
+      });
+      const e = WeiwudiError.from(fake);
+      expect(e).not.toBe(fake);
+      expect(e.code).toBe('internal');
+    });
+  });
+
+  it('本物の WeiwudiError は同じものが返る', () => {
+    withIsError(impl, () => {
+      const e = new WeiwudiError('quota', 'full', { mapID: 'm' });
+      expect(WeiwudiError.from(e)).toBe(e);
+    });
+  });
+
+  it('別のコピーの WeiwudiError も同じものが返る（印は列挙されない自前のデータプロパティ）', async () => {
+    vi.resetModules();
+    const other = await import('../../src/errors');
+    const e = new other.WeiwudiError('map-not-found', 'Error: MapID "x" not found', { mapID: 'x' });
+    const desc = Object.getOwnPropertyDescriptor(e, BRAND_KEY);
+    expect(desc).toMatchObject({ value: true, enumerable: false, writable: false });
+    withIsError(impl, () => {
+      expect(WeiwudiError.from(e)).toBe(e);
+    });
+  });
+
+  it('本物の Error に印と code を後から列挙される形で付けたものは、そのまま返さない', () => {
+    withIsError(impl, () => {
+      const err = Object.assign(new Error('x'), { code: 'quota', [BRAND_KEY]: true });
+      const e = WeiwudiError.from(err);
+      expect(e).not.toBe(err);
+      expect(e.code).toBe('internal');
+    });
+  });
+
+  it('DOMException(QuotaExceededError) → quota', () => {
+    withIsError(impl, () => {
+      expect(WeiwudiError.from(new DOMException('full', 'QuotaExceededError')).code).toBe('quota');
+    });
+  });
+
+  it('どんな値でも from は throw しない（throw する trap・getter）', () => {
+    withIsError(impl, () => {
+      const boom = () => { throw new Error('boom'); };
+      const proxy = new Proxy({}, { getPrototypeOf: boom, get: boom, getOwnPropertyDescriptor: boom, has: boom });
+      const msgThrows = new Error('x');
+      Object.defineProperty(msgThrows, 'message', { get: boom });
+      const nameThrows = new Error('x');
+      Object.defineProperty(nameThrows, 'name', { get: boom });
+      const tagThrows = { get [Symbol.toStringTag]() { return boom(); }, toString: boom };
+      const nullProto = Object.create(null);
+      for (const value of [proxy, msgThrows, nameThrows, tagThrows, nullProto, Symbol('s'), undefined, null, 1n]) {
+        let e: WeiwudiError | undefined;
+        expect(() => { e = WeiwudiError.from(value); }).not.toThrow();
+        expect(e).toBeInstanceOf(WeiwudiError);
+        expect(e!.code).toBe('internal');
+      }
+    });
+  });
+});
+
+describe('文字列にできない値（第 3 回レビュー）', () => {
+  it('String が投げる値は [unprintable] になる', () => {
+    const proxy = new Proxy({}, { get: () => undefined });
+    expect(WeiwudiError.from(proxy).message).toBe('[unprintable]');
+  });
+});
+
+describe('Error.isError(DOMException) が false の環境（Firefox・WebKit の想定）', () => {
+  it('QuotaExceededError の DOMException も quota になる', () => {
+    const base = realIsError ?? ((v: unknown) => v instanceof Error);
+    withIsError((v) => !(v instanceof DOMException) && base(v), () => {
+      expect((Error as unknown as { isError: IsError }).isError(new DOMException('x', 'QuotaExceededError'))).toBe(false);
+      expect(WeiwudiError.from(new DOMException('full', 'QuotaExceededError')).code).toBe('quota');
+    });
+  });
+});
+
+describe('照合の速さ: apiName・target（第 3 回レビュー）', () => {
+  it.each([
+    ['api-not-found', 'apiName'],
+    ['attribute-missing', 'target'],
+  ] as const)('%s の %s が 10 万字 → 50 ms 未満で当たる', (code, name) => {
+    const value = 'a'.repeat(100_000);
+    const text = legacyMessage(code, { [name]: value });
+    const start = performance.now();
+    const e = WeiwudiError.from(text);
+    const ms = performance.now() - start;
+    expect(e.code).toBe(code);
+    expect(e.detail?.[name]).toBe(value);
+    expect(ms).toBeLessThan(50);
+  });
+});

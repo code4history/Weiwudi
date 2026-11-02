@@ -246,19 +246,27 @@ try {
 ```
 
 - `code`・`message`・`detail` を持つ `WeiwudiError`（`Error` の派生）を返します。
-  `WeiwudiError` を渡すとそのまま返します。
+  どんな値を渡しても throw しません。
+- **そのまま返すのは、本物の `Error` で既知の `code` を持つものだけです**（別のコピーの
+  Weiwudi が作った `WeiwudiError` を含む）。それ以外は新しい `WeiwudiError` に作り直します。
+  `Error.isError` の無い環境（Node 22 など）では、本物の `Error` かどうかを
+  `instanceof` でしか確かめられないので、`WeiwudiError` に似せて作った object が
+  そのまま返ることがあります。
 - 表にある文面なら `code` は表のとおりで、差し込み値は文字列のまま `detail` に
   入ります（例: `map-not-found` → `{ mapID: 'x' }`）。差し込み値が別の文面を含み、
   同じ文字列が複数の文面から作れるときは、先頭の固定部分（最初の差し込みより前）が
-  長い文面の code になります。
+  長い文面の code になります。差し込みが複数ある文面は、各区切りの最後の出現で分けます。
+  この場合、`detail` への分け方は保証しません。
 - それ以外の `"Error: {message}"`（IndexedDB の例外などを包んだもの）は、`Error: ` の
   後ろの例外名で分類します。`QuotaExceededError` → `quota`、`BlockedError` →
   `db-blocked`、それ以外 → `internal`。これらは `Error: ` で始まることとこの分類だけを
   保証し、残りの文は変わることがあります。たとえば `registerMap` で地図の設定の保存が
   容量超過になると、実ブラウザでは `Error: QuotaExceededError`（後ろに `: ` と説明が
   付くことがあります）で reject します。
-- `Error`・`DOMException` は `name` で同じように分類します。それ以外の値は
-  `String(value)` を文面にして `internal` になります。
+- `Error`・`DOMException` は `name` で同じように分類します。それ以外の値（`name` を
+  持つだけの object を含む）は `String(value)` を文面にして `internal` になります
+  （文字列にできない値は `[unprintable]`）。読み取りの途中で throw する値も `internal`
+  です。
 
 **文面が決まっているコード:**
 
