@@ -76,4 +76,39 @@
   - O-16: R9 の理由の文を直す。
 
 Ruling: S 15 件と水準 2 の必須 7 件（C1〜C7）は、すべて裁定案で反映する — どれも実装前に直せば文書の変更で済み、実装後や公開後だと手戻りか互換破壊になる — 誤りなら m2 の計画が大きくなるだけ
-Ruling: C1 は preflight の要らない単純要求（text/plain の JSON）を選ぶ — preflight が SW に届くかに依存しない。旧 SW で本文が漏れる件は C2 の ping 先行で塞ぐ — 誤りなら t9 の実ブラウザの測定で落ちるので、OPTIONS の扱いへ切り替える
+Ruling: C1 は単純要求（preflight の要らない形）を選ぶ（text/plain の JSON）を選ぶ — preflight が SW に届くかに依存しない。旧 SW で本文が漏れる件は C2 の ping 先行で塞ぐ — 誤りなら t9 の実ブラウザの測定で落ちるので、OPTIONS の扱いへ切り替える
+
+## 事前点検 2026-11-03（第 2 回）
+
+- 点検者: 新しい Claude（quality-engineer）/ 水準 1、Codex / 水準 2 / 対象 `4e9266e`（第 1 回の反映）
+- 判定: 水準 1 不合格・S 7・O 21（第 1 回の S・C は S6 の t5 側の試験を除き反映済み）。水準 2 差し戻し・必須 6・推奨 5（C1・C5・C7 は解消、C2・C3・C4・C6 は一部）
+- 実走で確かめた事実（水準 1）: Chromium 1248 では JSON の POST も preflight なしで SW に届き、context.route には SW が受けた要求は見えない（S15 の数え方は有効、t9 の「without preflight」は区別できない）
+
+### 水準 1 の S（裁定はすべて裁定案）
+
+| ID | 内容 | 裁定 |
+|---|---|---|
+| S-1 | 試験の一覧が「前の版のとおり」で、今の計画に無い（upstream・hook の試験が列挙されていない） | `887caee` の 4 つの一覧（url-pattern・registry・upstream・hook）を本文へ戻し、追加分を足す |
+| S-2 | `unsupported-kind` を t3 で投げるのに errors.ts への追加が t8 で、t3 の typecheck が通らない | errors.ts と errors.test.ts への追加を t3 へ移す |
+| S-3 | spec.ts が tile_math を使うのに §3 の表が許していない | §3 の spec.ts の行に tile_math を足す |
+| S-4 | t8 の d.ts の確かめに export でない `register`（static メンバ）が入り、必ず落ちる | 引数から外し、`static register(` を別に見る |
+| S-5 | 旧 API の `ServeInput.request` が未定義で、requestWillFetch の要求が疑似ホストへ出る | 旧 API の request は `new Request(選んだミラーを展開した URL)`。プラグインが受けた request.url が上流の URL である試験 |
+| S-6 | 新 API の登録が `map:` の Resource に合流しうる（以後捕捉されない） | t6 の合流候補から `map:` を除き、別 Resource ができる試験 |
+| S-7 | golden の筋書きに §9 の既知の変化が入りうる | 既知の変化に当たる手は筋書きから外し legacy-changes.test.ts で見ると明記 |
+
+### 水準 2 の必須（裁定）
+
+| ID | 内容 | 裁定 |
+|---|---|---|
+| D1 | 資格情報の除去がクエリだけで、URL の userinfo（`user:pass@`）が id・templates・warnings に残る。明示 id も無検査 | userinfo を含む URL は登録時に拒否する（attribute-invalid）。明示 id は公開値であり資格情報を入れないことを契約に書く（検査はしない）。公開値に残らない試験 |
+| D2 | controller が替わっても ping 成功の記憶が残る。失敗が 404 とネットワーク失敗だけ | 記憶は controller の実体ごとにし、controllerchange で捨てる。200 で正しい JSON（版あり）以外はすべて失敗扱いで記憶しない（fail-closed）。試験 |
+| D3 | SourceInfo・SourceStats が完全な型宣言になっていない。d.ts の試験が名前しか見ない | 完全な interface として書き、d.ts は tsc で型を使う小さな確かめ（形の不一致で落ちる）にする |
+| D4 | addPlugin の重複登録の契約が無い | 同じオブジェクトの 2 回目は無視（冪等）。試験 |
+| D5 | sk. の検査が値の先頭だけで、`Bearer sk.…` や credentialParams 以外のクエリ値を見逃す | credentials の各値とテンプレートの全クエリ値について、`Bearer `／`Token ` などの前置きを剥がしてから `sk.` 始まりを拒否する。試験 |
+| D6 | §6 の Entry なしの上流 HTTP 失敗が「そのまま」と「ヘッダを付ける」で矛盾 | 新 API は上流の status・statusText・本体を写した合成応答にヘッダを足す。旧 API の経路は golden に従う。§6 の表を直す |
+
+- 水準 2 の推奨 5 件は採る（golden のヘッダはキー小文字・名前順・重複結合で正規化／resources は呼び出し時点の写し／d.ts と文書は m2 で入るメソッドだけにし将来の API は書かない／plugin の state はプラグインごと・要求ごと、addPlugin は以後の要求にだけ効く／SourceSpec の未対応 kind は文書に明記）
+- 水準 1 の O は作者の判断。O2（持ち越しの中身）は進行役が state に書き写した
+
+Ruling: 第 2 回の S 7 件と D1〜D6 は裁定案で反映する — 実装前の文書の変更で済む — 誤りなら計画が細かくなるだけ
+Ruling: 明示 id は検査せず契約で縛る — 任意の文字列から資格情報を見分ける規則は作れない — 誤りなら利用者が id にトークンを入れたとき公開値に出る（利用者の責任）

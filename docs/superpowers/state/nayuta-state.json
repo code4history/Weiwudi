@@ -53,7 +53,7 @@
       "plan": null,
       "ledger": null,
       "security_review": "pending",
-      "carried_from_precheck": "m1 の事前点検の第 6 回で m3 へ送った O（m2 の計画 docs/superpowers/plans/2026-11-03-m2-core.md の「持ち越し」の節に行き先がある）を m3 の計画に入れる"
+      "carried_from_precheck": "m1 の事前点検の第 6 回から: O-4 asset の衝突で範囲が制限なしになる・O-7 スタイルの update() で新しく現れた下位資源の衝突（出どころは m2 の計画 887caee 版の「事前点検で見てほしい範囲」の表）"
     },
     {
       "id": "m4",
@@ -62,7 +62,7 @@
       "plan": null,
       "ledger": null,
       "security_review": "pending",
-      "carried_from_precheck": "m1 の事前点検の第 6 回で m4 へ送った O（m2 の計画の「持ち越し」の節）と、m1 のまとめの「m4 への申し送り」（dist の 4 点・latToMercY(90) が有限・移行無しで master へ入れない）、m2 の R13・R15（範囲取得の CORS・認証、容量超過時の退避と再試行）"
+      "carried_from_precheck": "m1 の事前点検の第 6 回から O-3 持ち主の Source の削除で範囲だけの region が残る（region は範囲取得と一緒に作る）と、m2 の R20（opaque イベント）と、m1 のまとめの「m4 への申し送り」（dist の 4 点・latToMercY(90) が有限・移行無しで master へ入れない）、m2 の R13・R15（範囲取得の CORS・認証、容量超過時の退避と再試行）"
     }
   ],
   "design_references": [
