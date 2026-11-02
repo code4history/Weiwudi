@@ -104,7 +104,7 @@
 
 **送信の前に `navigator.serviceWorker.controller` を確かめる。** 制御下に無いページで POST すると、資格情報の入った本文が SW を通らず実ホスト宛てに出る。無ければ何も送らず `sw-not-controlling` で失敗させる。
 
-**controller があっても Weiwudi の新しい SW とは限らない**（旧版の SW は `weiwudi.example.com` の GET しか受けず、POST は実ホストへ出る）。そこで新 API は、最初の POST の前に `GET /v2/ping` の成功（`{ api: 2, version }`）を必ず確かめる。成功は「200 で、JSON が `{ api: 2, version: 文字列 }`」のときだけで、**その controller の実体に結び付けて記憶し、`controllerchange` で捨てる**。それ以外はすべて失敗とし、記憶しない（fail-closed。次の呼び出しで確かめ直す）: 404 と、200 でも JSON が違うものは `sw-outdated`、ネットワーク失敗とその他の状態は `sw-not-controlling`。この確認は旧 API の `swCheck` と別の関数にする（`swCheck` は旧 API が共有し、結果を大域に固定するので、`/v2/ping` に変えると旧 SW の上で旧 API が壊れる）。
+**controller があっても Weiwudi の新しい SW とは限らない**（旧版の SW は `weiwudi.example.com` の GET しか受けず、POST は実ホストへ出る）。そこで新 API は、最初の POST の前に `GET /v2/ping` の成功（`{ api: 2, version }`）を必ず確かめる。成功は「200 で、JSON が `{ api: 2, version: 文字列 }`」のときだけで、**その controller の実体に結び付けて記憶し、`controllerchange` で捨てる**。それ以外はすべて失敗とし、記憶しない（fail-closed。次の呼び出しで確かめ直す）: 404 と、200 でも JSON が違うものは `sw-outdated`、ネットワーク失敗とその他の状態は `sw-not-controlling`。ping の前と後で controller の実体を比べ、違えば 1 回だけ確かめ直し、なお違えば `sw-not-controlling` で止める。同時の呼び出しは進行中の ping 1 本にまとめる。`version` は空でない文字列であること。この確認は旧 API の `swCheck` と別の関数にする（`swCheck` は旧 API が共有し、結果を大域に固定するので、`/v2/ping` に変えると旧 SW の上で旧 API が壊れる）。
 
 **POST は preflight の要らない単純要求にする**: `Content-Type: text/plain;charset=UTF-8` で、本文は JSON の文字列。別オリジンへの JSON の POST は preflight（`OPTIONS`）を生み、それが SW に渡るかはブラウザに依る。単純要求なら preflight に依存しない。
 
@@ -386,8 +386,8 @@ export interface ResourceInfo {
 | 6 | ネットワーク失敗・Entry あり | 古い本体 | `stale` |
 | 7 | ネットワーク失敗・Entry なし | 404 | `offline-miss` |
 
-- 「上流が失敗（HTTP）」は `!response.ok` に加え、**スタイル・TileJSON 以外で 200 の `text/html`**（§4.6。ログイン画面）を含む。Entry があれば 4 の古い本体、無ければ 5 で上流の応答をそのまま返す
-- **公開の契約**: `x-weiwudi-status` の値は表の 7 つ（`out-of-range`・`hit`・`miss`・`refresh`・`stale`・`upstream-error`・`offline-miss`）、`x-weiwudi-error` の値は 4 つ（`network`・`upstream`・`quota`・`storage`）、`access-control-expose-headers` は `x-weiwudi-status, x-weiwudi-error` で、合成した応答すべてに付ける。値を増やすときは minor で文書に足す
+- 「上流が失敗（HTTP）」は `!response.ok` に加え、**スタイル・TileJSON 以外で 200 の `text/html`**（§4.6。ログイン画面）を含む。Entry があれば 4 の古い本体、無ければ 5 の合成応答（上流の `status`・`statusText`・本体・ヘッダを写して `x-weiwudi-status: upstream-error`・`x-weiwudi-error: upstream` を足す。新 API の経路は写すときに `content-encoding`・`content-length`・`transfer-encoding`・`set-cookie` を落とす。旧 API の経路は旧の挙動のままヘッダを落とさない）
+- **公開の契約**: `x-weiwudi-status` の値は表の 7 つ（`out-of-range`・`hit`・`miss`・`refresh`・`stale`・`upstream-error`・`offline-miss`）、`x-weiwudi-error` の値は 4 つ（`network`・`upstream`・`quota`・`storage`）、`access-control-expose-headers` は `x-weiwudi-status, x-weiwudi-error` で、合成した応答すべてに付ける（上流の同名のヘッダに足さず上書きする）。表の 5 では `x-weiwudi-error: upstream` を付ける。値を増やすときは minor で文書に足す
 - 配信の時点で削除期限（§7.1 の `cacheRetention`）を過ぎた Entry は「無いもの」として扱う（m2 から。掃除は m4）
 - これは現行の `getImage` の順序そのものである（既存の試験が契約）。`x-weiwudi-status` だけが増える。SW が合成した応答はページから見て `basic` なので、別オリジンの URL でもこのヘッダを読める（§2 の計測で確認）。ただし opaque の応答（§4.5 の 2）は SW が合成した応答ではないので `x-weiwudi-status` を付けられず、ページからも読めない
 - 保存に失敗しても配信は続ける（#22 の現行の決まり）。応答に `x-weiwudi-error`（§9）を付ける
@@ -516,7 +516,7 @@ export class WeiwudiError extends Error {
 - 包括の `Error: ${e}`（IndexedDB の例外などをそのまま文にしたもの）は、`Error: ` で始まることと `from` の分類（§9 の表と例外名）だけを保証する。中身は内部の都合で変わる。既知の変化は次のとおり
   - `Error: [object Event]`: IndexedDB の補助関数（`putItem`・`countDB`・`cleanDB`・`getItem`・`deleteItem`・`getAllKeys` ほか）が `Event` を reject していたため。m1-t3 は `putItem`・`putItemWithEviction` だけを `tx.error`・`req.error` に直し、残りは m2 の `store.ts` で揃える
   - 未登録の地図の `clean` の `Error: NotFoundError: …`: m2 の載せ替えで `Error: MapID "x" not found`（`stats` と同じ。16 行の側）にする
-  - 旧 API のタイルも、200 で `content-type` が `text/html` の応答を上流の失敗として扱う（§6）。保存せず、Entry があれば古い本体、無ければ上流の応答をそのまま返す。ログイン画面がタイルとして固定されるのを防ぐため
+  - 旧 API のタイルも、200 で `content-type` が `text/html` の応答を上流の失敗として扱う（§6）。保存せず、Entry があれば古い本体、無ければ §6 の 5 の合成応答（旧 API の経路なのでヘッダは落とさない）を返す。ログイン画面がタイルとして固定されるのを防ぐため
   - 保存した応答を返すとき、`content-encoding`・`content-length`・`transfer-encoding`・`set-cookie` を返さなくなる（§6。保存時に落とす。現行は上流のヘッダをすべて保存して返していた）
   - 合成した応答に `x-weiwudi-status` と `access-control-expose-headers` が付く（§6 の公開の契約）
   - `blocked` の文面の DB 名は `Weiwudi` から `WeiwudiStore` に変わる。旧 DB が `blocked` でも `delete` は失敗せず成功する（§14.2。旧 DB の削除は次の起動へ回す）
@@ -543,9 +543,9 @@ export interface WeiwudiProvider {
 
 - 標準で `providers/mapbox.ts` を持つ。形は 4 つ（スタイル・タイルセット・スプライト・フォント）
 - `@c4h/beatbox` には依存しない。SW 側で必要な変換が小さい表で済み、これのために実行時依存（現在 0 件）を増やさない。BeatBox 0.1.1 の変換表は m3 で突き合わせて写す
-- `sk.` で始まる秘密トークンは `credential-rejected` で拒否する（試作の決定を継承）。この検査は提供元に依らない文字列の検査として、汎用の資格情報と同じ m2 に入れる。対象は `credentials` の `query`・`headers` の各値と、テンプレートの全クエリ値で、先頭の `Bearer `・`Token `・`Basic `（大文字小文字を問わない）と空白を剥がしてから `sk.` で始まるかを見る。保存する前に止める
-- URL の userinfo（`user:pass@`）を含むテンプレートは登録で拒否する（`attribute-invalid`）。取り除くと照合が合わず、残すと id・テンプレート・`warnings` に出る
-- 明示の `id` は公開の値（`source()` の鍵・`warnings`・`stats`）である。資格情報を入れないことを利用者との契約にする（任意の文字列から資格情報を見分ける規則は作れないので検査はしない）
+- `sk.` で始まる秘密トークンは `credential-rejected` で拒否する（試作の決定を継承）。この検査は提供元に依らない文字列の検査として、汎用の資格情報と同じ m2 に入れる。対象は `credentials` の `query`・`headers` の各値と、テンプレートの全クエリ値で、先頭の `Bearer `・`Token `・`Basic `（大文字小文字を問わない）と空白を剥がしてから `sk.` で始まるかを見る。クエリ値は percent-decode した後の値も見る（`%73k.` を通さない）。保存する前に止める
+- URL の userinfo（`user:pass@`）を含むテンプレートは登録で拒否する（`attribute-invalid`。判定は `new URL()` の `username`・`password` が空であること）。取り除くと照合が合わず、残すと id・テンプレート・`warnings` に出る
+- 明示の `id` は公開の値（`source()` の鍵・`warnings`・`stats`・`resources`・`byResource` の鍵）である。資格情報を入れないことを利用者との契約にする（任意の文字列から資格情報を見分ける規則は作れないので検査はしない）。形だけは検査する: 文字列・空でない・`\0` を含まない（`\0` はキーの区切りで、前置きの範囲削除を壊す）。外れたら `attribute-invalid`
 
 **資格情報の分離**
 
@@ -607,8 +607,8 @@ class Weiwudi {
   static register(spec: SourceSpec): Promise<WeiwudiSource>;   // 資源の衝突では失敗せず warnings に書く（§5.6）
   static source(id: string): Promise<WeiwudiSource>;       // 無ければ source-not-found
   static sources(): Promise<SourceInfo[]>;
-  static usage(): Promise<UsageReport>;                    // 全体と提供元別（#38）
-  static setLimits(limits: { maxBytes?: number }): Promise<void>;
+  static usage(): Promise<UsageReport>;                    // 全体と提供元別（#38。m3）
+  static setLimits(limits: { maxBytes?: number }): Promise<void>;   // m4
 }
 
 export class WeiwudiSource extends WeiwudiEventTarget {
@@ -618,13 +618,13 @@ export class WeiwudiSource extends WeiwudiEventTarget {
   readonly warnings: string[];              // 登録・update の時点の写し（snapshot）。後で変わらない
   stats(): Promise<SourceStats>;
   update(): Promise<void>;
-  estimate(range: RangeSpec): Promise<{ tiles: number }>;
-  fetchRange(range: RangeSpec, opts?: FetchRangeOptions): Promise<RegionInfo>;
-  releaseRange(regionId: string, opts?: { keep?: boolean }): Promise<void>;
-  regions(): Promise<RegionInfo[]>;
-  cancel(): Promise<void>;
-  clean(range?: RangeSpec, opts?: { force?: boolean }): Promise<void>;
-  removeResource(resourceId: string): Promise<void>;   // 資源単位の削除（#38）
+  estimate(range: RangeSpec): Promise<{ tiles: number }>;                                   // m4
+  fetchRange(range: RangeSpec, opts?: FetchRangeOptions): Promise<RegionInfo>;              // m4
+  releaseRange(regionId: string, opts?: { keep?: boolean }): Promise<void>;                 // m4
+  regions(): Promise<RegionInfo[]>;                                                         // m4
+  cancel(): Promise<void>;                                                                  // m4
+  clean(range?: RangeSpec, opts?: { force?: boolean }): Promise<void>;   // 範囲なしは m2、range・opts は m4
+  removeResource(resourceId: string): Promise<void>;   // 資源単位の削除（#38。m3）
   remove(): Promise<void>;                  // 登録と Entry を消す
   release(): void;                          // ページ側のリスナを外す
 }
@@ -652,7 +652,7 @@ export interface SourceStats {
 - `WeiwudiSource.resources` も呼び出し時点の写しで、後の変化は `stats()` か `source()` で読み直す
 - 上の `class` の宣言のうち、各版の d.ts と文書には、その版で入るメンバだけを書く（m2 は `register`・`source`・`sources` と、`WeiwudiSource` の `id`・`url`・`resources`・`warnings`・`stats`・`update`・`clean`（範囲なし）・`remove`・`release`）
 - `warnings` の書式は `"<code>: <subject>"`（`subject` は `Resource.id` か、クエリを除いた URL）
-- 登録を拒否するもの: `map:` から始まる `id`（§5.1。`attribute-invalid`）・`weiwudi.example.com` のテンプレート（`unsupported-template`）・その版が扱わない `kind`（`unsupported-kind`。m2 では `style`・`asset`）・`sk.` の資格情報（`credential-rejected`）
+- 登録を拒否するもの: `map:` から始まる `id`・空の `id`・`\0` を含む `id`（§5.1・§10。`attribute-invalid`）・userinfo を含むテンプレート（§10。`attribute-invalid`）・`weiwudi.example.com` のテンプレート（`unsupported-template`）・その版が扱わない `kind`（`unsupported-kind`。m2 では `style`・`asset`）・`sk.` の資格情報（`credential-rejected`）
 - 提供元別の使用量（#38）は `usage().byProvider`。鍵は `ResourceMeta.provider`、無ければ origin
 - `/v2/*` の要求の前に制御下かを確かめる（§4.1）
 - `/v2/ping` が `{ api: 2, version }` を返す。最初の POST の前に必ず確かめる（§4.1）。古い SW（更新待ち）に当たると 404 になるので、ページ側は `sw-outdated` を投げる。旧 `/api/ping` の `Implemented` は変えない
