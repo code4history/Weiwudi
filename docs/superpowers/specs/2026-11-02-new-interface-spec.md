@@ -386,10 +386,10 @@ export interface ResourceInfo {
 | 6 | ネットワーク失敗・Entry あり | 古い本体 | `stale` |
 | 7 | ネットワーク失敗・Entry なし | 404 | `offline-miss` |
 
-- 「上流が失敗（HTTP）」は `!response.ok` に加え、**スタイル・TileJSON 以外で 200 の `text/html`**（§4.6。ログイン画面）を含む。Entry があれば 4 の古い本体、無ければ 5 の合成応答（上流の `status`・`statusText`・本体・ヘッダを写して `x-weiwudi-status: upstream-error`・`x-weiwudi-error: upstream` を足す。新 API の経路は写すときに `content-encoding`・`content-length`・`transfer-encoding`・`set-cookie` を落とす。旧 API の経路は旧の挙動のままヘッダを落とさない）
+- 「上流が失敗（HTTP）」は `!response.ok` に加え、**スタイル・TileJSON 以外で 200 の `text/html`**（§4.6。ログイン画面）を含む。Entry があれば 4 の古い本体、無ければ 5 の合成応答（上流の `status`・`statusText`・本体・ヘッダを写して `x-weiwudi-status: upstream-error`・`x-weiwudi-error: upstream` を足す。写すときに保存時と同じ `content-encoding`・`content-length`・`transfer-encoding`・`set-cookie` を落とす。新旧どちらの経路も同じで、旧 API での変化は §9 に書く）
 - **公開の契約**: `x-weiwudi-status` の値は表の 7 つ（`out-of-range`・`hit`・`miss`・`refresh`・`stale`・`upstream-error`・`offline-miss`）、`x-weiwudi-error` の値は 4 つ（`network`・`upstream`・`quota`・`storage`）、`access-control-expose-headers` は `x-weiwudi-status, x-weiwudi-error` で、合成した応答すべてに付ける（上流の同名のヘッダに足さず上書きする）。表の 5 では `x-weiwudi-error: upstream` を付ける。値を増やすときは minor で文書に足す
 - 配信の時点で削除期限（§7.1 の `cacheRetention`）を過ぎた Entry は「無いもの」として扱う（m2 から。掃除は m4）
-- これは現行の `getImage` の順序そのものである（既存の試験が契約）。`x-weiwudi-status` だけが増える。SW が合成した応答はページから見て `basic` なので、別オリジンの URL でもこのヘッダを読める（§2 の計測で確認）。ただし opaque の応答（§4.5 の 2）は SW が合成した応答ではないので `x-weiwudi-status` を付けられず、ページからも読めない
+- これは現行の `getImage` の順序そのものである（既存の試験が契約）。増えるのは §9 の既知の変化（`x-weiwudi-status` など）だけである。SW が合成した応答はページから見て `basic` なので、別オリジンの URL でもこのヘッダを読める（§2 の計測で確認）。ただし opaque の応答（§4.5 の 2）は SW が合成した応答ではないので `x-weiwudi-status` を付けられず、ページからも読めない
 - 保存に失敗しても配信は続ける（#22 の現行の決まり）。応答に `x-weiwudi-error`（§9）を付ける
 - 7 を透明画像にしないのは、地図ライブラリが親タイルへ戻る動きを止めないため
 - 同じ `key` の同時要求は `Map<key, Promise>` で 1 本にまとめる
@@ -516,9 +516,10 @@ export class WeiwudiError extends Error {
 - 包括の `Error: ${e}`（IndexedDB の例外などをそのまま文にしたもの）は、`Error: ` で始まることと `from` の分類（§9 の表と例外名）だけを保証する。中身は内部の都合で変わる。既知の変化は次のとおり
   - `Error: [object Event]`: IndexedDB の補助関数（`putItem`・`countDB`・`cleanDB`・`getItem`・`deleteItem`・`getAllKeys` ほか）が `Event` を reject していたため。m1-t3 は `putItem`・`putItemWithEviction` だけを `tx.error`・`req.error` に直し、残りは m2 の `store.ts` で揃える
   - 未登録の地図の `clean` の `Error: NotFoundError: …`: m2 の載せ替えで `Error: MapID "x" not found`（`stats` と同じ。16 行の側）にする
-  - 旧 API のタイルも、200 で `content-type` が `text/html` の応答を上流の失敗として扱う（§6）。保存せず、Entry があれば古い本体、無ければ §6 の 5 の合成応答（旧 API の経路なのでヘッダは落とさない）を返す。ログイン画面がタイルとして固定されるのを防ぐため
+  - 旧 API のタイルも、200 で `content-type` が `text/html` の応答を上流の失敗として扱う（§6）。保存せず、Entry があれば古い本体、無ければ §6 の 5 の合成応答を返す。ログイン画面がタイルとして固定されるのを防ぐため
   - 保存した応答を返すとき、`content-encoding`・`content-length`・`transfer-encoding`・`set-cookie` を返さなくなる（§6。保存時に落とす。現行は上流のヘッダをすべて保存して返していた）
   - 合成した応答に `x-weiwudi-status` と `access-control-expose-headers` が付く（§6 の公開の契約）
+  - 上流の HTTP 失敗で Entry が無いときの合成応答（§6 の 5）から `content-encoding`・`content-length`・`transfer-encoding`・`set-cookie` が落ちる。本体は復号済みなので、写すと矛盾する
   - `blocked` の文面の DB 名は `Weiwudi` から `WeiwudiStore` に変わる。旧 DB が `blocked` でも `delete` は失敗せず成功する（§14.2。旧 DB の削除は次の起動へ回す）
 
 文字列の reject は次の major で `WeiwudiError` へ変える。非推奨の予告は §13 の時期に合わせる。
@@ -545,7 +546,7 @@ export interface WeiwudiProvider {
 - `@c4h/beatbox` には依存しない。SW 側で必要な変換が小さい表で済み、これのために実行時依存（現在 0 件）を増やさない。BeatBox 0.1.1 の変換表は m3 で突き合わせて写す
 - `sk.` で始まる秘密トークンは `credential-rejected` で拒否する（試作の決定を継承）。この検査は提供元に依らない文字列の検査として、汎用の資格情報と同じ m2 に入れる。対象は `credentials` の `query`・`headers` の各値と、テンプレートの全クエリ値で、先頭の `Bearer `・`Token `・`Basic `（大文字小文字を問わない）と空白を剥がしてから `sk.` で始まるかを見る。クエリ値は percent-decode した後の値も見る（`%73k.` を通さない）。保存する前に止める
 - URL の userinfo（`user:pass@`）を含むテンプレートは登録で拒否する（`attribute-invalid`。判定は `new URL()` の `username`・`password` が空であること）。取り除くと照合が合わず、残すと id・テンプレート・`warnings` に出る
-- 明示の `id` は公開の値（`source()` の鍵・`warnings`・`stats`・`resources`・`byResource` の鍵）である。資格情報を入れないことを利用者との契約にする（任意の文字列から資格情報を見分ける規則は作れないので検査はしない）。形だけは検査する: 文字列・空でない・`\0` を含まない（`\0` はキーの区切りで、前置きの範囲削除を壊す）。外れたら `attribute-invalid`
+- 明示の `id` は公開の値（`source()` の鍵・`sources()` の `id`・`warnings`）である。資格情報を入れないことを利用者との契約にする（任意の文字列から資格情報を見分ける規則は作れないので検査はしない）。形だけは検査する: 文字列・空でない・`\0` を含まない（`\0` は保存のキーの区切りに使う文字なので、公開の値から締め出しておく）。外れたら `attribute-invalid`
 
 **資格情報の分離**
 
@@ -710,7 +711,7 @@ await style.fetchRange({ bounds: [139.7, 35.6, 139.8, 35.7], minZoom: 10, maxZoo
 
 ### 14.1 版
 
-**minor（`feat:`）で足す。** 公開 API は追加だけで、旧 API の入出力は変わらない（文面の保証は §9。上流への取得も `fetch(URL の文字列)` のままで、同一オリジンの Cookie を送る現行の動きを保つ。§4.5）。リリースポリシー §5.3 の「新機能はマイナーで先行投入」に当たる。`next` ブランチも `feat!` も使わない。
+**minor（`feat:`）で足す。** 公開 API は追加だけで、旧 API の入出力は §9 の既知の変化を除いて変わらない（文面の保証は §9。上流への取得も `fetch(URL の文字列)` のままで、同一オリジンの Cookie を送る現行の動きを保つ。§4.5）。リリースポリシー §5.3 の「新機能はマイナーで先行投入」に当たる。`next` ブランチも `feat!` も使わない。
 
 - `Weiwudi_Internal` の引数の型は変わる（§4.3）。第 1 引数が広がるので、`(capture: RegExp, …)` の自作関数を渡す TypeScript の利用者には型エラーになる。ただし `package.json` の `exports` は `weiwudi_gw_logic` を公開していないので、公開 API の変更ではない。Workbox の `registerRoute` はそのまま渡せる
 - `peerDependencies`（`workbox-routing`）は変えない。実行時依存も増やさない
