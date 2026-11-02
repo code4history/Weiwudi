@@ -248,10 +248,12 @@ try {
 - `code`・`message`・`detail` を持つ `WeiwudiError`（`Error` の派生）を返します。
   どんな値を渡しても throw しません。
 - **そのまま返すのは、本物の `Error` で既知の `code` を持つものだけです**（別のコピーの
-  Weiwudi が作った `WeiwudiError` を含む）。それ以外は新しい `WeiwudiError` に作り直します。
-  `Error.isError` の無い環境（Node 22 など）では、本物の `Error` かどうかを
-  `instanceof` でしか確かめられないので、`WeiwudiError` に似せて作った object が
-  そのまま返ることがあります。
+  Weiwudi が作った `WeiwudiError` や、`name` が `'WeiwudiError'` の `Error` を含む）。
+  それ以外は新しい `WeiwudiError` に作り直します。`Error.isError` の無い環境（Node 22
+  など）では、本物の `Error` かどうかを `instanceof` でしか確かめられないので、
+  `Object.create(WeiwudiError.prototype)` などでプロトタイプを継いで作り `code` を付けた
+  object は、そのまま返ることがあります。偽装した object を渡せるのは呼び出し側自身だけで、
+  これは安全上の境界ではありません。
 - 表にある文面なら `code` は表のとおりで、差し込み値は文字列のまま `detail` に
   入ります（例: `map-not-found` → `{ mapID: 'x' }`）。差し込み値が別の文面を含み、
   同じ文字列が複数の文面から作れるときは、先頭の固定部分（最初の差し込みより前）が

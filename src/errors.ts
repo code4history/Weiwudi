@@ -188,9 +188,12 @@ const ownDataValue = (value: object, key: string | symbol): { value: unknown; en
  * **そのまま返すのは、本物の Error で、既知の code を自前の文字列として持つものだけ。**
  * そのうえで次のどちらかを求める。
  * - 印（Symbol.for('@c4h/weiwudi/error')）を、列挙されない自前のデータプロパティとして持つ
- * - Error.isError がある環境に限り、name が 'WeiwudiError'（印を付けない別の作り方の救済）
- * Error.isError の無い環境では、本物の Error かどうかを instanceof でしか見られないので、
- * 印と code を自前のデータとして持つ object を作れば装える（その限界は文書にも書く）
+ * - name が 'WeiwudiError'（印を付けない別の作り方の救済。どちらの環境でも認める）
+ * 素の object・Proxy・toStringTag の偽装は、本物の Error の判定（isErrorLike）で落ちる。
+ * ただし Error.isError の無い環境では本物の Error かどうかを instanceof でしか見られないので、
+ * Object.create(WeiwudiError.prototype) などでプロトタイプを継いで作った object に、印か name と
+ * code を自前のデータとして付ければ装える（その限界は試験で固定し、文書にも書く）。
+ * 偽装した object を渡すのは呼び出し側自身であり、安全上の境界ではない
  */
 const isWeiwudiErrorLike = (value: unknown): value is WeiwudiError => {
   if (typeof value !== 'object' || value === null) return false;
@@ -199,7 +202,6 @@ const isWeiwudiErrorLike = (value: unknown): value is WeiwudiError => {
   if (!code || typeof code.value !== 'string' || !KNOWN_CODES.has(code.value)) return false;
   const brand = ownDataValue(value, BRAND);
   if (brand && brand.value === true && !brand.enumerable) return true;
-  if (!getNativeIsError()) return false;
   const name = ownDataValue(value, 'name')?.value ?? (value as { name?: unknown }).name;
   return name === 'WeiwudiError';
 };
@@ -238,7 +240,8 @@ export class WeiwudiError extends Error {
 
   /**
    * 文字列・Error・その他から作る。どんな値を渡しても throw しない。
-   * そのまま返すのは、本物の Error で既知の code を持つ WeiwudiError（別のコピーを含む）だけ。
+   * そのまま返すのは、本物の Error で、既知の code を自前の文字列として持ち、印か name が
+   * 'WeiwudiError' のものだけ（別のコピーの WeiwudiError を含む）。
    * 読み取りの途中で例外が起きる値（throw する getter・Proxy など）は internal で作り直す
    */
   static from(value: unknown): WeiwudiError {

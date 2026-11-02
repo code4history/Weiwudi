@@ -249,11 +249,14 @@ try {
 - Returns a `WeiwudiError` (a subclass of `Error`) with `code`, `message` and
   `detail`. It never throws, whatever value is passed.
 - **Only a genuine `Error` that carries a known `code` is returned as is**: a
-  `WeiwudiError`, including one created by another copy of Weiwudi. Anything
-  else is converted into a new `WeiwudiError`. Where `Error.isError` is not
-  available (e.g. Node 22), whether a value is a genuine `Error` can only be
-  checked with `instanceof`, so an object crafted to look like a
-  `WeiwudiError` may still be returned as is there.
+  `WeiwudiError`, including one created by another copy of Weiwudi (or an
+  `Error` whose `name` is `'WeiwudiError'`). Anything else is converted into a
+  new `WeiwudiError`. Where `Error.isError` is not available (e.g. Node 22),
+  whether a value is a genuine `Error` can only be checked with `instanceof`,
+  so an object that inherits the prototype, such as one made with
+  `Object.create(WeiwudiError.prototype)`, and is given a `code` may still be
+  returned as is there. Only the caller can pass such a crafted object, so
+  this is not a security boundary.
 - For a known message, `code` is taken from the table below and the inserted
   values go into `detail` as strings (e.g. `map-not-found` → `{ mapID: 'x' }`).
   When an inserted value contains another message and the same string can be

@@ -434,6 +434,53 @@ describe.each(PATHS)('%s', (_label, impl) => {
     });
   });
 
+  it('印が無くても、name が WeiwudiError で code が既知の Error は WeiwudiError と見なす（両経路）', () => {
+    withIsError(impl, () => {
+      const err = Object.assign(new Error('full'), { name: 'WeiwudiError', code: 'quota', detail: { mapID: 'm' } });
+      const got = WeiwudiError.from(err);
+      expect(got).toBe(err);
+      expect(got.code).toBe('quota');
+      expect(got.detail).toEqual({ mapID: 'm' });
+    });
+  });
+
+  it.each([
+    'unsupported-template', 'invalid-style', 'opaque', 'sw-outdated',
+    'credential-rejected', 'source-not-found', 'resource-conflict',
+  ] as const)('新 API の code %s を既知として扱う（両経路）', (code) => {
+    withIsError(impl, () => {
+      const err = Object.assign(new Error('x'), { name: 'WeiwudiError', code });
+      expect(WeiwudiError.from(err).code).toBe(code);
+      expect(new WeiwudiError(code, 'x').code).toBe(code);
+    });
+  });
+
+  it('name が WeiwudiError でも、Error でない素の object は作り直して internal', () => {
+    withIsError(impl, () => {
+      const fake = { name: 'WeiwudiError', code: 'quota', message: 'x' };
+      const e = WeiwudiError.from(fake);
+      expect(e).not.toBe(fake);
+      expect(e.code).toBe('internal');
+    });
+  });
+
+  it('Object.create(WeiwudiError.prototype) で作り印と code を自前データで付けた object: Error.isError がある経路では作り直し、無い経路では素通りする（限界）', () => {
+    withIsError(impl, () => {
+      const crafted = Object.create(WeiwudiError.prototype) as object;
+      Object.defineProperty(crafted, BRAND_KEY, { value: true, enumerable: false });
+      Object.defineProperty(crafted, 'code', { value: 'quota', enumerable: true });
+      const e = WeiwudiError.from(crafted);
+      if (impl) {
+        expect(e).not.toBe(crafted);
+        expect(e.code).toBe('internal');
+      } else {
+        // Error.isError の無い環境では instanceof でしか本物の Error を見られない。文書に書いた限界
+        expect(e).toBe(crafted);
+        expect(e.code).toBe('quota');
+      }
+    });
+  });
+
   it('DOMException(QuotaExceededError) → quota', () => {
     withIsError(impl, () => {
       expect(WeiwudiError.from(new DOMException('full', 'QuotaExceededError')).code).toBe('quota');
