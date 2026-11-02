@@ -483,6 +483,7 @@ export class WeiwudiError extends Error {
 **旧 API の文面の保証**:
 
 - m1-t3 の表にある 16 行の文面は 1 字も変えない
+- `from` が文面から差し込み値を取り出すとき、区切りは各区切りの最後の出現で分ける。差し込みが複数ある文面の `detail` の分け方は保証しない（`code` と、文面を作り直せることだけを保証する）
 - 包括の `Error: ${e}`（IndexedDB の例外などをそのまま文にしたもの）は、`Error: ` で始まることと `from` の分類（§9 の表と例外名）だけを保証する。中身は内部の都合で変わる。既知の変化は次のとおり
   - `Error: [object Event]`: IndexedDB の補助関数（`putItem`・`countDB`・`cleanDB`・`getItem`・`deleteItem`・`getAllKeys` ほか）が `Event` を reject していたため。m1-t3 は `putItem`・`putItemWithEviction` だけを `tx.error`・`req.error` に直し、残りは m2 の `store.ts` で揃える
   - 未登録の地図の `clean` の `Error: NotFoundError: …`: m2 の載せ替えで `Error: MapID "x" not found`（`stats` と同じ。16 行の側）にする

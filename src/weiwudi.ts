@@ -1,4 +1,8 @@
 "use strict";
+import { legacyMessage } from './errors';
+
+// 旧 API は文字列で reject し続ける（仕様 §9）。WeiwudiError.from(e) で code を得られる（#33）
+export { WeiwudiError, type WeiwudiErrorCode, type TileFailure } from './errors';
 
 const BASEURL = 'https://weiwudi.example.com/api/';
 let swChecking: Promise<boolean> | undefined;
@@ -77,13 +81,13 @@ export default class Weiwudi extends WeiwudiEventTarget {
 
     static async registerSW(sw: string | URL, swOptions?: RegistrationOptions) {
         if (!('serviceWorker' in navigator)) {
-            throw ('Error: Service worker is not supported');
+            throw (legacyMessage('sw-unsupported'));
         }
         let reg: ServiceWorkerRegistration;
         try {
             reg = await navigator.serviceWorker.register(sw, swOptions);
         } catch (e) {
-            throw (`Error: Service worker registration failed with ${e}`);
+            throw (legacyMessage('sw-register-failed', { error: `${e}` }));
         }
         // 初回ナビゲーションをリロードせずに SW の制御下へ置くため、
         // ready + controller 取得を上限付きで待つ（#30）
@@ -114,7 +118,7 @@ export default class Weiwudi extends WeiwudiEventTarget {
             navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
             timeout = setTimeout(() => {
                 finish();
-                reject('Error: Service worker did not control this page within 10000 ms');
+                reject(legacyMessage('sw-not-controlling'));
             }, 10000);
             navigator.serviceWorker.ready.then(() => {
                 if (navigator.serviceWorker.controller) {
@@ -150,7 +154,7 @@ export default class Weiwudi extends WeiwudiEventTarget {
 
     static async registerMap(mapID: string, options: WeiwudiOptions) {
         const swCheck = await Weiwudi.swCheck();
-        if (!swCheck) throw ('Weiwudi service worker is not implemented.');
+        if (!swCheck) throw (legacyMessage('sw-not-implemented'));
         let text;
         const p = ['type', 'url', 'width', 'height', 'tileSize', 'minZoom', 'maxZoom', 'maxLng', 'maxLat', 'minLng', 'minLat', 'cacheTtl', 'cacheMaxBytes'].reduce((p, key) => {
             if (typeof options[key] !== 'undefined') {
@@ -177,7 +181,7 @@ export default class Weiwudi extends WeiwudiEventTarget {
 
     static async retrieveMap(mapID: string) {
         const swCheck = await Weiwudi.swCheck();
-        if (!swCheck) throw ('Weiwudi service worker is not implemented.');
+        if (!swCheck) throw (legacyMessage('sw-not-implemented'));
         let text;
         const res = await fetch(`${BASEURL}info?mapID=${mapID}`);
         text = await res.text();
@@ -190,7 +194,7 @@ export default class Weiwudi extends WeiwudiEventTarget {
 
     static async removeMap(mapID: string) {
         const swCheck = await Weiwudi.swCheck();
-        if (!swCheck) throw ('Weiwudi service worker is not implemented.');
+        if (!swCheck) throw (legacyMessage('sw-not-implemented'));
         let text;
         const res = await fetch(`${BASEURL}delete?mapID=${mapID}`);
         text = await res.text();
@@ -201,7 +205,7 @@ export default class Weiwudi extends WeiwudiEventTarget {
 
     constructor(mapID: string, attrs?: WeiwudiOptions) {
         super();
-        if (!mapID) throw ('MapID is necessary.');
+        if (!mapID) throw (legacyMessage('map-id-required'));
         this.mapID = mapID;
         if (attrs) Object.assign(this, attrs);
         this.url = `${BASEURL}cache/${mapID}/{z}/{x}/{y}`;
@@ -219,7 +223,7 @@ export default class Weiwudi extends WeiwudiEventTarget {
     }
 
     checkAspect() {
-        if (!this.mapID) throw ('This instance is already released.');
+        if (!this.mapID) throw (legacyMessage('instance-released'));
     }
 
     async stats() {

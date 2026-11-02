@@ -193,6 +193,9 @@ Fired periodically during a `fetchAll()` operation to report progress.
 
 **Event Detail:**
 - `mapID` (string): Map identifier
+- `error` (number): Number of failed tiles so far (total)
+- `errors` (object): Failed tiles so far by kind: `{ network, upstream, quota, storage }`.
+  This also counts failures of other tile requests served while `fetchAll()` is running
 - Additional progress information
 
 ---
@@ -203,6 +206,9 @@ Fired when a `fetchAll()` operation completes successfully.
 
 **Event Detail:**
 - `mapID` (string): Map identifier
+- `error` (number): Number of failed tiles (total)
+- `errors` (object): Failed tiles by kind: `{ network, upstream, quota, storage }`.
+  This also counts failures of other tile requests served while `fetchAll()` is running
 
 ---
 
@@ -212,7 +218,113 @@ Fired when a `fetchAll()` operation stops due to an error or cancellation.
 
 **Event Detail:**
 - `mapID` (string): Map identifier
-- Error information
+- `reason`: The error that stopped the operation
+- `code` (string): `WeiwudiError.from(reason).code` (see [Errors](#errors))
+
+---
+
+## Errors
+
+### Rejections stay strings
+
+The existing API (`registerSW`, `registerMap`, `retrieveMap`, `removeMap` and the
+instance methods) **keeps rejecting with strings**. The messages below are not
+changed by a minor release, so `typeof e === 'string'` and `e.match(...)` keep
+working. To branch on the cause, convert the string with `WeiwudiError.from`.
+
+### `WeiwudiError.from(value)`
+
+```typescript
+import Weiwudi, { WeiwudiError } from '@c4h/weiwudi';
+
+try {
+    await Weiwudi.registerMap('my_map', options);
+} catch (e) {
+    const err = WeiwudiError.from(e); // e is still a string
+    if (err.code === 'map-busy') { /* cancel first */ }
+    console.log(err.code, err.message, err.detail);
+}
+```
+
+- Returns a `WeiwudiError` (a subclass of `Error`) with `code`, `message` and
+  `detail`. It never throws, whatever value is passed.
+- **Only a genuine `Error` that carries a known `code` is returned as is**: a
+  `WeiwudiError`, including one created by another copy of Weiwudi (or an
+  `Error` whose `name` is `'WeiwudiError'`). Anything else is converted into a
+  new `WeiwudiError`. Where `Error.isError` is not available (e.g. Node 22),
+  whether a value is a genuine `Error` can only be checked with `instanceof`,
+  so an object that inherits the prototype, such as one made with
+  `Object.create(WeiwudiError.prototype)`, and is given its own known `code`
+  plus either the brand (an own non-enumerable data property) or
+  `name: 'WeiwudiError'` may still be returned as is there (a `code` alone is
+  not enough; such an object is converted). Only the caller can pass such a crafted object, so
+  this is not a security boundary.
+- For a known message, `code` is taken from the table below and the inserted
+  values go into `detail` as strings (e.g. `map-not-found` → `{ mapID: 'x' }`).
+  When an inserted value contains another message and the same string can be
+  produced by more than one message, the code of the message with the longer
+  fixed text before its first inserted value is used. A message with several
+  inserted values is split at the last occurrence of each separator; how the
+  values are split into `detail` is not guaranteed in that case.
+- Other `"Error: {message}"` strings (wrapped exceptions such as IndexedDB
+  errors) are classified by the exception name after `Error: `:
+  `QuotaExceededError` → `quota`, `BlockedError` → `db-blocked`, anything else →
+  `internal`. Only the `Error: ` prefix and this classification are guaranteed
+  for these; the rest of the text may change. For example, when saving the map
+  setting in `registerMap` hits the storage quota, real browsers reject with
+  `Error: QuotaExceededError` (often followed by `: ` and a description).
+- An `Error` or `DOMException` is classified by its `name` the same way. Any
+  other value (including objects that only have a `name`) becomes `internal`
+  with `String(value)` as the message (`[unprintable]` if it cannot be
+  converted). A value that throws while being read also becomes `internal`.
+
+**Codes with a fixed message:**
+
+| code | Message (unchanged) |
+|---|---|
+| `sw-unsupported` | `Error: Service worker is not supported` |
+| `sw-register-failed` | `Error: Service worker registration failed with {error}` |
+| `sw-not-controlling` | `Error: Service worker did not control this page within 10000 ms` |
+| `sw-not-implemented` | `Weiwudi service worker is not implemented.` |
+| `map-id-required` | `MapID is necessary.` |
+| `instance-released` | `This instance is already released.` |
+| `attribute-missing` | `Error: Attribute "{target}" is missing` |
+| `attribute-invalid` | `Error: Attribute "cacheMaxBytes" is not a valid non-negative integer` |
+| `unknown-type` | `Error: Unknown "type" value` |
+| `map-not-found` | `Error: MapID "{mapID}" not found` |
+| `map-busy` | `Error: {mapID} is under fetching process. Please cancel it first` |
+| `no-fetch-process` | `Error: There are no fetching process of {mapID}` |
+| `cache-path-invalid` | `Error: "cache" api needs mapID, zoom, x, y settings` |
+| `cannot-fetch-all` | `Error: Map "{mapID}" cannot fetch all tiles` |
+| `fetch-busy` | `Error: Another fetching process is running: "{mapID}" ({count} / {total})` |
+| `api-not-found` | `Error: API {apiName} not found` |
+
+**Other codes:** `db-blocked`, `quota`, `internal` (from wrapped exceptions, see
+above) and `network`, `upstream`, `storage` (tile failures, see below).
+
+**Codes reserved for the upcoming API:** `unsupported-template`, `invalid-style`,
+`opaque`, `sw-outdated`, `credential-rejected`, `source-not-found`,
+`resource-conflict`. They are part of the `WeiwudiErrorCode` type but are not
+produced yet.
+
+**New codes may be added in a minor release.** When you `switch` on `code`,
+always keep a `default` branch.
+
+### Tile responses: `x-weiwudi-error`
+
+A tile served through `map.url` keeps its status and body, and carries the
+response header `x-weiwudi-error` when fetching or caching failed:
+
+| Situation | Response | `x-weiwudi-error` |
+|---|---|---|
+| Network error, no cached tile | 404 | `network` |
+| Network error, cached tile | 200, cached tile | `network` |
+| Upstream returned a non-OK status, no cached tile | upstream status | `upstream` |
+| Upstream returned a non-OK status, cached tile | 200, cached tile | `upstream` |
+| Fetched but saving hit the storage quota | 200, fetched tile | `quota` |
+| Fetched but saving failed otherwise | 200, fetched tile | `storage` |
+
+The header is absent when the tile was served and cached normally.
 
 ---
 

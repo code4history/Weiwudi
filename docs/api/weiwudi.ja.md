@@ -192,6 +192,9 @@ Weiwudiインスタンスは `WeiwudiEventTarget` を継承し、以下のイベ
 
 **イベント詳細:**
 - `mapID` (string): マップ識別子
+- `error` (number): それまでに失敗したタイルの数（合計）
+- `errors` (object): それまでに失敗したタイルの種類別の数 `{ network, upstream, quota, storage }`。
+  `fetchAll()` の実行中に配った他のタイルの取得の失敗も含みます
 - 追加の進行状況情報
 
 ---
@@ -202,6 +205,9 @@ Weiwudiインスタンスは `WeiwudiEventTarget` を継承し、以下のイベ
 
 **イベント詳細:**
 - `mapID` (string): マップ識別子
+- `error` (number): 失敗したタイルの数（合計）
+- `errors` (object): 失敗したタイルの種類別の数 `{ network, upstream, quota, storage }`。
+  `fetchAll()` の実行中に配った他のタイルの取得の失敗も含みます
 
 ---
 
@@ -211,7 +217,106 @@ Weiwudiインスタンスは `WeiwudiEventTarget` を継承し、以下のイベ
 
 **イベント詳細:**
 - `mapID` (string): マップ識別子
-- エラー情報
+- `reason`: 停止の原因となったエラー
+- `code` (string): `WeiwudiError.from(reason).code`（[エラー](#エラー) を参照）
+
+---
+
+## エラー
+
+### reject は文字列のまま
+
+既存の API（`registerSW`・`registerMap`・`retrieveMap`・`removeMap` とインスタンスの
+メソッド）は **これまでどおり文字列で reject します**。下の表の文面は minor の版では
+変えないので、`typeof e === 'string'` や `e.match(...)` での分岐はそのまま動きます。
+原因で分岐したいときは `WeiwudiError.from` で文字列から変換します。
+
+### `WeiwudiError.from(value)`
+
+```typescript
+import Weiwudi, { WeiwudiError } from '@c4h/weiwudi';
+
+try {
+    await Weiwudi.registerMap('my_map', options);
+} catch (e) {
+    const err = WeiwudiError.from(e); // e は文字列のまま
+    if (err.code === 'map-busy') { /* 先に cancel する */ }
+    console.log(err.code, err.message, err.detail);
+}
+```
+
+- `code`・`message`・`detail` を持つ `WeiwudiError`（`Error` の派生）を返します。
+  どんな値を渡しても throw しません。
+- **そのまま返すのは、本物の `Error` で既知の `code` を持つものだけです**（別のコピーの
+  Weiwudi が作った `WeiwudiError` や、`name` が `'WeiwudiError'` の `Error` を含む）。
+  それ以外は新しい `WeiwudiError` に作り直します。`Error.isError` の無い環境（Node 22
+  など）では、本物の `Error` かどうかを `instanceof` でしか確かめられないので、
+  `Object.create(WeiwudiError.prototype)` などでプロトタイプを継いで作り、既知の `code` と、
+  印（列挙されない自前のデータプロパティ）か `name: 'WeiwudiError'` を自前で付けた
+  object は、そのまま返ることがあります（`code` だけでは作り直します）。偽装した object を渡せるのは呼び出し側自身だけで、
+  これは安全上の境界ではありません。
+- 表にある文面なら `code` は表のとおりで、差し込み値は文字列のまま `detail` に
+  入ります（例: `map-not-found` → `{ mapID: 'x' }`）。差し込み値が別の文面を含み、
+  同じ文字列が複数の文面から作れるときは、先頭の固定部分（最初の差し込みより前）が
+  長い文面の code になります。差し込みが複数ある文面は、各区切りの最後の出現で分けます。
+  この場合、`detail` への分け方は保証しません。
+- それ以外の `"Error: {message}"`（IndexedDB の例外などを包んだもの）は、`Error: ` の
+  後ろの例外名で分類します。`QuotaExceededError` → `quota`、`BlockedError` →
+  `db-blocked`、それ以外 → `internal`。これらは `Error: ` で始まることとこの分類だけを
+  保証し、残りの文は変わることがあります。たとえば `registerMap` で地図の設定の保存が
+  容量超過になると、実ブラウザでは `Error: QuotaExceededError`（後ろに `: ` と説明が
+  付くことがあります）で reject します。
+- `Error`・`DOMException` は `name` で同じように分類します。それ以外の値（`name` を
+  持つだけの object を含む）は `String(value)` を文面にして `internal` になります
+  （文字列にできない値は `[unprintable]`）。読み取りの途中で throw する値も `internal`
+  です。
+
+**文面が決まっているコード:**
+
+| code | 文面（変更なし） |
+|---|---|
+| `sw-unsupported` | `Error: Service worker is not supported` |
+| `sw-register-failed` | `Error: Service worker registration failed with {error}` |
+| `sw-not-controlling` | `Error: Service worker did not control this page within 10000 ms` |
+| `sw-not-implemented` | `Weiwudi service worker is not implemented.` |
+| `map-id-required` | `MapID is necessary.` |
+| `instance-released` | `This instance is already released.` |
+| `attribute-missing` | `Error: Attribute "{target}" is missing` |
+| `attribute-invalid` | `Error: Attribute "cacheMaxBytes" is not a valid non-negative integer` |
+| `unknown-type` | `Error: Unknown "type" value` |
+| `map-not-found` | `Error: MapID "{mapID}" not found` |
+| `map-busy` | `Error: {mapID} is under fetching process. Please cancel it first` |
+| `no-fetch-process` | `Error: There are no fetching process of {mapID}` |
+| `cache-path-invalid` | `Error: "cache" api needs mapID, zoom, x, y settings` |
+| `cannot-fetch-all` | `Error: Map "{mapID}" cannot fetch all tiles` |
+| `fetch-busy` | `Error: Another fetching process is running: "{mapID}" ({count} / {total})` |
+| `api-not-found` | `Error: API {apiName} not found` |
+
+**ほかのコード:** `db-blocked`・`quota`・`internal`（包んだ例外から。上を参照）と、
+`network`・`upstream`・`storage`（タイルの失敗。下を参照）。
+
+**今後の API のために予約したコード:** `unsupported-template`・`invalid-style`・
+`opaque`・`sw-outdated`・`credential-rejected`・`source-not-found`・
+`resource-conflict`。`WeiwudiErrorCode` の型には入っていますが、まだ作られません。
+
+**code は今後の minor で増えることがあります。** `code` で `switch` するときは、
+必ず `default` を置いてください。
+
+### タイルの応答: `x-weiwudi-error`
+
+`map.url` から配るタイルは、状態と本体を変えずに、取得や保存に失敗したときは応答ヘッダ
+`x-weiwudi-error` を付けます。
+
+| 場面 | 応答 | `x-weiwudi-error` |
+|---|---|---|
+| 通信の失敗・保存なし | 404 | `network` |
+| 通信の失敗・保存あり | 200・保存したタイル | `network` |
+| 上流が OK でない状態・保存なし | 上流の状態 | `upstream` |
+| 上流が OK でない状態・保存あり | 200・保存したタイル | `upstream` |
+| 取得できたが保存が容量超過 | 200・取得したタイル | `quota` |
+| 取得できたが保存がそれ以外で失敗 | 200・取得したタイル | `storage` |
+
+ふつうに配って保存できたときは、このヘッダは付きません。
 
 ---
 

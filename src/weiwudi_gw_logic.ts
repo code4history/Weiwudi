@@ -4,6 +4,7 @@ import {
   lngLatBoundsToTileBox, scaleTileBox, isInTileBox, countTiles, enumerateTiles,
   maxZoomForPixelSize, pixelSizeToTileBox, expandTileTemplate
 } from './tile_math';
+import { WeiwudiError, legacyMessage, type TileFailure } from './errors';
 
 interface MapSetting {
   mapID: string;
@@ -45,6 +46,8 @@ interface FetchAllBlocker {
   total: number;
   count: number;
   error: number;
+  // 失敗の種類ごとの数（#33）。error は合計として残す
+  failures: Record<TileFailure, number>;
   cancel?: boolean;
 }
 
@@ -68,6 +71,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
   const dbCache: DBDict = {};
   const blockedDBs = new Set<string>();
   let fetchAllBlocker: FetchAllBlocker | undefined;
+  const emptyFailures = (): Record<TileFailure, number> => ({ network: 0, upstream: 0, quota: 0, storage: 0 });
 
   // 初回ナビゲーションをリロードせずに SW の制御下へ置くため、install で skipWaiting・
   // activate で clients.claim を実行する（#30）
@@ -257,17 +261,19 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
       const putReq = store.put(item);
       putReq.onsuccess = function (_e) {
       };
-      putReq.onerror = function (e) {
-        reject(e);
+      // Event ではなく例外（DOMException）を reject し、name で分類できるようにする（#33）
+      putReq.onerror = function (_e) {
+        reject(putReq.error);
       };
       tx.oncomplete = function (_e) {
         resolve();
       };
-      tx.onabort = function (e) {
-        reject(e);
+      // 容量超過は put の成功の後に transaction の abort で起き、tx.error が QuotaExceededError になる
+      tx.onabort = function (_e) {
+        reject(tx.error);
       };
       tx.onerror = function (e) {
-        reject(e);
+        reject(tx.error ?? (e.target as IDBRequest | null)?.error ?? e);
       };
     });
   };
@@ -353,24 +359,33 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
           const budget = willSave ? cacheMaxBytes - newSize : cacheMaxBytes;
           let i = 0;
           while (total > budget && i < candidates.length) {
-            store.delete(candidates[i].key);
+            const delReq = store.delete(candidates[i].key);
+            delReq.onerror = function (_e) {
+              reject(delReq.error);
+            };
             total -= candidates[i].size;
             i++;
           }
-          if (willSave) store.put(item);
+          if (willSave) {
+            // Event ではなく例外（DOMException）を reject する（#33）
+            const putReq = store.put(item);
+            putReq.onerror = function (_e) {
+              reject(putReq.error);
+            };
+          }
         }
       };
-      cursorReq.onerror = function (e) {
-        reject(e);
+      cursorReq.onerror = function (_e) {
+        reject(cursorReq.error);
       };
       tx.oncomplete = function (_e) {
         resolve();
       };
-      tx.onabort = function (e) {
-        reject(e);
+      tx.onabort = function (_e) {
+        reject(tx.error);
       };
       tx.onerror = function (e) {
-        reject(e);
+        reject(tx.error ?? (e.target as IDBRequest | null)?.error ?? e);
       };
     });
   };
@@ -401,7 +416,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
     const db = await getSettingDB();
     const setting = await getItem(db, 'mapSetting', mapID) as MapSetting;
     if (!noOutput) {
-      if (!setting) return `Error: MapID "${mapID}" not found`;
+      if (!setting) return legacyMessage('map-not-found', { mapID });
       // maxZoom未定義は「無制限」。TS strict化の際に `|| 0` を入れたことで
       // 未定義がmaxZoom 0と解釈され、全タイルが404になる退行があった (#27)
       if (z < (setting.minZoom || 0) || z > (setting.maxZoom ?? Infinity)) outExtent = 'zoom';
@@ -416,6 +431,15 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
     let blob: Blob | undefined;
     let status = 200;
     let statusText = 'OK';
+    // 応答ヘッダ x-weiwudi-error の値（#33）。文面・状態は変えず、種類だけを足す
+    let failure: TileFailure | undefined;
+    const countFailure = (kind: TileFailure) => {
+      failure = kind;
+      if (fetchAllBlocker) {
+        fetchAllBlocker.error++;
+        fetchAllBlocker.failures[kind]++;
+      }
+    };
     if (outExtent) {
       if (outExtent === 'zoom') {
         status = 404;
@@ -466,9 +490,9 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
               } else {
                 await putItemWithEviction(cacheDB, 'tileCache', item, cacheMaxBytes);
               }
-            } catch (_e) {
+            } catch (e) {
               // クオータ超過等でキャッシュ保存に失敗しても、取得済みタイルの配信は継続する (#22)
-              if (fetchAllBlocker) fetchAllBlocker.error++;
+              countFailure(WeiwudiError.from(e).code === 'quota' ? 'quota' : 'storage');
             }
           } else {
             if (cached) {
@@ -481,7 +505,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
               resp.headers.forEach((val, key) => { headers[key] = val; });
               blob = await resp.blob();
             }
-            if (fetchAllBlocker) fetchAllBlocker.error++;
+            countFailure('upstream');
           }
         } catch (_e) {
           if (cached) {
@@ -491,7 +515,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
             status = 404;
             statusText = 'Not Found';
           }
-          if (fetchAllBlocker) fetchAllBlocker.error++;
+          countFailure('network');
         }
       } else if (!noOutput) {
         headers = cached.headers;
@@ -505,6 +529,8 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
         }
       }
     }
+    // cached.headers を書き換えないよう、複製に足す
+    if (failure) headers = { ...headers, 'x-weiwudi-error': failure };
     return noOutput ? undefined : new Response(blob, {
       status,
       statusText,
@@ -552,19 +578,22 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
           percent,
           processed,
           error: fetchAllBlocker ? fetchAllBlocker.error : 0,
+          errors: fetchAllBlocker ? { ...fetchAllBlocker.failures } : emptyFailures(),
           total: setting.totalTile,
           mapID: setting.mapID
         });
         subTasks = allTasks.splice(0, 5);
       }
       const error = fetchAllBlocker ? fetchAllBlocker.error : 0;
+      const errors = fetchAllBlocker ? { ...fetchAllBlocker.failures } : emptyFailures();
       fetchAllBlocker = undefined;
       client.postMessage({
         type: 'finish',
         message: `Fetched all tiles of ${setting.mapID}${error ? ` with ${error} error cases` : ''}`,
         total: setting.totalTile,
         mapID: setting.mapID,
-        error
+        error,
+        errors
       });
     } catch (e) {
       fetchAllBlocker = undefined;
@@ -572,6 +601,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
         type: 'stop',
         message: `Fetching stopped: ${setting.mapID} ${processed} / ${setting.totalTile}`,
         reason: e,
+        code: WeiwudiError.from(e).code,
         processed,
         total: setting.totalTile,
         mapID: setting.mapID
@@ -586,7 +616,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
     const checkAttributes = (query: any, targets: string[]) => {
       return targets.reduce((prev: string | undefined, target) => {
         if (prev) return prev;
-        if (query[target] === undefined) return `Error: Attribute "${target}" is missing`;
+        if (query[target] === undefined) return legacyMessage('attribute-missing', { target });
         return prev;
       }, undefined);
     };
@@ -600,7 +630,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
           if (!retVal) {
             const db = await getSettingDB();
             const setting = await getItem(db, 'mapSetting', query.mapID);
-            if (!setting) retVal = `Error: MapID "${query.mapID}" not found`;
+            if (!setting) retVal = legacyMessage('map-not-found', { mapID: query.mapID });
             else {
               retVal = new Response(JSON.stringify(setting), {
                 headers: new Headers({
@@ -621,7 +651,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
               const raw = String(query.cacheMaxBytes).trim();
               const parsed = parseInt(raw);
               if (!Number.isFinite(parsed) || parsed < 0 || String(parsed) !== raw) {
-                retVal = `Error: Attribute "cacheMaxBytes" is not a valid non-negative integer`;
+                retVal = legacyMessage('attribute-invalid');
               } else {
                 query.cacheMaxBytes = parsed;
               }
@@ -659,7 +689,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
                 }
                 break;
               default:
-                retVal = 'Error: Unknown "type" value';
+                retVal = legacyMessage('unknown-type');
             }
           }
           if (!retVal) {
@@ -679,7 +709,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
         case 'clean':
           retVal = checkAttributes(query, ['mapID']);
           if (fetchAllBlocker && fetchAllBlocker.mapID == query.mapID) {
-            retVal = `Error: ${query.mapID} is under fetching process. Please cancel it first`;
+            retVal = legacyMessage('map-busy', { mapID: query.mapID });
           } else if (!retVal) {
             const cacheDB = await getDB(`Weiwudi_${query.mapID}`);
             await cleanDB(cacheDB, 'tileCache');
@@ -689,7 +719,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
         case 'delete':
           retVal = checkAttributes(query, ['mapID']);
           if (fetchAllBlocker && fetchAllBlocker.mapID == query.mapID) {
-            retVal = `Error: ${query.mapID} is under fetching process. Please cancel it first`;
+            retVal = legacyMessage('map-busy', { mapID: query.mapID });
           } else if (!retVal) {
             await deleteDB(`Weiwudi_${query.mapID}`);
             const db = await getSettingDB();
@@ -703,7 +733,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
             fetchAllBlocker.cancel = true;
             retVal = `Fetching process of ${fetchAllBlocker.mapID} is canceled`;
           } else {
-            retVal = `Error: There are no fetching process of ${query.mapID}`;
+            retVal = legacyMessage('no-fetch-process', { mapID: query.mapID });
           }
           break;
         case 'stats':
@@ -711,7 +741,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
           if (!retVal) {
             const db = await getSettingDB();
             const setting = await getItem(db, 'mapSetting', query.mapID) as MapSetting;
-            if (!setting) retVal = `Error: MapID "${query.mapID}" not found`;
+            if (!setting) retVal = legacyMessage('map-not-found', { mapID: query.mapID });
             else {
               const cacheDB = await getDB(`Weiwudi_${query.mapID}`);
               const ret = await countDB(cacheDB, 'tileCache');
@@ -732,7 +762,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
           if (matched) {
             retVal = await getImage(matched[1], parseInt(matched[2]), parseInt(matched[3]), parseInt(matched[4]));
           } else {
-            retVal = 'Error: "cache" api needs mapID, zoom, x, y settings';
+            retVal = legacyMessage('cache-path-invalid');
           }
           break;
         }
@@ -741,17 +771,18 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
           if (!retVal && client) {
             const db = await getSettingDB();
             const setting = await getItem(db, 'mapSetting', query.mapID) as MapSetting;
-            if (!setting) retVal = `Error: MapID "${query.mapID}" not found`;
-            else if (!setting.totalTile) retVal = `Error: Map "${query.mapID}" cannot fetch all tiles`;
+            if (!setting) retVal = legacyMessage('map-not-found', { mapID: query.mapID });
+            else if (!setting.totalTile) retVal = legacyMessage('cannot-fetch-all', { mapID: query.mapID });
             else if (fetchAllBlocker) {
-              retVal = `Error: Another fetching process is running: "${fetchAllBlocker.mapID}" (${fetchAllBlocker.count} / ${fetchAllBlocker.total})`;
+              retVal = legacyMessage('fetch-busy', { mapID: fetchAllBlocker.mapID, count: fetchAllBlocker.count, total: fetchAllBlocker.total });
             } else {
               setTimeout(() => {
                 fetchAllBlocker = {
                   mapID: query.mapID,
                   total: setting.totalTile || 0,
                   count: 0,
-                  error: 0
+                  error: 0,
+                  failures: emptyFailures()
                 };
                 fetchAll(client, setting);
               }, 1);
@@ -760,7 +791,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
           }
           break;
         default:
-          retVal = `Error: API ${apiName} not found`;
+          retVal = legacyMessage('api-not-found', { apiName });
       }
     } catch (e) {
       retVal = `Error: ${e}`;
