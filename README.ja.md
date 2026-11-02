@@ -77,6 +77,23 @@ L.tileLayer(map.url).addTo(leafletMap);
 reject します。`cacheMaxBytes` はマップごとのキャッシュ合計サイズを制限し、
 最も使われていないタイルから自動削除します。省略すると容量上限なしです。
 
+reject は文字列のままなので、これまでの `e.match(...)` での分岐はそのまま動きます。
+原因で分岐したいときは `WeiwudiError.from` で変換します（コードと文面は
+[エラー](docs/api/weiwudi.ja.md#エラー) を参照）:
+
+```typescript
+import Weiwudi, { WeiwudiError } from '@c4h/weiwudi';
+
+try {
+  await map.fetchAll();
+} catch (e) {
+  if (WeiwudiError.from(e).code === 'fetch-busy') { /* 別の取得が走っている */ }
+}
+```
+
+`map.url` から配るタイルは、取得や保存に失敗したとき応答ヘッダ `x-weiwudi-error`
+（`network`・`upstream`・`quota`・`storage`）を付けます。
+
 ### CDN（jsDelivr）
 
 ビルドツールを使わずにブラウザで利用する場合は、CDN 経由で Weiwudi を読み込みます:

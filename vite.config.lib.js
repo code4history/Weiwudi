@@ -15,7 +15,8 @@ export default defineConfig({
     },
     plugins: [
         dts({
-            include: ['src/weiwudi.ts'],
+            // weiwudi.d.ts が ./errors を参照するので、errors.d.ts も出す（#33）
+            include: ['src/weiwudi.ts', 'src/errors.ts'],
             outDir: 'dist',
             insertTypesEntry: true
         })

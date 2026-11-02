@@ -81,6 +81,23 @@ page URL is outside the registration scope). `cacheMaxBytes` limits the total
 size of cached tiles for a map and evicts the least-recently-used tiles; omit it
 for no capacity limit.
 
+Rejections stay strings, so existing `e.match(...)` checks keep working. To
+branch on the cause, convert them with `WeiwudiError.from` (codes and messages:
+[Errors](docs/api/weiwudi.md#errors)):
+
+```typescript
+import Weiwudi, { WeiwudiError } from '@c4h/weiwudi';
+
+try {
+  await map.fetchAll();
+} catch (e) {
+  if (WeiwudiError.from(e).code === 'fetch-busy') { /* another fetch is running */ }
+}
+```
+
+Tiles served through `map.url` carry the response header `x-weiwudi-error`
+(`network` / `upstream` / `quota` / `storage`) when fetching or caching failed.
+
 ### CDN (jsDelivr)
 
 For browser usage without a build tool, load Weiwudi via CDN:
