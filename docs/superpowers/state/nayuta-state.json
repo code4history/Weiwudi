@@ -40,9 +40,9 @@
     {
       "id": "m2",
       "title": "URL 直接フックの新コア（#42・#37・#36 の差し込み口）と旧 IF の上乗せ（仕様 §16 で m4 から前倒し）",
-      "status": "pending",
-      "plan": null,
-      "ledger": null,
+      "status": "in_progress",
+      "plan": "docs/superpowers/plans/2026-11-03-m2-core.md",
+      "ledger": ".superpowers/sdd/2026-11-03-m2-core/progress.md",
       "security_review": "pending",
       "carried_from_precheck": "m1 の事前点検で見送った CORS・resource-conflict・範囲取得の細部（台帳の第 6 回の節）を m2 の事前点検で改めて見る。S-I は m1 で反映済みだが m2 の点検で確かめ直す"
     },
@@ -67,5 +67,5 @@
     "docs/superpowers/reports/2026-11-02-onboard-summary.md",
     "docs/superpowers/specs/2026-11-02-new-interface-spec.md"
   ],
-  "next_action": "実行するのはこのサイクルのセッション（進行役）。m1 の事前点検は第 6 回で m1 の範囲について合格（進行役の Ruling。台帳）。m1-t1 は PR #67（0d34e10）、m1-t2 は PR #69（dec9098）、m1-t3 は PR #71（efddaa0。水準 1・水準 2 を 5 回で通過、CI は Node 22・24 とも緑）で vector-cache へ合流済み。m1 は 2026-11-03 に完了（区切りのレビュー合格・セキュリティ Critical 0／Major 0。まとめは reports/2026-11-03-m1-foundation-summary.md）。次は m2 の計画づくりと事前点検。申し送り（まとめの「m2 への申し送り」6 件と m2.carried_from_precheck）を計画に入れる。人間の判断 2 件（mapbox:// の標準搭載・旧 API の非推奨時期）は推奨案で進めてよく、m3・m4 までに要る。"
+  "next_action": "実行するのはこのサイクルのセッション（進行役）。m1 の事前点検は第 6 回で m1 の範囲について合格（進行役の Ruling。台帳）。m1-t1 は PR #67（0d34e10）、m1-t2 は PR #69（dec9098）、m1-t3 は PR #71（efddaa0。水準 1・水準 2 を 5 回で通過、CI は Node 22・24 とも緑）で vector-cache へ合流済み。m1 は 2026-11-03 に完了（区切りのレビュー合格・セキュリティ Critical 0／Major 0。まとめは reports/2026-11-03-m1-foundation-summary.md）。m2 の計画は 887caee（plans/2026-11-03-m2-core.md・t1〜t9）。次は m2 の事前点検（水準 1 と水準 2。仕様 §4.5〜§5.6・§7.2 は通して見る）。合格まで実装に入らない。人間の判断 2 件（mapbox:// の標準搭載・旧 API の非推奨時期）は推奨案で進めてよく、m3・m4 までに要る。"
 }
