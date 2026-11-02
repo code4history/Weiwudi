@@ -157,3 +157,14 @@ Ruling: 第 4 回の直しは進行役が直接行い（指摘の裁定案どお
 - Codex の推奨 4 件: §6 の「x-weiwudi-status だけが増える」と §14 の「旧 API の入出力は変わらない」を §9 の既知の変化への参照に直した。MATCHERS の許可一覧と legacy の text/html の試験は t1・t5 の実装で確かめる
 - 水準 1 の O-2〜O-7 は実装時の注意として残す（O-3: sk. の percent-decode は URLSearchParams で値を取る。decodeURIComponent は崩れた % で URIError になる）
 - **m2 の事前点検は合格（2026-11-03）。** 次は t1
+
+## m2-t1 試験の土台（2026-11-03）
+
+- 実装: ca82dba（枝 m2-t1-test-base）。PR #72 を merge commit 53d43f3 で vector-cache へ合流。CI は Node 22・24 とも緑
+- 実測: test:unit 448 passed（404＋44）・typecheck・build・eslint exit 0・e2e 18 passed・e2e の前後で `weiwudi-e2e-*` は 0 個・5174 に偽のサーバを立てると Playwright は止まる
+- 対照: `src/tile_math.ts` に `import './errors';` で deps.test.ts が落ちる。`src/errors.ts` に `const cache = new Map();` で module-state.test.ts が落ちる。旧ハーネスでは sw-harness.test.ts が 14 本中 13 本落ちる（TDD の赤）。gracefulShutdown を外すと一時ディレクトリが 1 個残る
+- 第 4 回 O-4: errors.ts の MATCHERS・PLACEHOLDER は検査に掛からない。掛かるのは許可一覧の表だけ（試験で固定）
+- 水準 1（新しい Claude）: 合格・Critical 0・Major 0・Minor 5
+
+Ruling: 実装者の Ruling 1〜4 を採る — 1 構文木で読む・2 providers/ どうしの import は許す（plugins と providers の間は禁止のまま）・3 legacy に最初から migrate・4 plugins を変数経由の動的 import で読む（理由は IDE の型エラー避け。tsconfig は tests を見ない）— 誤りなら 2 は m3 で提供元が plugins へ登録する形にするときに表の読み方を決め直す
+Ruling: 水準 1 の Minor 5 件は t2 の実装者に前段の直しとして渡す（動的 import()・class の static フィールドの検出、ハーネスの RegExp の lastIndex と method の大文字化を実物どおりにする、plugins の読み込みの catch を「ファイルが無い」だけに絞る、古いディレクトリの掃除を listen の成功の後へ移す）— どれも条件違反ではなく試験の抜け穴で、t2 以降の試験が乗る前に塞ぐのが安い — 誤りなら t2 の差分が少し増えるだけ
