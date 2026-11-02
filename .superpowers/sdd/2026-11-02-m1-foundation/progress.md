@@ -145,4 +145,7 @@ state へ反映済み（第 6 回の後）: 旧 IF の上乗せを m2 へ前倒�
 
 Ruling: #35 は閉じる — #59 で `onblocked` と試験が入り完了条件を満たす。人間の許可を得て実施 — 誤りなら Issue を開き直すだけ
 Ruling: 第 1 回の点検は水準 1 で実施した — 軽い道 §3 の規定。公開 API の水準 2 は t3 のレビューと m1 の区切りで行う — 誤りなら API の見落としが後ろへずれる
+m1-t1（#32）: 実装 `cca2fb6`＋差し戻し分 `bd27ea9`（Claude サブエージェント。e2e にローカルの bind が要るため）。レビュー水準 1 は第 1 回で差し戻し（必須: テスト 8 が SW を止めなくても通る。対照で実測）、第 2 回で合格（`stopAllWorkers` を抜くと落ちる・推奨 4 件も対照で確認・`--repeat-each=10` で 90 passed）。PR https://github.com/code4history/Weiwudi/pull/67
+Ruling: m1-t1 のレビューの推奨 4 件（テスト 4 の受信 +1・テスト 9 の 1 枚入れてからの clean・decode の try/catch・localhost に限る listen）を今回入れた — 数行で済み、m2 の雛形になる試験の確かさが上がる — 誤りなら試験が厳しくなるだけ
+m2 への申し送り（t1 から）: tile-server は `[::1]:5174` だけで待ち受ける。試験と設定に `127.0.0.1` を書かない。一時ディレクトリ `weiwudi-e2e-*`（各 1.9 MB）は走行ごとに残るので、m2 で SIGTERM と exit に `rmSync` を足す
 申し送り: 12 月サイクルへ移管を連絡済み。`DEC26-WEIWUDI-AUG-ISSUES` は 12 月側で closed。`DEC26-LARGE-ITEMS-TRIAGE` は他の項目を含むので open のまま

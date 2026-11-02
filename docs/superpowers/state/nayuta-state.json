@@ -65,5 +65,5 @@
     "docs/superpowers/reports/2026-11-02-onboard-summary.md",
     "docs/superpowers/specs/2026-11-02-new-interface-spec.md"
   ],
-  "next_action": "実行するのはこのサイクルのセッション（進行役）。m1 の事前点検は第 6 回で m1 の範囲について合格（進行役の Ruling。台帳）。次は m1 の t1（計画の冒頭の環境手順から）。人間の判断 2 件（mapbox:// の標準搭載・旧 API の非推奨時期）は推奨案で進めてよく、m3・m4 までに要る。"
+  "next_action": "実行するのはこのサイクルのセッション（進行役）。m1 の事前点検は第 6 回で m1 の範囲について合格（進行役の Ruling。台帳）。m1-t1 は PR #67 で vector-cache へ合流済み（0d34e10）。次は m1-t2（#34 座標・タイル計算の分離）。人間の判断 2 件（mapbox:// の標準搭載・旧 API の非推奨時期）は推奨案で進めてよく、m3・m4 までに要る。"
 }
