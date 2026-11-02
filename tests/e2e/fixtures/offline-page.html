@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weiwudi Offline Test Page</title>
+</head>
+
+<body>
+    <h1>Weiwudi Offline E2E Test Page</h1>
+    <div id="status">Initializing...</div>
+
+    <script type="module">
+        import Weiwudi from '/dist/weiwudi.es.js';
+
+        // 地図の登録は試験の側で行う（offline.spec.js）
+        window.Weiwudi = Weiwudi;
+
+        Weiwudi.registerSW('./offline-sw.js', { scope: '/tests/e2e/fixtures/' })
+            .then(() => {
+                window.swReady = true;
+                document.getElementById('status').textContent = 'Ready';
+            })
+            .catch((e) => {
+                window.swError = String(e);
+                document.getElementById('status').textContent = 'Error: ' + String(e);
+            });
+    </script>
+</body>
+
+</html>
