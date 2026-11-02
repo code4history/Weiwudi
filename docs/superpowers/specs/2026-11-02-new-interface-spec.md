@@ -76,6 +76,8 @@
 | `url_pattern.ts` | テンプレートの解析・照合・キーの正規化 | `tile_math` |
 | `plugins.ts`・`providers/` | 差し込み口（#36）・提供元（#40） | `errors` |
 | `store.ts` | IndexedDB の全操作。型 `ResourceMeta` などの正本（#37） | `errors` |
+| `registry.ts` | 合流と実効方針（§5.6） | `store`・`url_pattern`・`tile_math`・`errors` |
+| `upstream.ts` | 上流の取得と CORS・認証付きの要求（§4.5・§4.6） | `store`・`url_pattern`・`errors` |
 | `migrate.ts` | 旧 DB からの移行 | `store` |
 | `core.ts` | `serve()`・退避・保持・範囲取得 | 上の全部 |
 | `hook.ts` | 照合表・ルート登録 | `core`・`url_pattern` |
@@ -263,7 +265,7 @@ export interface EntryBody {
 
 | 型 | suffix |
 |---|---|
-| tile | `z/x/y`（`{ratio}` があれば `z/x/y@2x`）＋残りのクエリ |
+| tile | `z_x_y`（`{ratio}` が `@2x` なら `z_x_y@2x`）＋残りのクエリ。旧キー（`z_x_y`）と同じ形にして、`accessedAt` が同じときの退避の順（キー昇順）を旧 API と揃え、移行でキーを作り直さない（m2 計画の R2） |
 | glyph | `<fontstack>`（範囲は §11 で 1 レコードに束ねる） |
 | sprite・style・tilejson・data | 残りのパス＋残りのクエリ。無ければ空 |
 
@@ -398,7 +400,7 @@ export interface EntryBody {
 - `cacheRetention` の掃除は、SW の起動後の最初のイベントとジョブの完了時に、`[pinned, fetchedAt]` 索引をバッチで走査する（タイマは SW で信用できない）。配信時にも期限切れは「無いもの」として扱う
 - `cacheMaxBytes` の範囲は Source。Source の `Resource` 群の `[resourceId, 0, accessedAt]` を併合して古い順に消す。共有 `Resource` の Entry も消える（キャッシュなので許容し、固定で守れる）
 - 固定分だけで `cacheMaxBytes` を超えるときは `fetchRange` が `quota` で止まる
-- `QuotaExceededError` のときは、固定以外を全体 LRU で 10% 退避して 1 回だけ再試行する。全体上限の既定が無いので、これが無いとブラウザの上限に当たった後はキャッシュが自力で回復しない
+- （m4）`QuotaExceededError` のときは、固定以外を全体 LRU で 10% 退避して 1 回だけ再試行する。旧 API の「保存の abort → 保存されない」の試験の結果を変えるので、m4 の全体上限と一緒に旧 API での扱いを決めて入れる（m2 計画の R15）。全体上限の既定が無いので、これが無いとブラウザの上限に当たった後はキャッシュが自力で回復しない
 - ページ側の `fetchRange` が、制御の要求を送る前に `navigator.storage.persist()` を試す（失敗は無視）。`persist` はページの API で SW には無い（`estimate` は SW でも使える）。ブラウザの自動削除に対する唯一の手段
 - 旧 API の `cacheTtl`・`cacheMaxBytes` は Source の同名の項目へそのまま写す
 
@@ -701,8 +703,8 @@ state の題名からの変更点は太字（進行役が state を直す）。
 | 里程 | 内容 |
 |---|---|
 | m1 | 本書・#32・#34・#33 |
-| m2 | `store.ts`（#37）・`url_pattern.ts`・`core.ts` の `serve()`・`hook.ts`（§4.3 のルート）・`control.ts`・`plugins.ts`（#36）・`raster` の登録・**旧 API の載せ替え（§13）**。先頭で Firefox の測定を試す |
-| m3 | スタイルの芋づる登録（§5.5）・合流と実効方針の多対多の部分（§5.6）・ベクタの範囲外・グリフの結合（#39）・`providers/mapbox.ts`（#40）・資源単位の削除と提供元別の使用量（#38） |
+| m2 | `store.ts`（#37）・`url_pattern.ts`・`core.ts` の `serve()`・`hook.ts`（§4.3 のルート）・`upstream.ts`（§4.5・§4.6）・`control.ts`・`plugins.ts`（#36）・**`registry.ts`（§5.6。m3 から前倒し）**・`raster`・**`vector`**の登録・**汎用の資格情報（§10 のうち提供元を除く）**・**旧 API の載せ替え（§13）**。WebKit を任意で測る（Firefox は Playwright で測れない）。計画は `docs/superpowers/plans/2026-11-03-m2-core.md` |
+| m3 | スタイルの芋づる登録（§5.5）・`asset`・グリフの結合（#39）・`providers/mapbox.ts`（#40）・資源単位の削除と提供元別の使用量（#38） |
 | m4 | 範囲取得と解放・保持（§7）・**旧 DB からの移行（§14.2）**・#41・文書・master への合流 |
 
 m2 の最後から m4 の移行までの間、`vector-cache` は既存キャッシュを読まない。公開前のブランチなので問題にならないが、**移行の無い状態で master へ入れてはならない**（m4 の合流の条件にする）。
