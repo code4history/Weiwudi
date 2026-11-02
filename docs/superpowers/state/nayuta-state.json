@@ -30,8 +30,8 @@
       "id": "m1",
       "title": "基礎固めと新インタフェース仕様（#42 の仕様・#34・#33・#32）",
       "status": "in_progress",
-      "plan": null,
-      "ledger": null,
+      "plan": "docs/superpowers/plans/2026-11-02-m1-foundation.md",
+      "ledger": ".superpowers/sdd/2026-11-02-m1-foundation/progress.md",
       "security_review": "pending"
     },
     {
@@ -60,7 +60,8 @@
     }
   ],
   "design_references": [
-    "docs/superpowers/reports/2026-11-02-onboard-summary.md"
+    "docs/superpowers/reports/2026-11-02-onboard-summary.md",
+    "docs/superpowers/specs/2026-11-02-new-interface-spec.md"
   ],
-  "next_action": "実行するのはこのサイクルのセッション（進行役）。m1 の仕様と計画を書き、計画の作者ではない担当が事前点検する。"
+  "next_action": "実行するのはこのサイクルのセッション（進行役）。事前点検の第 1 回は不合格（S 7）で反映済み（947ab56）。人間の指示で停止中。再開は台帳の「再開の手順」から: 新しいサブエージェントで再点検し、S 0 になるまで m1 の実装に入らない。"
 }
