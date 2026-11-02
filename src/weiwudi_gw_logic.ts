@@ -1,5 +1,9 @@
 /// <reference lib="webworker" />
 import { RouteHandlerCallback } from 'workbox-core';
+import {
+  lngLatBoundsToTileBox, scaleTileBox, isInTileBox, countTiles, enumerateTiles,
+  maxZoomForPixelSize, pixelSizeToTileBox, expandTileTemplate
+} from './tile_math';
 
 interface MapSetting {
   mapID: string;
@@ -61,7 +65,6 @@ declare const self: ServiceWorkerGlobalScope;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: RouteHandlerCallback, method?: any) => any) {
   "use strict";
-  const MERC_MAX = 20037508.342789244;
   const dbCache: DBDict = {};
   const blockedDBs = new Set<string>();
   let fetchAllBlocker: FetchAllBlocker | undefined;
@@ -75,13 +78,6 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
     event.waitUntil(self.clients.claim());
   });
 
-  const extractTemplate = (template: string, z: number, x: number, y: number) => {
-    const result = template.replace('{z}', String(z))
-      .replace('{x}', String(x))
-      .replace('{y}', String(y))
-      .replace('{-y}', String(Math.pow(2, z) - y - 1));
-    return result;
-  };
   const b64toBlob = (b64Data: string, contentType = '', sliceSize = 512) => {
     const byteCharacters = atob(b64Data);
     const byteArrays = [];
@@ -410,12 +406,10 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
       // 未定義がmaxZoom 0と解釈され、全タイルが404になる退行があった (#27)
       if (z < (setting.minZoom || 0) || z > (setting.maxZoom ?? Infinity)) outExtent = 'zoom';
       else if (setting.maxZoom !== undefined && setting.minX !== undefined && setting.maxX !== undefined && setting.minY !== undefined && setting.maxY !== undefined) {
-        const factor = Math.pow(2, (setting.maxZoom || 0) - z);
-        const minXatZ = Math.floor((setting.minX || 0) / factor);
-        const maxXatZ = Math.floor((setting.maxX || 0) / factor);
-        const minYatZ = Math.floor((setting.minY || 0) / factor);
-        const maxYatZ = Math.floor((setting.maxY || 0) / factor);
-        if (x < minXatZ || x > maxXatZ || y < minYatZ || y > maxYatZ) outExtent = 'extent';
+        const boxAtZ = scaleTileBox({
+          minX: setting.minX || 0, maxX: setting.maxX || 0, minY: setting.minY || 0, maxY: setting.maxY || 0
+        }, setting.maxZoom || 0, z);
+        if (!isInTileBox(boxAtZ, x, y)) outExtent = 'extent';
       }
     }
     let headers: Record<string, string> = {};
@@ -451,7 +445,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
           template = setting.url;
         }
 
-        const url = extractTemplate(template, z, x, y);
+        const url = expandTileTemplate(template, z, x, y);
         try {
           const resp = await fetch(url);
           if (resp.ok) {
@@ -523,21 +517,9 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
     const db = await getDB(`Weiwudi_${setting.mapID}`);
     const allKeys = await getAllKeys(db, 'tileCache');
     try {
-      const allTasks = [];
-      const minZoom = setting.minZoom || 0;
-      const maxZoom = setting.maxZoom || 0;
-      for (let z = minZoom; z <= maxZoom; z++) {
-        const factor = Math.pow(2, maxZoom - z);
-        const maxXatZ = Math.floor((setting.maxX || 0) / factor);
-        const minXatZ = Math.floor((setting.minX || 0) / factor);
-        const maxYatZ = Math.floor((setting.maxY || 0) / factor);
-        const minYatZ = Math.floor((setting.minY || 0) / factor);
-        for (let x = minXatZ; x <= maxXatZ; x++) {
-          for (let y = minYatZ; y <= maxYatZ; y++) {
-            allTasks.push([z, x, y]);
-          }
-        }
-      }
+      const allTasks = [...enumerateTiles({
+        minX: setting.minX || 0, maxX: setting.maxX || 0, minY: setting.minY || 0, maxY: setting.maxY || 0
+      }, setting.minZoom || 0, setting.maxZoom || 0)];
       if (allTasks.length != setting.totalTile) console.log('Number of tiles is different');
       let subTasks = allTasks.splice(0, 5);
       while (subTasks.length) {
@@ -650,19 +632,17 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
                 if (!retVal) {
                   query.width = parseInt(query.width);
                   query.height = parseInt(query.height);
-                  const calcZoom = (v: number) => { return Math.ceil(Math.log(v / query.tileSize) / Math.log(2)) };
-                  query.maxZoom = Math.max(calcZoom(query.width), calcZoom(query.height));
+                  query.maxZoom = maxZoomForPixelSize(query.width, query.height, query.tileSize);
                   query.minZoom = query.minZoom ? parseInt(query.minZoom) : 0;
-                  query.minX = 0;
-                  query.minY = 0;
-                  query.maxX = Math.ceil(query.width / query.tileSize) - 1;
-                  query.maxY = Math.ceil(query.height / query.tileSize) - 1;
+                  const box = pixelSizeToTileBox(query.width, query.height, query.tileSize);
+                  query.minX = box.minX;
+                  query.minY = box.minY;
+                  query.maxX = box.maxX;
+                  query.maxY = box.maxY;
                 }
                 break;
               case 'wmts':
                 if (!retVal) {
-                  const lng2MercX = (lng: number) => { return 6378137 * lng * Math.PI / 180 };
-                  const lat2MercY = (lat: number) => { return 6378137 * Math.log(Math.tan(Math.PI / 360 * (90 + lat))) };
                   if (query.maxZoom) query.maxZoom = parseInt(query.maxZoom);
                   if (query.minZoom) query.minZoom = parseInt(query.minZoom);
                   if (query.maxLng && query.minLng && query.maxLat && query.minLat) {
@@ -670,14 +650,11 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
                     query.minLng = parseFloat(query.minLng);
                     query.maxLat = parseFloat(query.maxLat);
                     query.minLat = parseFloat(query.minLat);
-                    const maxMercX = lng2MercX(query.maxLng);
-                    const minMercX = lng2MercX(query.minLng);
-                    const maxMercY = lat2MercY(query.maxLat);
-                    const minMercY = lat2MercY(query.minLat);
-                    query.minX = Math.floor((MERC_MAX + minMercX) / (2 * MERC_MAX) * Math.pow(2, query.maxZoom));
-                    query.maxX = Math.floor((MERC_MAX + maxMercX) / (2 * MERC_MAX) * Math.pow(2, query.maxZoom));
-                    query.minY = Math.floor((MERC_MAX - maxMercY) / (2 * MERC_MAX) * Math.pow(2, query.maxZoom));
-                    query.maxY = Math.floor((MERC_MAX - minMercY) / (2 * MERC_MAX) * Math.pow(2, query.maxZoom));
+                    const box = lngLatBoundsToTileBox(query, query.maxZoom);
+                    query.minX = box.minX;
+                    query.maxX = box.maxX;
+                    query.minY = box.minY;
+                    query.maxY = box.maxY;
                   }
                 }
                 break;
@@ -687,15 +664,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
           }
           if (!retVal) {
             if (!checkAttributes(query, ['maxX', 'minX', 'maxY', 'minY', 'minZoom', 'maxZoom'])) {
-              query.totalTile = 0;
-              const calcTileCoord = (atMaxZoom: number, zoom: number) => { return Math.floor(atMaxZoom / Math.pow(2, query.maxZoom - zoom)) };
-              for (let z = query.minZoom; z <= query.maxZoom; z++) {
-                const minX = calcTileCoord(query.minX, z);
-                const minY = calcTileCoord(query.minY, z);
-                const maxX = calcTileCoord(query.maxX, z);
-                const maxY = calcTileCoord(query.maxY, z);
-                query.totalTile += (maxX - minX + 1) * (maxY - minY + 1);
-              }
+              query.totalTile = countTiles(query, query.minZoom, query.maxZoom);
             }
             await putItem(db, 'mapSetting', query);
             await getDB(`Weiwudi_${query.mapID}`, 'tileCache', 'z_x_y');
