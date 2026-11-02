@@ -148,4 +148,6 @@ Ruling: 第 1 回の点検は水準 1 で実施した — 軽い道 §3 の規�
 m1-t1（#32）: 実装 `cca2fb6`＋差し戻し分 `bd27ea9`（Claude サブエージェント。e2e にローカルの bind が要るため）。レビュー水準 1 は第 1 回で差し戻し（必須: テスト 8 が SW を止めなくても通る。対照で実測）、第 2 回で合格（`stopAllWorkers` を抜くと落ちる・推奨 4 件も対照で確認・`--repeat-each=10` で 90 passed）。PR https://github.com/code4history/Weiwudi/pull/67
 Ruling: m1-t1 のレビューの推奨 4 件（テスト 4 の受信 +1・テスト 9 の 1 枚入れてからの clean・decode の try/catch・localhost に限る listen）を今回入れた — 数行で済み、m2 の雛形になる試験の確かさが上がる — 誤りなら試験が厳しくなるだけ
 m2 への申し送り（t1 から）: tile-server は `[::1]:5174` だけで待ち受ける。試験と設定に `127.0.0.1` を書かない。一時ディレクトリ `weiwudi-e2e-*`（各 1.9 MB）は走行ごとに残るので、m2 で SIGTERM と exit に `rmSync` を足す
+m1-t2（#34）: 実装 `955d22d`。レビュー水準 1 は第 1 回で合格（新旧の gw_logic を偽の SW 環境で突き合わせ、JSON 文字列・列挙順・乱数 4000 回が一致。変異 3 種で 28 本中 17 本が落ちる）。PR https://github.com/code4history/Weiwudi/pull/69
+Ruling: 計画の「`lat2MercY(90)` の Infinity」は事実と違う。`Math.tan(Math.PI/2)` が 16331239353195370 になり、`latToMercY(90)` は有限の 238107693.26496765、`latToMercY(0)` は -7.081154551613622e-10。式は直さず試験に実測の値を書いた（実装担当の判断を採る） — 現行の挙動を残す方針どおり — 誤りなら m4 の `bounds` の入口で極付近を Infinity 前提で扱う設計が狂う ∴ m4 の設計はこの値を前提にする
 申し送り: 12 月サイクルへ移管を連絡済み。`DEC26-WEIWUDI-AUG-ISSUES` は 12 月側で closed。`DEC26-LARGE-ITEMS-TRIAGE` は他の項目を含むので open のまま

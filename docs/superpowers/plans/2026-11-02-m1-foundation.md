@@ -198,7 +198,7 @@ export const expandTileTemplate: (template: string, z: number, x: number, y: num
 | 664-680 | wmts の計算 | `lngLatBoundsToTileBox` |
 | 689-699 | `totalTile` | `countTiles` |
 
-**現行の癖を直さない。** `(setting.minX || 0)` の既定、`query.maxZoom` が無い wmts で `NaN` になる動き（`Math.pow(2, undefined)`）、`lat2MercY(90)` の `Infinity` はそのまま残す。`|| 0` は呼び出し側に残す。`tile_math` が丸めるのは m4 の `bounds` の入口だけで、それは別の関数にする。
+**現行の癖を直さない。** `(setting.minX || 0)` の既定、`query.maxZoom` が無い wmts で `NaN` になる動き（`Math.pow(2, undefined)`）、`lat2MercY(90)` が有限の大きな値（238107693.26…。`Math.tan(Math.PI/2)` が有限になるため。Infinity ではない。t2 で実測）を返す動きはそのまま残す。`|| 0` は呼び出し側に残す。`tile_math` が丸めるのは m4 の `bounds` の入口だけで、それは別の関数にする。
 
 `b64toBlob`・`percent` の計算（:566・:751）はタイル計算ではないので動かさない。`Math.random` の `:449` も同様。
 
