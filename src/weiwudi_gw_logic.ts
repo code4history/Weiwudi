@@ -273,7 +273,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
         reject(tx.error);
       };
       tx.onerror = function (e) {
-        reject(e);
+        reject(tx.error ?? (e.target as IDBRequest | null)?.error ?? e);
       };
     });
   };
@@ -359,11 +359,20 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
           const budget = willSave ? cacheMaxBytes - newSize : cacheMaxBytes;
           let i = 0;
           while (total > budget && i < candidates.length) {
-            store.delete(candidates[i].key);
+            const delReq = store.delete(candidates[i].key);
+            delReq.onerror = function (_e) {
+              reject(delReq.error);
+            };
             total -= candidates[i].size;
             i++;
           }
-          if (willSave) store.put(item);
+          if (willSave) {
+            // Event ではなく例外（DOMException）を reject する（#33）
+            const putReq = store.put(item);
+            putReq.onerror = function (_e) {
+              reject(putReq.error);
+            };
+          }
         }
       };
       cursorReq.onerror = function (_e) {
@@ -376,7 +385,7 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp, handler: Route
         reject(tx.error);
       };
       tx.onerror = function (e) {
-        reject(e);
+        reject(tx.error ?? (e.target as IDBRequest | null)?.error ?? e);
       };
     });
   };

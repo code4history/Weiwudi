@@ -733,3 +733,133 @@ describe('fetchAll の errors（#33）', () => {
     expect(proceed[proceed.length - 1]).toMatchObject({ error: 2, errors: { network: 1, upstream: 1, quota: 0, storage: 0 } });
   });
 });
+
+// ---- #33 レビュー: 保存の失敗が Event ではなく例外で届くこと・stop の code（追記のみ） ----
+
+// put・delete の要求を、指定の名前の例外で失敗させる（req.onerror の経路）。
+// 偽の要求を返し、呼び出し側が onerror を置いた後（microtask）に error を入れて onerror を呼ぶ
+const failRequest = (method: 'put' | 'delete', name: string) =>
+  vi.spyOn(IDBObjectStore.prototype, method).mockImplementationOnce(function () {
+    const req = { error: null as DOMException | null, onsuccess: null, onerror: null as null | ((e: unknown) => void) };
+    queueMicrotask(() => {
+      req.error = new DOMException('simulated', name);
+      req.onerror?.({ target: req });
+    });
+    return req as unknown as IDBRequest<IDBValidKey>;
+  });
+
+describe('保存の失敗の分類（#33 レビュー）', () => {
+  it('putItem: put の要求の失敗（QuotaExceededError）→ 200・quota', async () => {
+    const h = createSwHarness();
+    await addTileMap(h, 'https://tile.example/{z}/{x}/{y}.png');
+    h.fetch.mockImplementation(async () => tileResponse(4));
+    const spy = failRequest('put', 'QuotaExceededError');
+    try {
+      const res = await h.request('/api/cache/m/2/1/0');
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('x-weiwudi-error')).toBe('quota');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('putItemWithEviction: put の要求の失敗（QuotaExceededError）→ 200・quota', async () => {
+    const h = createSwHarness();
+    await addTileMap(h, 'https://tile.example/{z}/{x}/{y}.png', '&cacheMaxBytes=100');
+    h.fetch.mockImplementation(async () => tileResponse(4));
+    const spy = failRequest('put', 'QuotaExceededError');
+    try {
+      const res = await h.request('/api/cache/m/2/1/0');
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('x-weiwudi-error')).toBe('quota');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('putItemWithEviction: 退避の delete の要求の失敗（UnknownError）→ 200・storage', async () => {
+    const h = createSwHarness();
+    await addTileMap(h, 'https://tile.example/{z}/{x}/{y}.png', '&cacheMaxBytes=20');
+    h.fetch.mockImplementation(async () => tileResponse(10));
+    await h.request('/api/cache/m/2/0/0');
+    await h.request('/api/cache/m/2/0/1');
+    const spy = failRequest('delete', 'UnknownError');
+    try {
+      const res = await h.request('/api/cache/m/2/0/2');
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('x-weiwudi-error')).toBe('storage');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('putItemWithEviction: transaction の abort（tx.error が QuotaExceededError）→ 200・quota', async () => {
+    const h = createSwHarness();
+    await addTileMap(h, 'https://tile.example/{z}/{x}/{y}.png', '&cacheMaxBytes=100');
+    h.fetch.mockImplementation(async () => tileResponse(4));
+    const spy = abortPutAfterSuccess('QuotaExceededError');
+    try {
+      const res = await h.request('/api/cache/m/2/1/0');
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('x-weiwudi-error')).toBe('quota');
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await (await h.request('/api/stats?mapID=m')).json()).toMatchObject({ count: 0 });
+  });
+
+  it('putItemWithEviction: transaction の abort（それ以外の名前）→ 200・storage', async () => {
+    const h = createSwHarness();
+    await addTileMap(h, 'https://tile.example/{z}/{x}/{y}.png', '&cacheMaxBytes=100');
+    h.fetch.mockImplementation(async () => tileResponse(4));
+    const spy = abortPutAfterSuccess('UnknownError');
+    try {
+      const res = await h.request('/api/cache/m/2/1/0');
+      expect(res.headers.get('x-weiwudi-error')).toBe('storage');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('add の保存の abort（QuotaExceededError）→ Error: QuotaExceededError で始まる文（Event ではない）', async () => {
+    const h = createSwHarness();
+    const spy = abortPutAfterSuccess('QuotaExceededError');
+    try {
+      const text = await (await h.request('/api/add?mapID=m&type=xyz&url=u&width=256&height=256')).text();
+      expect(text).toMatch(/^Error: QuotaExceededError/);
+      expect(text).not.toContain('[object Event]');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('fetchAll の stop の code（#33 レビュー）', () => {
+  it('取得の途中の例外を WeiwudiError.from で分類し、stop に code を入れる', async () => {
+    const cases: [unknown, string][] = [
+      ['Error: MapID "x" not found', 'map-not-found'],
+      [new DOMException('full', 'QuotaExceededError'), 'quota'],
+      [new TypeError('boom'), 'internal'],
+    ];
+    for (const [thrown, code] of cases) {
+      const h = createSwHarness();
+      await addTileMap(h, 'https://tile.example/{z}/{x}/{y}.png');
+      h.fetch.mockImplementation(async () => tileResponse(4));
+      const client = { id: 'client-1', postMessage: vi.fn() };
+      // 入口の client 取得（requestFromClient の Once）の後、取得中の生存確認で例外にする
+      h.self.clients.get.mockImplementation(() => Promise.reject(thrown));
+      await h.requestFromClient('/api/fetchAll?mapID=m', client);
+      await vi.waitFor(() => {
+        expect(client.postMessage.mock.calls.some(([m]) => m.type === 'stop')).toBe(true);
+      });
+      const stop = client.postMessage.mock.calls.map(([m]) => m).find((m) => m.type === 'stop');
+      expect(stop.code).toBe(code);
+      expect(stop.reason).toBe(thrown);
+      vi.unstubAllGlobals();
+    }
+  });
+});

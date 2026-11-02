@@ -7,12 +7,12 @@ import { join } from 'node:path';
 // 単体の再現（put の成功後の abort）が実物からずれていないかを見る。t1 のページと上流サーバを使う。
 //
 // Storage.overrideQuotaForOrigin について 2026-11-02 に Chromium 1248 で実測したこと:
-// - Playwright の既定のコンテキスト（記録を残さない形）では保存を止めない。永続コンテキストでは止める
 // - その起動でオリジンの保存を一度でも使った後に掛けると、接続を開き直しても、別の DB でも、
 //   28 秒待っても保存を止めない。使う前に掛けると、書き込みが transaction の abort
-//   （tx.error が QuotaExceededError）になる
-// そのため、1 回目の起動で地図を登録して閉じ、同じプロファイルで起動し直して、
-// オリジンを使う前に上限を掛けてから開く
+//   （tx.error が QuotaExceededError）になる（既定のコンテキストでも、使う前に掛ければ効く）
+// 地図の登録（保存）を済ませてから上限を掛ける必要があるので、登録した起動を閉じ、
+// 起動し直してから使う前に掛ける。既定のコンテキストは起動し直すと保存を引き継げないので、
+// プロファイルを持つ永続コンテキストにする
 const UPSTREAM = 'http://localhost:5174';
 const TILE_URL = `${UPSTREAM}/tiles/{z}/{x}/{y}.png`;
 const ORIGIN = 'http://localhost:5173';
@@ -36,15 +36,18 @@ test.describe('Weiwudi quota', () => {
     });
 
     test.afterEach(async () => {
-        // quotaSize なしで呼んで上限を解除する。残すと同じオリジンの後続の試験が保存に失敗する
-        if (context && page) {
-            const cdp = await context.newCDPSession(page);
-            await cdp.send('Storage.overrideQuotaForOrigin', { origin: ORIGIN });
-            await context.close();
+        try {
+            // quotaSize なしで呼んで上限を解除する。残すと同じオリジンの後続の試験が保存に失敗する
+            if (context && page) {
+                const cdp = await context.newCDPSession(page);
+                await cdp.send('Storage.overrideQuotaForOrigin', { origin: ORIGIN });
+                await context.close();
+            }
+        } finally {
+            context = undefined;
+            page = undefined;
+            rmSync(userDataDir, { recursive: true, force: true });
         }
-        context = undefined;
-        page = undefined;
-        rmSync(userDataDir, { recursive: true, force: true });
     });
 
     test('reports quota when the real storage quota is exceeded', async ({ playwright }) => {

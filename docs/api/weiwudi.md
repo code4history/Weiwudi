@@ -194,7 +194,8 @@ Fired periodically during a `fetchAll()` operation to report progress.
 **Event Detail:**
 - `mapID` (string): Map identifier
 - `error` (number): Number of failed tiles so far (total)
-- `errors` (object): Failed tiles so far by kind: `{ network, upstream, quota, storage }`
+- `errors` (object): Failed tiles so far by kind: `{ network, upstream, quota, storage }`.
+  This also counts failures of other tile requests served while `fetchAll()` is running
 - Additional progress information
 
 ---
@@ -206,7 +207,8 @@ Fired when a `fetchAll()` operation completes successfully.
 **Event Detail:**
 - `mapID` (string): Map identifier
 - `error` (number): Number of failed tiles (total)
-- `errors` (object): Failed tiles by kind: `{ network, upstream, quota, storage }`
+- `errors` (object): Failed tiles by kind: `{ network, upstream, quota, storage }`.
+  This also counts failures of other tile requests served while `fetchAll()` is running
 
 ---
 
@@ -252,7 +254,9 @@ try {
   errors) are classified by the exception name after `Error: `:
   `QuotaExceededError` → `quota`, `BlockedError` → `db-blocked`, anything else →
   `internal`. Only the `Error: ` prefix and this classification are guaranteed
-  for these; the rest of the text may change.
+  for these; the rest of the text may change. For example, when saving the map
+  setting in `registerMap` hits the storage quota, real browsers reject with
+  `Error: QuotaExceededError` (often followed by `: ` and a description).
 - An `Error` or `DOMException` is classified by its `name` the same way. Any
   other value becomes `internal` with `String(value)` as the message.
 
@@ -279,6 +283,14 @@ try {
 
 **Other codes:** `db-blocked`, `quota`, `internal` (from wrapped exceptions, see
 above) and `network`, `upstream`, `storage` (tile failures, see below).
+
+**Codes reserved for the upcoming API:** `unsupported-template`, `invalid-style`,
+`opaque`, `sw-outdated`, `credential-rejected`, `source-not-found`,
+`resource-conflict`. They are part of the `WeiwudiErrorCode` type but are not
+produced yet.
+
+**New codes may be added in a minor release.** When you `switch` on `code`,
+always keep a `default` branch.
 
 ### Tile responses: `x-weiwudi-error`
 

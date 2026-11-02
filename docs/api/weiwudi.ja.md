@@ -193,7 +193,8 @@ Weiwudiインスタンスは `WeiwudiEventTarget` を継承し、以下のイベ
 **イベント詳細:**
 - `mapID` (string): マップ識別子
 - `error` (number): それまでに失敗したタイルの数（合計）
-- `errors` (object): それまでに失敗したタイルの種類別の数 `{ network, upstream, quota, storage }`
+- `errors` (object): それまでに失敗したタイルの種類別の数 `{ network, upstream, quota, storage }`。
+  `fetchAll()` の実行中に配った他のタイルの取得の失敗も含みます
 - 追加の進行状況情報
 
 ---
@@ -205,7 +206,8 @@ Weiwudiインスタンスは `WeiwudiEventTarget` を継承し、以下のイベ
 **イベント詳細:**
 - `mapID` (string): マップ識別子
 - `error` (number): 失敗したタイルの数（合計）
-- `errors` (object): 失敗したタイルの種類別の数 `{ network, upstream, quota, storage }`
+- `errors` (object): 失敗したタイルの種類別の数 `{ network, upstream, quota, storage }`。
+  `fetchAll()` の実行中に配った他のタイルの取得の失敗も含みます
 
 ---
 
@@ -250,7 +252,9 @@ try {
 - それ以外の `"Error: {message}"`（IndexedDB の例外などを包んだもの）は、`Error: ` の
   後ろの例外名で分類します。`QuotaExceededError` → `quota`、`BlockedError` →
   `db-blocked`、それ以外 → `internal`。これらは `Error: ` で始まることとこの分類だけを
-  保証し、残りの文は変わることがあります。
+  保証し、残りの文は変わることがあります。たとえば `registerMap` で地図の設定の保存が
+  容量超過になると、実ブラウザでは `Error: QuotaExceededError`（後ろに `: ` と説明が
+  付くことがあります）で reject します。
 - `Error`・`DOMException` は `name` で同じように分類します。それ以外の値は
   `String(value)` を文面にして `internal` になります。
 
@@ -277,6 +281,13 @@ try {
 
 **ほかのコード:** `db-blocked`・`quota`・`internal`（包んだ例外から。上を参照）と、
 `network`・`upstream`・`storage`（タイルの失敗。下を参照）。
+
+**今後の API のために予約したコード:** `unsupported-template`・`invalid-style`・
+`opaque`・`sw-outdated`・`credential-rejected`・`source-not-found`・
+`resource-conflict`。`WeiwudiErrorCode` の型には入っていますが、まだ作られません。
+
+**code は今後の minor で増えることがあります。** `code` で `switch` するときは、
+必ず `default` を置いてください。
 
 ### タイルの応答: `x-weiwudi-error`
 

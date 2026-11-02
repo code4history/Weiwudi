@@ -1,6 +1,6 @@
 // src/errors.ts のユニットテスト（#33）。
 // 旧 API の文面は 1 字も変えない（仕様 §9）。文面の固定の試験だけは文字列を直書きする。
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { WeiwudiError, legacyMessage, type LegacyErrorCode } from '../../src/errors';
 
 // [code, 差し込み値, 現行の文面（直書き）, from で detail に入る値]
@@ -100,5 +100,82 @@ describe('WeiwudiError', () => {
     expect(e.code).toBe('quota');
     expect(e.message).toBe('full');
     expect(e.detail).toEqual({ mapID: 'm' });
+  });
+});
+
+describe('別のコピーの WeiwudiError（#33 レビュー）', () => {
+  it('errors.ts をもう一度読み込んだ別のクラスのインスタンスも、そのまま返し code・detail を保つ', async () => {
+    vi.resetModules();
+    const other = await import('../../src/errors');
+    expect(other.WeiwudiError).not.toBe(WeiwudiError);
+    const e = new other.WeiwudiError('map-not-found', 'Error: MapID "x" not found', { mapID: 'x' });
+    expect(e instanceof WeiwudiError).toBe(false);
+    const got = WeiwudiError.from(e);
+    expect(got).toBe(e);
+    expect(got.code).toBe('map-not-found');
+    expect(got.detail).toEqual({ mapID: 'x' });
+  });
+
+  it('印が無くても、name が WeiwudiError で code が既知の Error は WeiwudiError と見なす', () => {
+    const err = Object.assign(new Error('full'), { name: 'WeiwudiError', code: 'quota', detail: { mapID: 'm' } });
+    const got = WeiwudiError.from(err);
+    expect(got.code).toBe('quota');
+    expect(got.detail).toEqual({ mapID: 'm' });
+  });
+
+  it('name が WeiwudiError でも code が未知なら internal', () => {
+    const err = Object.assign(new Error('x'), { name: 'WeiwudiError', code: 'nope' });
+    expect(WeiwudiError.from(err).code).toBe('internal');
+  });
+});
+
+describe('Error でない object（#33 レビュー）', () => {
+  it('name を持つだけの object は name で分類しない', () => {
+    const e = WeiwudiError.from({ name: 'QuotaExceededError' });
+    expect(e.code).toBe('internal');
+    expect(e.message).toBe('[object Object]');
+  });
+
+  it('name が WeiwudiError で code が既知でも、Error でない object はそのまま返さない', () => {
+    const fake = { name: 'WeiwudiError', code: 'quota', message: 'x' };
+    const e = WeiwudiError.from(fake);
+    expect(e).not.toBe(fake);
+    expect(e.code).toBe('internal');
+  });
+});
+
+describe('文面の照合順（#33 レビュー）', () => {
+  it('map-busy の mapID が sw-register-failed の固定部分で始まっても map-busy', () => {
+    const text = legacyMessage('map-busy', { mapID: 'Service worker registration failed with x' });
+    const e = WeiwudiError.from(text);
+    expect(e.code).toBe('map-busy');
+    expect(e.detail).toEqual({ mapID: 'Service worker registration failed with x' });
+  });
+
+  // 差し込み値を持つ各 code の、各差し込み値に、16 行すべての文面を入れて往復させる
+  const MESSAGES = LEGACY.map(([code, params]) => legacyMessage(code, params));
+  const NESTED = LEGACY.flatMap(([code, params]) =>
+    Object.keys(params ?? {}).flatMap((name) =>
+      MESSAGES.map((inner, i) => [code, name, LEGACY[i][0], { ...params, [name]: inner }] as const)));
+
+  it('組み合わせは 0 件でない', () => {
+    expect(NESTED.length).toBe(10 * 16);
+  });
+
+  it.each(NESTED)('%s の %s に %s の文面を入れても元の code と差し込み値に戻る', (code, name, _inner, params) => {
+    const e = WeiwudiError.from(legacyMessage(code, params));
+    expect(e.code).toBe(code);
+    expect(e.detail?.[name]).toBe(String(params[name]));
+  });
+});
+
+describe('新 API の code（#33 レビュー）', () => {
+  it.each([
+    'unsupported-template', 'invalid-style', 'opaque', 'sw-outdated',
+    'credential-rejected', 'source-not-found', 'resource-conflict',
+  ] as const)('%s で WeiwudiError を作れ、別のコピーの判定でも既知として扱う', (code) => {
+    const err = Object.assign(new Error('x'), { name: 'WeiwudiError', code });
+    expect(WeiwudiError.from(err).code).toBe(code);
+    expect(new WeiwudiError(code, 'x').code).toBe(code);
   });
 });
