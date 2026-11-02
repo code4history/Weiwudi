@@ -125,7 +125,7 @@
 
 門番のハンドラは読み込み完了を待ち、一致すれば `serve()`、外れれば `fetch(request)` で素通しする。
 
-**読み込みの失敗と停止**: 門番の待ちは上限 3 秒とする。読み込みが失敗するか上限を越えたら、その要求は素通しし、次の要求で読み込みをやり直す（`loaded` は立てない）。要求を止めるほうが、キャッシュされないより悪い。
+**読み込みの失敗と停止**: 門番の待ちは上限 3 秒とする。読み込みが失敗するか上限を越えたら、その要求は素通しし、次の要求で読み込みをやり直す（`loaded` は立てない）。やり直しは読み込み中の `Promise` を 1 つだけ持って共有し、同時に来た要求がそれぞれ読み込みを起こさないようにする。要求を止めるほうが、キャッシュされないより悪い。
 
 候補の条件: `GET` かつ `mode !== 'navigate'` かつ `destination` が `''` か `'image'`。スクリプト・CSS・文書には触らない。
 
@@ -147,19 +147,21 @@
 
 | 要求 | 上流へ出す形 |
 |---|---|
-| 匿名の要求 | 組み替える: **`mode: 'cors'`・`credentials: 'omit'`**。ページの要求が `no-cors`（`<img>`）でも同じ（§2 の 5） |
+| 匿名の要求 | 組み替える: **`mode: 'cors'`・`credentials: 'same-origin'`**。ページの要求が `no-cors`（`<img>`）でも同じ（§2 の 5）。別オリジンへ Cookie を送らない点は `omit` と同じで、同一オリジンの Cookie で守られたタイル（Cloudflare Access など）は取れ続ける |
 | §4.6 の認証付きの要求 | **元の `Request` のまま**。組み替えない。下の 2〜4 も通らない |
-| テンプレートから作る要求（範囲取得・旧 API） | 組み替えた形と同じ |
+| テンプレートから作る要求（範囲取得・旧 API） | **`fetch(URL の文字列)` のまま**（現行の `getImage` と同じ。既定で `mode: 'cors'`・`credentials: 'same-origin'` なので組み替えた形と一致する）。`tests/unit/weiwudi-gw-logic.test.ts` の :228・:239（`toHaveBeenCalledWith(文字列)`）を差分なしで通すため |
 
 以下は匿名の要求の手順である。
 
 1. 組み替えた形で取得する
 2. `TypeError` になり、元の要求が `no-cors` なら、元の要求で 1 回取り直す。opaque ならページへ渡すが**保存しない**。理由: 本体が読めず（§2 の 6）IndexedDB に入らない。状態も大きさも分からない。Cache Storage へ入れても容量の水増しで集計が壊れる
-3. CORS の拒否とネットワーク失敗はどちらも `TypeError` で区別できない。**2 の取り直しが opaque で成功したときだけ**、CORS 非対応の候補として数える。両方失敗（オフライン）は数えず、1 の成功で数を 0 に戻す。不安定な回線の瞬断で誤判定しないよう、次のようにする
+3. CORS の拒否とネットワーク失敗はどちらも `TypeError` で区別できない。また CORS の検査は状態コードに関係なく行われるので、404・403 に `Access-Control-Allow-Origin` を付けない CORS 対応サーバ（nginx の `add_header` を `always` なしで書いたもの。海を 404 にする疎なタイル集合など）でも、cors は `TypeError`・取り直しは opaque になる。そこで、**その `Resource` で cors の取得が 1 度も成功していない（`count === 0` かつ `Resource.corsOk` が無い）うちに、2 の取り直しが opaque で成功したときだけ**、CORS 非対応の候補として数える。cors の成功が 1 度でもあれば、opaque の取り直しは `upstream` として扱い（ページへは opaque を渡す）、数えない。両方失敗（オフライン）は数えず、1 の成功で数を 0 に戻す。不安定な回線の瞬断で誤判定しないよう、次のようにする
    - 連続 3 回で `Resource.corslessUntil = now + 24 時間` を保存する。その間は 1 を省いて元の要求を出す。`stats` で見え、このとき 1 回だけ `opaque` イベントを出す
    - 期限を過ぎたら 1 に戻す。1 が成功すれば解除、失敗して 2 が opaque ならまた数える
    - `source.update()` は無条件に解除する
-   - 範囲取得は `corslessUntil` を見ずに 1 で取る。`TypeError` のタイルは `mode: 'no-cors'` で確かめ、opaque が連続 3 回なら `opaque` で止める。両方失敗は `network` として数える
+   - cors の初めての成功で `Resource.corsOk = true` を保存する
+   - 範囲取得は `corslessUntil` を見ずに 1 で取る。`TypeError` のタイルは `mode: 'no-cors'` で確かめる。**cors の成功が 1 件も無いうちに** opaque が 3 回続いたときだけ `opaque` で止め、それ以外の opaque は `upstream` として数えて進む。両方失敗は `network` として数える
+   - `corslessUntil` の間でも、上の条件により cors の成功がある `Resource` には `corslessUntil` が立たない。したがって「`corslessUntil` の間に Entry がある」組み合わせは、旧 DB から移した Entry を除いて起きない。起きたときは opaque を渡さず §6 の 4（古い本体）として返す（オフライン用途を優先する）
 4. 元の要求が `cors` なら 2 は行わない。opaque は返せない（ネットワークエラーになる）
 
 テンプレートから URL を作るとき（範囲取得と旧 API）は、現行どおりミラーから無作為に 1 つ選ぶ。実 URL の捕捉では要求の URL をそのまま使う。
@@ -171,7 +173,9 @@
 - 要求に `Authorization` がある、または `mode: 'cors'` で `credentials: 'include'` のときは、**捕捉しても保存しない**。元の `Request` のまま上流へ出して配信する（§4.5）。`<img>` の `credentials: include` は既定値なので対象にしない（§2 の 4）
 - 保存したい場合は登録に `cachePrivate: true` を付ける。上流へは同じく元の `Request` のまま出す。IndexedDB は同じオリジンのスクリプトから読めるので、既定を「保存しない」にする。キーは利用者を区別しないので、1 つのブラウザプロファイルを 1 人が使う前提である
 - 登録の `credentials`（§10）で SW が足した資格情報は、ここで言う認証付きに当たらない。登録した者が共有を意図したものとして保存する
-- 範囲取得には元の要求が無い。`credentials` ストアの内容で取り、Cookie だけで認証するサーバは対象外である（`upstream` で数える）
+- 同一オリジンの Cookie は SW から見えないので、保存の判定に使えない。同一オリジンの既定（`credentials: 'same-origin'`）の要求は匿名の要求として扱い、保存する（現行の旧 API と同じ扱い）
+- 範囲取得には元の要求が無い。`credentials` ストアの内容と同一オリジンの Cookie で取る。**別オリジンで Cookie だけで認証するサーバは対象外**である（`upstream` で数える）。cors の成功が 1 件も無いうちに 401・403 が 3 回続いたら `upstream` で止める（認証の無いまま全タイルを取りに行き続けないため）
+- 上流が 200 でも `content-type` が `text/html` の応答は保存せず `upstream` として扱う（ログイン画面へのリダイレクトがタイルとして固定されないため）。スタイル・TileJSON 以外の型に適用する
 - `Range` ヘッダ付きの要求は素通しする（§11）
 
 ## 5. 資源モデルと IndexedDB
@@ -209,6 +213,7 @@ export interface ResourceMeta {
   encoding?: 'raster' | 'vector';
   policy: ResourcePolicy;     // 実効方針（§5.6）
   corslessUntil?: number;     // §4.5
+  corsOk?: boolean;           // §4.5。cors の取得が 1 度でも成功した印
   count: number;              // Entry の件数（同じトランザクションで更新）
   bytes: number;              // 同じ
   pinnedBytes: number;        // 固定分
@@ -292,13 +297,13 @@ export interface EntryBody {
 1. スタイルを `serve()` 経由で取得する（2 回目以降はキャッシュから。**オフラインで同じ登録を繰り返しても失敗しない**）
 2. `sources` を走査する。`url` があれば TileJSON を取得して `tiles`・`bounds`・`minzoom`・`maxzoom`・`scheme` を得る。`tiles` があればそのまま。試作は `source.url` を読まないので TileJSON 経由の資源を落としていた
 3. `glyphs`・`sprite`（文字列か、MapLibre の `{id, url}[]`）・`geojson` の `data`（URL のとき）・`image` の `url` を登録する。スプライトは `.json`・`.png`・`@2x.json`・`@2x.png` の 4 つを同じ `Resource` の suffix とする
-4. 一部の取得に失敗したら、登録は成功させて `warnings[]` に残す。スタイル自体が読めなければ `invalid-style`
+4. 一部の取得に失敗したら、登録は成功させて `warnings[]` に残す。下位資源が `resource-conflict`（§5.6）になったときも同じで、その資源はキャッシュせずスタイル全体は登録する。スタイル自体が読めなければ `invalid-style`
 5. **別オリジンのスタイルが、ページと同じオリジンの URL を指していたら登録しない**（`warnings` に残す）。第三者のスタイルで同一オリジンの API を捕捉させないため
 6. `register()` は冪等である。`source.update()` で取り直し、参照が消えた `Resource` は `sourceIds` から外して空なら削除する
 
 ### 5.6 合流と実効方針
 
-捕捉した要求から決まるのは `Resource` だけで、どの `Source` の要求かは分からない。そこで `Resource` に実効方針を持たせる。`sourceIds` が変わるたびに、参照している全 `Source` の指定から計算し直して `resources` に保存する。
+捕捉した要求から決まるのは `Resource` だけで、どの `Source` の要求かは分からない。そこで `Resource` に実効方針を持たせる。`sourceIds` が変わるたびに、参照している全 `Source` の指定から計算し直して `resources` に保存する。**ただし `credentialParams` は Entry がある間は縮めない**（`count === 0` のときだけ計算し直す。Source の削除でも、自分自身の `update()` で減る場合でも同じ）。縮めると §5.3 の正規化で資格情報がキーに残り（§10 に反する）、既存の Entry にも当たらなくなる。
 
 | 項目 | 合成の規則 | 理由 |
 |---|---|---|
@@ -327,7 +332,7 @@ export interface EntryBody {
 
 | 順 | 条件 | 応答 | `x-weiwudi-status` |
 |---|---|---|---|
-| 1 | 範囲外（`extents` の和の外。§5.6） | 下の表 | `out-of-range` |
+| 1 | 範囲外（`extents` の和の外。§5.6。全 extent でズームの外なら「ズームの外」、それ以外は「広がりの外」として下の表を引く） | 下の表 | `out-of-range` |
 | 2 | 新しい Entry がある（`now - fetchedAt <= cacheTtl`） | 保存した本体 | `hit` |
 | 3 | 上流が成功 | 上流の本体（保存を試みる） | `miss`／更新なら `refresh` |
 | 4 | 上流が失敗（HTTP）・Entry あり | 古い本体 | `stale` |
@@ -447,16 +452,19 @@ export class WeiwudiError extends Error {
 | 経路 | 形 |
 |---|---|
 | 新 API | `WeiwudiError` で reject。`/v2/*` は `{ ok: false, error: { code, message, detail } }` を返す |
-| 旧 API | **現行と 1 字も違わない文字列で reject し続ける**（例外は下）。`WeiwudiError.from(e)` で `code` を得られる |
+| 旧 API | **文字列で reject し続ける**。文面の保証は下。`WeiwudiError.from(e)` で `code` を得られる |
 | タイルの応答 | 応答ヘッダ `x-weiwudi-error: network｜upstream｜quota｜storage` |
 | 範囲取得のイベント | `stop` に `code`。`proceed`・`finish` に `errors: { network, upstream, quota, storage }`。`error`（合計）は残す |
 
 文字列を `Error` に置き換えない理由: 公開文書が `"Error: {message}"` を約束しており（`docs/api/weiwudi.md`）、`typeof e === 'string'` や `e.match()` で分岐する利用者を壊す。リリースポリシー §5.3・§9.1 では major と非推奨の手順が要る。`from` なら 0 件の破壊で #33 の「原因に応じて分岐できる」を満たす。利用側（MaplatCore・MaplatCorePro）は握りつぶしているので影響を受けない。
 
-文面を変える例外は 2 つだけで、どちらも内部の都合が漏れていた文である。
+**旧 API の文面の保証**:
 
-- `Error: [object Event]`: `putItem` が abort の `Event` を reject していたため。m1-t3 で `tx.error` を reject するように直すので `Error: QuotaExceededError: …` になる
-- 未登録の地図の `clean` の `Error: NotFoundError: …`: store の無い DB を開いた結果であり、m2 の載せ替えで `Error: MapID "x" not found`（`stats` と同じ）にする。どちらも `Error: ` で始まり、reject することは変わらない
+- m1-t3 の表にある 16 行の文面は 1 字も変えない
+- 包括の `Error: ${e}`（IndexedDB の例外などをそのまま文にしたもの）は、`Error: ` で始まることと `from` の分類（§9 の表と例外名）だけを保証する。中身は内部の都合で変わる。既知の変化は次のとおり
+  - `Error: [object Event]`: IndexedDB の補助関数（`putItem`・`countDB`・`cleanDB`・`getItem`・`deleteItem`・`getAllKeys` ほか）が `Event` を reject していたため。m1-t3 は `putItem`・`putItemWithEviction` だけを `tx.error`・`req.error` に直し、残りは m2 の `store.ts` で揃える
+  - 未登録の地図の `clean` の `Error: NotFoundError: …`: m2 の載せ替えで `Error: MapID "x" not found`（`stats` と同じ。16 行の側）にする
+  - `blocked` の文面の DB 名は `Weiwudi` から `WeiwudiStore` に変わる。旧 DB が `blocked` でも `delete` は失敗せず成功する（§14.2。旧 DB の削除は次の起動へ回す）
 
 文字列の reject は次の major で `WeiwudiError` へ変える。非推奨の予告は §13 の時期に合わせる。
 
@@ -604,8 +612,8 @@ await style.fetchRange({ bounds: [139.7, 35.6, 139.8, 35.7], minZoom: 10, maxZoo
 | 扱い | 対象 | 内容 |
 |---|---|---|
 | 残す | `handlerCb`・`checkAttributes`・`add xyz`・`add wmts`・`add cacheMaxBytes`・`info`・`getImage` の各群・`putItemWithEviction`・`countDB・stats`・`clean`・`delete`・`cancel`・`cache`・`fetchAll の入口`・`登録の DB を最初に開く API（#47）`・`tests/unit/add-cachemaxbytes.test.ts` | 入出力は変えない。AC は「m2 で差分なし」 |
-| 書き換える | `Weiwudi_Internal の初期化` の :40・:48 | `registerRoute` 1 回の前提をやめ、`sw-harness.ts` と一緒に 4 本（§4.3）へ直す。`capture` は旧 API のルートの正規表現を指す。門番は `queueMicrotask` の後に現れるので、ハーネスを `await` する形にする |
-| 書き換える | :56 の install・activate のリスナ | リスナを増やさないので通るはず。`BroadcastChannel` はハーネスで差し替える |
+| 書き換える | `Weiwudi_Internal の初期化` の :40・:48 | `registerRoute` 1 回の前提をやめ、`sw-harness.ts` と一緒に 4 本（§4.3）へ直す。`capture` は旧 API のルートの正規表現を指す。`createSwHarness()` は同期のまま旧 API のハンドラを返す（他の試験を変えない）。門番を試す試験だけが microtask を待ってから `registerRoute` の呼び出しを見る |
+| 書き換える | :56・:67 の install・activate のリスナ | リスナを増やさないので通るはず。`BroadcastChannel` はハーネスで差し替える |
 | 書き換える | `store の無い DB の修復` の :553・:563 | 対象を `Weiwudi` から `WeiwudiStore` へ移し、`store.ts` の試験にする（別接続の開き直し・`blocked` で止まらない）。「store が無ければ版を上げる」がなくなるので版の検査は落とす |
 | 書き換える | :544 | `clean` の `NotFoundError` は公開の挙動として残さない（§9）。`map-not-found` を確かめ、`add` の後の保存が動くことは残す |
 | 移す | :526・:535・:575 | 移行の試験へ。旧 `Weiwudi` が store を持たなくても移行が空で完了して `add` が通ること、旧 DB が `blocked` でも `delete` は成功し、旧 DB の削除は次の起動へ回ること |
@@ -621,7 +629,7 @@ await style.fetchRange({ bounds: [139.7, 35.6, 139.8, 35.7], minZoom: 10, maxZoo
 
 ### 14.1 版
 
-**minor（`feat:`）で足す。** 公開 API は追加だけで、旧 API の入出力は変わらない。リリースポリシー §5.3 の「新機能はマイナーで先行投入」に当たる。`next` ブランチも `feat!` も使わない。
+**minor（`feat:`）で足す。** 公開 API は追加だけで、旧 API の入出力は変わらない（文面の保証は §9。上流への取得も `fetch(URL の文字列)` のままで、同一オリジンの Cookie を送る現行の動きを保つ。§4.5）。リリースポリシー §5.3 の「新機能はマイナーで先行投入」に当たる。`next` ブランチも `feat!` も使わない。
 
 - `Weiwudi_Internal` の引数の型は変わる（§4.3）。第 1 引数が広がるので、`(capture: RegExp, …)` の自作関数を渡す TypeScript の利用者には型エラーになる。ただし `package.json` の `exports` は `weiwudi_gw_logic` を公開していないので、公開 API の変更ではない。Workbox の `registerRoute` はそのまま渡せる
 - `peerDependencies`（`workbox-routing`）は変えない。実行時依存も増やさない

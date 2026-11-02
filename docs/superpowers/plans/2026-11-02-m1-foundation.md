@@ -370,6 +370,8 @@ export const legacyMessage: (code: LegacyErrorCode, params?: Record<string, stri
 
 上限の値（既存の使用量より小さく、DB の接続は生きている値）は実装者が決め、Ruling に残す。
 
+後始末: テストの終わり（`afterEach`）に `Storage.overrideQuotaForOrigin` を `origin` だけで（`quotaSize` なしで）呼んで上限を解除する。解除しないと同じオリジンの後続の試験が保存に失敗する。
+
 ### 受け入れ条件
 
 - `pnpm -C <clone> run test:unit` が exit 0
