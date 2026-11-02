@@ -161,9 +161,9 @@
    - 実績が無いうちに 2 の取り直しが opaque で成功したときだけ、CORS 非対応の候補として数える。両方失敗（オフライン）は数えない。この連続数を **`corslessStreak`** と呼ぶ。`ResourceMeta.count`（Entry の件数）とは別物で、SW のメモリだけに持ち、保存しない（SW の再起動で 0 に戻ってよい。判定の結果は `corslessUntil` が保存する）。CORS を通った応答を受けたら `corslessStreak` を 0 に戻し、`corslessUntil` も消す
    - `corslessStreak` が 3 で `Resource.corslessUntil = now + 24 時間` を保存する。その間は 1 を省いて元の要求を出す。`stats` で見え、このとき 1 回だけ `opaque` イベントを出す。期限を過ぎたら 1 に戻す
    - **実績がある `Resource`** で 1 が `TypeError` になったときは、上流の失敗（`upstream`）として §6 に従う: Entry があれば §6 の 4（古い本体）、無ければ 2 の取り直しの opaque をそのまま渡す（§6 の 5 に当たる。保存しない）。数えない
-   - `source.update()` は `corslessUntil`・`corsOk`・`corslessStreak` を消す（`count` には触らない）。ただし `count > 0` の `Resource` は「実績あり」のままなので、サーバが CORS をやめた場合は候補にならず、cors と no-cors の 2 回の要求を出し続ける。この場合に判定をやり直すには `clean()` で Entry を消す
-   - 範囲取得は `corslessUntil` を見ずに 1 で取る。`TypeError` のタイルは `mode: 'no-cors'` で確かめる。実績が無いうちに opaque が 3 回続いたら、止める前に**範囲の中から無作為に 5 枚を cors で確かめる**。1 枚でも CORS を通れば `corsOk` を立てて続け、1 枚も通らなければ `opaque` で止める（範囲の最初が CORS ヘッダの無い 404 の海でも、再実行のたびに同じ所で止まらないため）。それ以外の opaque は `upstream` として数えて進む。両方失敗は `network` として数える
-   - 元の要求が `no-cors` で、1 が 401・403 を返したとき: **Entry があれば §6 の 4（古い本体）とし、取り直さない**（トークン失効などで、opaque が 401 を隠した壊れた画像を渡さないため）。Entry が無いときだけ元の要求で 1 回取り直す（同じサイトの別オリジンで Cookie で認証し、401 に CORS ヘッダを付けるサーバのため。組み替えた形は別オリジンへ Cookie を送らない）。opaque ならページへ渡し、保存しない。取り直しが `TypeError` なら 1 の 401・403 をそのまま返す（§6 の 5）。どれも数えない
+   - `source.update()` は `corslessUntil`・`corsOk`・`corslessStreak` を消す（`count` には触らない）。ただし `count > 0` の `Resource` は「実績あり」のままなので、サーバが CORS をやめた場合は候補にならない。このとき Entry が無いタイルを元の要求が `no-cors` で求めると、cors と no-cors の 2 回の要求を出し続ける（Entry があれば §6 の 4 で古い本体を返す。元の要求が `cors` なら 2 は行わない）。この場合に判定をやり直すには `clean()` で Entry を消す
+   - 範囲取得は `corslessUntil` を見ずに 1 で取る。`TypeError` のタイルは `mode: 'no-cors'` で確かめる。実績が無いうちに、そのジョブの中で opaque が 3 回続いたら（ジョブごとの連続数 `jobOpaqueStreak`。`corslessStreak` とは別で、範囲取得は `corslessStreak` を増やさない）、止める前に**範囲の中から無作為に 5 枚（範囲が 5 枚未満なら全部）を cors で確かめる**。確かめで取れた 200 は通常どおり保存し、進捗にも数える（後で同じタイルを取り直さない）。1 枚でも CORS を通れば `corsOk` を立てて続ける。1 枚も通らず opaque が 1 枚でもあれば `opaque` で止め、全部が両方失敗（cors も no-cors も `TypeError`）なら `network` で止める（範囲の最初が CORS ヘッダの無い 404 の海でも、再実行のたびに同じ所で止まらないため）。それ以外の opaque は `upstream` として数えて進む。両方失敗は `network` として数え、`jobOpaqueStreak` を増やさない
+   - 元の要求が `no-cors` で、1 が 401・403 を返したとき: **Entry があれば §6 の 4（古い本体）とし、取り直さない**（トークン失効などで、opaque が 401 を隠した壊れた画像を渡さないため）。Entry が無いときだけ元の要求で 1 回取り直す（同じサイトの別オリジンで Cookie で認証し、401 に CORS ヘッダを付けるサーバのため。組み替えた形は別オリジンへ Cookie を送らない）。opaque ならページへ渡し、保存しない。取り直しが `TypeError` なら 1 の 401・403 をそのまま返す（§6 の 5）。取り直しが CORS を通った・同一オリジンの応答（`basic`・`cors`）で返ったときは、状態が 200 なら通常どおり扱い（§4.6 により保存の可否を決める）、401・403 などなら保存せずそのまま返す（§6 の 5）。どれも数えない
 4. 元の要求が `cors` なら 2 は行わない。opaque は返せない（ネットワークエラーになる）
 
 テンプレートから URL を作るとき（範囲取得と旧 API）は、現行どおりミラーから無作為に 1 つ選ぶ。実 URL の捕捉では要求の URL をそのまま使う。
@@ -276,7 +276,7 @@ export interface EntryBody {
 | ストア | keyPath | 索引 | 備考 |
 |---|---|---|---|
 | `sources` | `id` | | 登録内容。旧 API は `MapSetting` をそのまま `legacy` に持つ |
-| `resources` | `id` | `sourceIds`（multiEntry） | |
+| `resources` | `id` | `sourceIds`（multiEntry）・`rangeOnlySourceIds`（multiEntry） | |
 | `entries` | `key` | `[resourceId, pinned, accessedAt]`・`[pinned, accessedAt]`・`[pinned, fetchedAt]`・`[resourceId, z]` | `EntryMeta`。本体を持たない |
 | `bodies` | `key` | | `EntryBody` |
 | `regions` | `id` | `sourceId` | §7.2 |
@@ -300,13 +300,13 @@ export interface EntryBody {
 1. スタイルを `serve()` 経由で取得する（2 回目以降はキャッシュから。**オフラインで同じ登録を繰り返しても失敗しない**）
 2. `sources` を走査する。`url` があれば TileJSON を取得して `tiles`・`bounds`・`minzoom`・`maxzoom`・`scheme` を得る。`tiles` があればそのまま。試作は `source.url` を読まないので TileJSON 経由の資源を落としていた
 3. `glyphs`・`sprite`（文字列か、MapLibre の `{id, url}[]`）・`geojson` の `data`（URL のとき）・`image` の `url` を登録する。スプライトは `.json`・`.png`・`@2x.json`・`@2x.png` の 4 つを同じ `Resource` の suffix とする
-4. 一部の取得に失敗したら、登録は成功させて `warnings[]` に残す。下位資源が `resource-conflict`（§5.6）になったときも同じで、スタイル全体は登録する。その資源の URL は既存の `Resource` に当たるので、捕捉とキャッシュは**既存の `Resource` の方針のまま**行われる。ただし範囲だけは §5.6 の規則で既存の `Resource` に足されるので、このスタイルの地図でも範囲外として透明画像・空本体にはならない。範囲以外の指定（`cacheTtl`・`cachePrivate` など）は効かない。これを `warnings` に書く。スタイル自体が読めなければ `invalid-style`
+4. 一部の取得に失敗したら、登録は成功させて `warnings[]` に残す。下位資源が `resource-conflict`（§5.6）になったときも同じで、スタイル全体は登録する（`kind: 'raster' | 'vector' | 'asset'` の登録も同じ扱い。§5.6）。その資源の URL は既存の `Resource` に当たるので、捕捉とキャッシュは**既存の `Resource` の方針のまま**行われる。ただし範囲だけは §5.6 の規則で既存の `Resource` に足されるので、このスタイルの地図でも範囲外として透明画像・空本体にはならない。範囲以外の指定（`cacheTtl`・`cachePrivate` など）は効かない。これを `warnings` に書く。スタイル自体が読めなければ `invalid-style`
 5. **別オリジンのスタイルが、ページと同じオリジンの URL を指していたら登録しない**（`warnings` に残す）。第三者のスタイルで同一オリジンの API を捕捉させないため
 6. `register()` は冪等である。`source.update()` で取り直し、参照が消えた `Resource` は `sourceIds` から外して空なら削除する
 
 ### 5.6 合流と実効方針
 
-捕捉した要求から決まるのは `Resource` だけで、どの `Source` の要求かは分からない。そこで `Resource` に実効方針を持たせる。`sourceIds` が変わるたびに、参照している全 `Source` の指定から計算し直して `resources` に保存する。**ただし `credentialParams` は Entry がある間は縮めない**（`count === 0` のときだけ計算し直す。Source の削除でも、自分自身の `update()` で減る場合でも同じ）。縮めると §5.3 の正規化で資格情報がキーに残り（§10 に反する）、既存の Entry にも当たらなくなる。
+捕捉した要求から決まるのは `Resource` だけで、どの `Source` の要求かは分からない。そこで `Resource` に実効方針を持たせる。`sourceIds` か `rangeOnlySourceIds` が変わるたびに、参照している全 `Source` の指定から計算し直して `resources` に保存する。`extents` は `sourceIds` と `rangeOnlySourceIds` の両方の `Source` の範囲の和から作り、その他の項目は `sourceIds` の `Source` だけから作る。**ただし `credentialParams` は Entry がある間は縮めない**（`count === 0` のときだけ計算し直す。Source の削除でも、自分自身の `update()` で減る場合でも同じ）。縮めると §5.3 の正規化で資格情報がキーに残り（§10 に反する）、既存の Entry にも当たらなくなる。
 
 | 項目 | 合成の規則 | 理由 |
 |---|---|---|
@@ -323,11 +323,26 @@ export interface EntryBody {
 
 **合流を拒否する場合**（`resource-conflict`）。`key` の形が変わるのに、既存の Entry を書き換えないため。
 
-- `credentialParams` の和が広がり、その `Resource` に Entry が既にあるとき（Entry が無ければ合流する）。別の Source の登録でも、自分自身の `update()` で広がる場合でも同じ。縮む場合は拒否せず縮めない（上）。自分自身の `update()` で拒否になったときは、`update()` 全体が `resource-conflict` で失敗し何も変えない（`corsOk` などの消去もしない）。スタイルの下位資源のときは、その資源だけ古い方針のまま `warnings` に書き、スタイルの残りは更新する
+- `credentialParams` の和が広がり、その `Resource` に Entry が既にあるとき（Entry が無ければ合流する）。別の Source の登録でも、自分自身の `update()` で広がる場合でも同じ。縮む場合は拒否せず縮めない（上）。自分自身の `update()` で拒否になったときは、`update()` 全体が `resource-conflict` で失敗し何も変えない（`corsOk` などの消去もしない）。スタイルの下位資源のときは、その資源だけ古い方針（範囲も含む）のまま `warnings` に書き、スタイルの残りは更新する。自分自身の `update()` の拒否には下の「拒否しても範囲だけは足す」を当てない。その `Source` は `sourceIds` に残り、古い範囲のままである
 - `type`・`encoding`・`scheme` が違うとき
 - URL 配列が **2 つ以上の既存 `Resource`** に重なるとき。`Resource` の統合はキーの書き換えを伴うので行わない。利用者が片方を消して登録し直す
 
-**拒否しても範囲だけは足す**。範囲（`TileExtent`）はキーを変えないので、拒否の理由に当たらない。拒否した `Source` を重なった各 `Resource` の `rangeOnlySourceIds` に入れ、その `Source` の `TileExtent` を `extents` の和に加える（他の方針の合成には入れない）。`scheme` の違いで拒否したときは、座標の読み替えができないので、その `Source` の分を範囲の制限なしとして加える。`Source` を消せば `rangeOnlySourceIds` から外して和を計算し直す。これで §6 の 1 の範囲外判定が、拒否された `Source` の地図を透明画像・空本体にしない（上の表の範囲の行と同じ理由）。
+**新しい登録の拒否は登録の失敗にしない**。`register()` は `kind` によらず（`style`・`raster`・`vector`・`asset`）、衝突した資源があっても**成功して `Source` を保存する**。衝突した資源は合流させず、`warnings` に `resource-conflict` と `Resource.id` を書く。`Source` が保存されるので、利用者は `remove()` で外せる（存在しない `Source` の id が残ることはない）。`resource-conflict` を例外として投げるのは、自分自身の `update()` だけである（上）。
+
+**拒否しても範囲だけは足す**（新しい登録のとき）。範囲（`TileExtent`）はキーを変えないので、拒否の理由に当たらない。拒否した `Source` を重なった各 `Resource` の `rangeOnlySourceIds` に入れ、その `Source` の `TileExtent` を `extents` の和に加える（他の方針の合成には入れない）。`scheme` の違いで拒否したときは、y を反転して（`maxZoom` での `box` を `minY' = 2^maxZoom − 1 − maxY`・`maxY' = 2^maxZoom − 1 − minY`）既存の `Resource` の `scheme` に読み替えて加える。ズームは `scheme` に関係なくそのまま使う。
+
+`rangeOnlySourceIds` の保守:
+
+- 同じ `Source` の再登録・`update()` では、その `Source` の分を置き換える（重ねて入れない）
+- その `Source` が通常の合流（`sourceIds`）に変わったら `rangeOnlySourceIds` から外す
+- `Source` を消すときは、`resources` の `rangeOnlySourceIds`（multiEntry 索引。§5.4）で引いて外し、和を計算し直す
+- `sourceIds` が空になった `Resource` は、`rangeOnlySourceIds` が残っていても削除する（範囲だけの `Source` は捕捉の対象を持たないので、`Resource` が消えた後はその URL を捕捉しない。`warnings` に書いた衝突の相手が消えた状態で、`update()` すれば通常の合流になる）
+
+範囲だけの `Resource` の扱い:
+
+- `source.resources`・`stats().byResource` に `rangeOnly: true` を付けて含める（地図が使う URL を利用者が見られるように）
+- 範囲取得（§7.2）の対象に含める。保存は既存の `Resource` の方針で行い、固定は region に結び付く（解放の規則は §7.2 のまま）
+- `source.clean()` では、他の `Source` が参照する共有の `Resource` と同じく Entry を消さない。`clean(range)` も同じこれで §6 の 1 の範囲外判定が、拒否された `Source` の地図を透明画像・空本体にしない（上の表の範囲の行と同じ理由）。
 
 拒否はキャッシュの整合のためで、地図は動かせる（別の URL か、`Source` の削除で解決できる）。旧 API の `Resource` は合流しないので、この節の対象外である。
 
@@ -474,7 +489,7 @@ export class WeiwudiError extends Error {
 
 文字列の reject は次の major で `WeiwudiError` へ変える。非推奨の予告は §13 の時期に合わせる。
 
-新 API で増えるコード: `unsupported-template`・`invalid-style`・`opaque`・`sw-outdated`・`credential-rejected`・`source-not-found`・`resource-conflict`。`quota`・`network`・`upstream`・`storage`・`fetch-busy` などは m1 の表にあるものを使う。
+新 API で増えるコード: `unsupported-template`・`invalid-style`・`opaque`・`sw-outdated`・`credential-rejected`・`source-not-found`・`resource-conflict`。`resource-conflict` は自分自身の `update()` でだけ例外として投げ、`register()` では `warnings` に書く（§5.6）。`quota`・`network`・`upstream`・`storage`・`fetch-busy` などは m1 の表にあるものを使う。
 
 ## 10. 提供元の URL と資格情報（#40）
 
@@ -553,7 +568,7 @@ export interface CommonPolicy {
 }
 
 class Weiwudi {
-  static register(spec: SourceSpec): Promise<WeiwudiSource>;
+  static register(spec: SourceSpec): Promise<WeiwudiSource>;   // 資源の衝突では失敗せず warnings に書く（§5.6）
   static source(id: string): Promise<WeiwudiSource>;       // 無ければ source-not-found
   static sources(): Promise<SourceInfo[]>;
   static usage(): Promise<UsageReport>;                    // 全体と提供元別（#38）
