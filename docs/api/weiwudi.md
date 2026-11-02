@@ -250,6 +250,9 @@ try {
   `detail`. A `WeiwudiError` is returned as is.
 - For a known message, `code` is taken from the table below and the inserted
   values go into `detail` as strings (e.g. `map-not-found` → `{ mapID: 'x' }`).
+  When an inserted value contains another message and the same string can be
+  produced by more than one message, the code of the message with the longer
+  fixed text before its first inserted value is used.
 - Other `"Error: {message}"` strings (wrapped exceptions such as IndexedDB
   errors) are classified by the exception name after `Error: `:
   `QuotaExceededError` → `quota`, `BlockedError` → `db-blocked`, anything else →

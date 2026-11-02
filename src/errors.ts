@@ -63,53 +63,67 @@ const PLACEHOLDER = /\$\{(\w+)\}/g;
 
 const TEMPLATES = new Map<LegacyErrorCode, string>(LEGACY_TABLE.map(([code, template]) => [code, template]));
 
-// 文面を照合する正規表現・差し込み値の名前・固定部分の長さ。
-// 差し込み値が複数あると切れ目が一意に決まらないことがあるので、差し込みごとに貪欲・非貪欲の
-// 組み合わせを全部作る（差し込みは最大 3 つなので 8 通りまで）。先頭は全部貪欲
+// 文面の固定部分と差し込み値の名前。照合は正規表現を使わず、固定部分の位置で切る
+// （区切りの多い長い文字列で、正規表現のバックトラックが長さの 2〜3 乗で遅くなるため）
 const MATCHERS = LEGACY_TABLE.map(([code, template], order) => {
   const parts = template.split(PLACEHOLDER);
   const names = parts.filter((_p, i) => i % 2 === 1);
   const fixed = parts.filter((_p, i) => i % 2 === 0);
   const fixedLength = fixed.reduce((n, p) => n + p.length, 0);
-  const escaped = fixed.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  const regexes: RegExp[] = [];
-  for (let mask = 0; mask < (1 << names.length); mask++) {
-    let pattern = escaped[0];
-    names.forEach((_n, i) => {
-      pattern += (mask & (1 << i)) ? '([\\s\\S]*?)' : '([\\s\\S]*)';
-      pattern += escaped[i + 1];
-    });
-    regexes.push(new RegExp(`^${pattern}$`));
-  }
-  return { code, names, fixedLength, order, regexes };
+  return { code, names, fixed, fixedLength, order };
 });
 
-const isLegacyMessage = (text: string) => MATCHERS.some(({ regexes }) => regexes[0].test(text));
+type Matcher = typeof MATCHERS[number];
 
 /**
- * 文字列を表と照合する。差し込み値に別の文面が入ると複数の行に当たりうるので、次の順で 1 つ選ぶ。
- * 1. 差し込み値が丸ごと旧 API の文面になっている数が多いもの（入れ子の外側を選ぶ）
- * 2. 固定部分が長いもの（具体的なもの）
- * 3. 表の順
- * 4. 貪欲な切り方を先に
+ * 1 行の文面として切れるかを調べ、切れたら差し込み値を返す。先頭と末尾の固定部分で絞り、
+ * 間の区切りは右から lastIndexOf で探す（どの区切りも最後の出現を採る。手間は文字列の長さに比例）。
+ * 区切りの並びが成り立つ切り方が 1 つでもあれば、右からの探し方で必ず見つかる
+ */
+const splitLegacy = (m: Matcher, text: string): string[] | undefined => {
+  const { fixed } = m;
+  const head = fixed[0];
+  const tail = fixed[fixed.length - 1];
+  if (fixed.length === 1) return text === head ? [] : undefined;
+  if (text.length < head.length + tail.length) return undefined;
+  if (!text.startsWith(head) || !text.endsWith(tail)) return undefined;
+  const lo = head.length;
+  let end = text.length - tail.length;
+  const values: string[] = [];
+  for (let k = fixed.length - 2; k >= 1; k--) {
+    const sep = fixed[k];
+    const pos = end - sep.length < lo ? -1 : text.lastIndexOf(sep, end - sep.length);
+    if (pos < lo) return undefined;
+    values.unshift(text.slice(pos + sep.length, end));
+    end = pos;
+  }
+  values.unshift(text.slice(lo, end));
+  return values;
+};
+
+/**
+ * 文字列を表と照合する。候補は、取り出した差し込み値で legacyMessage が元の文字列をそのまま
+ * 作り直せる行に限る。差し込み値が別の文面を含み、同じ文字列が複数の行から作れるときは、
+ * 先頭の固定部分（最初の差し込みより前）が長い行を選ぶ。同点なら固定部分の総長が長い行、
+ * それも同点なら表の順
  */
 const matchLegacy = (text: string): { code: LegacyErrorCode; detail?: Record<string, unknown> } | undefined => {
-  const candidates = MATCHERS.flatMap((m) => m.regexes.flatMap((regex, variant) => {
-    const found = text.match(regex);
-    if (!found) return [];
-    const values = found.slice(1);
-    return [{ m, variant, values, nested: values.filter(isLegacyMessage).length }];
-  }));
-  if (candidates.length === 0) return undefined;
-  candidates.sort((a, b) =>
-    (b.nested - a.nested) || (b.m.fixedLength - a.m.fixedLength) || (a.m.order - b.m.order) ||
-    (a.variant - b.variant));
-  const { m, values } = candidates[0];
-  if (m.names.length === 0) return { code: m.code };
-  const detail: Record<string, unknown> = {};
-  m.names.forEach((name, i) => { detail[name] = values[i]; });
-  return { code: m.code, detail };
+  let best: { m: Matcher; detail?: Record<string, string> } | undefined;
+  for (const m of MATCHERS) {
+    const values = splitLegacy(m, text);
+    if (!values) continue;
+    const detail = m.names.length === 0 ? undefined : Object.fromEntries(m.names.map((name, i) => [name, values[i]]));
+    if (legacyMessage(m.code, detail) !== text) continue;
+    if (!best || isBetter(m, best.m)) best = { m, detail };
+  }
+  if (!best) return undefined;
+  return best.detail ? { code: best.m.code, detail: best.detail } : { code: best.m.code };
 };
+
+const isBetter = (a: Matcher, b: Matcher) =>
+  a.fixed[0].length !== b.fixed[0].length ? a.fixed[0].length > b.fixed[0].length
+    : a.fixedLength !== b.fixedLength ? a.fixedLength > b.fixedLength
+      : a.order < b.order;
 
 /** 旧 API の文面の唯一の出どころ */
 export const legacyMessage = (code: LegacyErrorCode, params?: Record<string, string | number>): string => {
@@ -125,19 +139,37 @@ const codeOfName = (name: string | undefined): WeiwudiErrorCode => {
   return 'internal';
 };
 
+// Error.isError（ES2026）は [[ErrorData]] を見るので、Error を装う Proxy を通さない
+const nativeIsError = (Error as unknown as { isError?: (v: unknown) => boolean }).isError;
+
 /** 本物の Error・DOMException だけを例外として扱う（name を持つだけの object は含めない） */
 const isErrorLike = (value: unknown): value is Error => {
+  if (typeof nativeIsError === 'function') return nativeIsError(value);
+  // Error.isError の無い環境の代わり。instanceof と toString の印を見る（Proxy は見分けきれない）
   if (value instanceof Error) return true;
   const tag = Object.prototype.toString.call(value);
   return tag === '[object Error]' || tag === '[object DOMException]';
 };
 
-/** 別のコピーの WeiwudiError か。印で見分け、印が無ければ name と既知の code で見分ける */
+/** String(value) が投げる値（Symbol.toPrimitive を持たない Proxy など）でも文字列にする */
+const safeString = (value: unknown): string => {
+  try {
+    return String(value);
+  } catch (_e) {
+    return '[object Object]';
+  }
+};
+
+/**
+ * 別のコピーの WeiwudiError か。本物の Error で、code が既知の文字列であることを必須とし、
+ * そのうえで印（別のバンドルの errors.ts が付けたもの）か name が WeiwudiError なら認める。
+ * 印だけの object・印を付けた素の object・Proxy は通さない
+ */
 const isWeiwudiErrorLike = (value: unknown): value is WeiwudiError => {
-  if (typeof value !== 'object' || value === null) return false;
-  if ((value as Record<symbol, unknown>)[BRAND] === true) return true;
-  const v = value as { name?: unknown; code?: unknown };
-  return isErrorLike(value) && v.name === 'WeiwudiError' && typeof v.code === 'string' && KNOWN_CODES.has(v.code);
+  if (!isErrorLike(value)) return false;
+  const v = value as unknown as { name?: unknown; code?: unknown } & Record<symbol, unknown>;
+  if (typeof v.code !== 'string' || !KNOWN_CODES.has(v.code)) return false;
+  return v[BRAND] === true || v.name === 'WeiwudiError';
 };
 
 export class WeiwudiError extends Error {
@@ -154,17 +186,18 @@ export class WeiwudiError extends Error {
 
   /** 文字列・Error・その他から作る。WeiwudiError はそのまま返す */
   static from(value: unknown): WeiwudiError {
-    if (value instanceof WeiwudiError || isWeiwudiErrorLike(value)) return value;
+    if (isWeiwudiErrorLike(value)) return value;
     if (typeof value === 'string') {
       const legacy = matchLegacy(value);
       if (legacy) return new WeiwudiError(legacy.code, value, legacy.detail);
-      // 包括の `Error: ${e}` は、後ろの例外名で分類する
+      // 包括の `Error: ${e}` は、後ろの例外名で分類する。名前の直後は `:` か文末に限る
+      // （`Error: QuotaExceededErrorX` や `Error: QuotaExceededError foo` は分類しない）
       const named = value.match(/^Error: (\w+)(?::|$)/);
       return new WeiwudiError(codeOfName(named ? named[1] : undefined), value);
     }
     if (isErrorLike(value)) {
       return new WeiwudiError(codeOfName(value.name), typeof value.message === 'string' ? value.message : String(value));
     }
-    return new WeiwudiError('internal', String(value));
+    return new WeiwudiError('internal', safeString(value));
   }
 }

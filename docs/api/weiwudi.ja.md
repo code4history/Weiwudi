@@ -248,7 +248,9 @@ try {
 - `code`・`message`・`detail` を持つ `WeiwudiError`（`Error` の派生）を返します。
   `WeiwudiError` を渡すとそのまま返します。
 - 表にある文面なら `code` は表のとおりで、差し込み値は文字列のまま `detail` に
-  入ります（例: `map-not-found` → `{ mapID: 'x' }`）。
+  入ります（例: `map-not-found` → `{ mapID: 'x' }`）。差し込み値が別の文面を含み、
+  同じ文字列が複数の文面から作れるときは、先頭の固定部分（最初の差し込みより前）が
+  長い文面の code になります。
 - それ以外の `"Error: {message}"`（IndexedDB の例外などを包んだもの）は、`Error: ` の
   後ろの例外名で分類します。`QuotaExceededError` → `quota`、`BlockedError` →
   `db-blocked`、それ以外 → `internal`。これらは `Error: ` で始まることとこの分類だけを

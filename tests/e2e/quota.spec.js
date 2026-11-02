@@ -41,12 +41,15 @@ test.describe('Weiwudi quota', () => {
             if (context && page) {
                 const cdp = await context.newCDPSession(page);
                 await cdp.send('Storage.overrideQuotaForOrigin', { origin: ORIGIN });
-                await context.close();
             }
         } finally {
-            context = undefined;
-            page = undefined;
-            rmSync(userDataDir, { recursive: true, force: true });
+            try {
+                if (context) await context.close();
+            } finally {
+                context = undefined;
+                page = undefined;
+                rmSync(userDataDir, { recursive: true, force: true });
+            }
         }
     });
 
