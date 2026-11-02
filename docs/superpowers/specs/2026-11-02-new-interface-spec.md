@@ -158,12 +158,12 @@
 3. CORS の拒否とネットワーク失敗はどちらも `TypeError` で区別できない。また CORS の検査は状態コードに関係なく行われるので、404・403・502・504 に `Access-Control-Allow-Origin` を付けない CORS 対応サーバ（nginx の `add_header` を `always` なしで書いたもの。海を 404 にする疎なタイル集合など）でも、cors は `TypeError`・取り直しは opaque になる。そこで判定を `Resource` の状態に結び付ける
    - **`Resource.corsOk`** は「CORS を通った応答を 1 度でも受けた」印である（状態コードは問わない。CORS ヘッダ付きの 404 も含む）。初めて受けたときに保存する
    - **CORS 対応の実績が無い**とは `count === 0` かつ `corsOk` が無いことを言う。実行ごとの数ではなく `Resource` の状態なので、範囲取得の再実行（＝再開、§7.2）でも同じ判定になる
-   - 実績が無いうちに 2 の取り直しが opaque で成功したときだけ、CORS 非対応の候補として数える。両方失敗（オフライン）は数えない。CORS を通った応答を受けたら数を 0 に戻し、`corslessUntil` も消す
-   - 候補が連続 3 回で `Resource.corslessUntil = now + 24 時間` を保存する。その間は 1 を省いて元の要求を出す。`stats` で見え、このとき 1 回だけ `opaque` イベントを出す。期限を過ぎたら 1 に戻す
+   - 実績が無いうちに 2 の取り直しが opaque で成功したときだけ、CORS 非対応の候補として数える。両方失敗（オフライン）は数えない。この連続数を **`corslessStreak`** と呼ぶ。`ResourceMeta.count`（Entry の件数）とは別物で、SW のメモリだけに持ち、保存しない（SW の再起動で 0 に戻ってよい。判定の結果は `corslessUntil` が保存する）。CORS を通った応答を受けたら `corslessStreak` を 0 に戻し、`corslessUntil` も消す
+   - `corslessStreak` が 3 で `Resource.corslessUntil = now + 24 時間` を保存する。その間は 1 を省いて元の要求を出す。`stats` で見え、このとき 1 回だけ `opaque` イベントを出す。期限を過ぎたら 1 に戻す
    - **実績がある `Resource`** で 1 が `TypeError` になったときは、上流の失敗（`upstream`）として §6 に従う: Entry があれば §6 の 4（古い本体）、無ければ 2 の取り直しの opaque をそのまま渡す（§6 の 5 に当たる。保存しない）。数えない
-   - `source.update()` は `corslessUntil`・`corsOk`・数をすべて消す（サーバの設定が変わったときの戻し方）
-   - 範囲取得は `corslessUntil` を見ずに 1 で取る。`TypeError` のタイルは `mode: 'no-cors'` で確かめる。実績が無いうちに opaque が 3 回続いたときだけ `opaque` で止め、それ以外の opaque は `upstream` として数えて進む。両方失敗は `network` として数える
-   - 元の要求が `no-cors` で、1 が 401・403 を返したときも、元の要求で 1 回取り直す（同じサイトの別オリジンで Cookie で認証し、401 に CORS ヘッダを付けるサーバのため。組み替えた形は別オリジンへ Cookie を送らない）。opaque ならページへ渡し、保存しない。数えない
+   - `source.update()` は `corslessUntil`・`corsOk`・`corslessStreak` を消す（`count` には触らない）。ただし `count > 0` の `Resource` は「実績あり」のままなので、サーバが CORS をやめた場合は候補にならず、cors と no-cors の 2 回の要求を出し続ける。この場合に判定をやり直すには `clean()` で Entry を消す
+   - 範囲取得は `corslessUntil` を見ずに 1 で取る。`TypeError` のタイルは `mode: 'no-cors'` で確かめる。実績が無いうちに opaque が 3 回続いたら、止める前に**範囲の中から無作為に 5 枚を cors で確かめる**。1 枚でも CORS を通れば `corsOk` を立てて続け、1 枚も通らなければ `opaque` で止める（範囲の最初が CORS ヘッダの無い 404 の海でも、再実行のたびに同じ所で止まらないため）。それ以外の opaque は `upstream` として数えて進む。両方失敗は `network` として数える
+   - 元の要求が `no-cors` で、1 が 401・403 を返したとき: **Entry があれば §6 の 4（古い本体）とし、取り直さない**（トークン失効などで、opaque が 401 を隠した壊れた画像を渡さないため）。Entry が無いときだけ元の要求で 1 回取り直す（同じサイトの別オリジンで Cookie で認証し、401 に CORS ヘッダを付けるサーバのため。組み替えた形は別オリジンへ Cookie を送らない）。opaque ならページへ渡し、保存しない。取り直しが `TypeError` なら 1 の 401・403 をそのまま返す（§6 の 5）。どれも数えない
 4. 元の要求が `cors` なら 2 は行わない。opaque は返せない（ネットワークエラーになる）
 
 テンプレートから URL を作るとき（範囲取得と旧 API）は、現行どおりミラーから無作為に 1 つ選ぶ。実 URL の捕捉では要求の URL をそのまま使う。
@@ -215,7 +215,8 @@ export interface ResourceMeta {
   encoding?: 'raster' | 'vector';
   policy: ResourcePolicy;     // 実効方針（§5.6）
   corslessUntil?: number;     // §4.5
-  corsOk?: boolean;           // §4.5。cors の取得が 1 度でも成功した印
+  corsOk?: boolean;           // §4.5。CORS を通った応答を 1 度でも受けた印（状態コードは問わない）
+  rangeOnlySourceIds?: string[]; // §5.6。合流を拒否したが範囲だけ足した Source
   count: number;              // Entry の件数（同じトランザクションで更新）
   bytes: number;              // 同じ
   pinnedBytes: number;        // 固定分
@@ -299,7 +300,7 @@ export interface EntryBody {
 1. スタイルを `serve()` 経由で取得する（2 回目以降はキャッシュから。**オフラインで同じ登録を繰り返しても失敗しない**）
 2. `sources` を走査する。`url` があれば TileJSON を取得して `tiles`・`bounds`・`minzoom`・`maxzoom`・`scheme` を得る。`tiles` があればそのまま。試作は `source.url` を読まないので TileJSON 経由の資源を落としていた
 3. `glyphs`・`sprite`（文字列か、MapLibre の `{id, url}[]`）・`geojson` の `data`（URL のとき）・`image` の `url` を登録する。スプライトは `.json`・`.png`・`@2x.json`・`@2x.png` の 4 つを同じ `Resource` の suffix とする
-4. 一部の取得に失敗したら、登録は成功させて `warnings[]` に残す。下位資源が `resource-conflict`（§5.6）になったときも同じで、スタイル全体は登録する。その資源の URL は既存の `Resource` に当たるので、捕捉とキャッシュは**既存の `Resource` の方針のまま**行われ、このスタイルの指定（範囲・`cacheTtl` など）は効かない。これを `warnings` に書く。スタイル自体が読めなければ `invalid-style`
+4. 一部の取得に失敗したら、登録は成功させて `warnings[]` に残す。下位資源が `resource-conflict`（§5.6）になったときも同じで、スタイル全体は登録する。その資源の URL は既存の `Resource` に当たるので、捕捉とキャッシュは**既存の `Resource` の方針のまま**行われる。ただし範囲だけは §5.6 の規則で既存の `Resource` に足されるので、このスタイルの地図でも範囲外として透明画像・空本体にはならない。範囲以外の指定（`cacheTtl`・`cachePrivate` など）は効かない。これを `warnings` に書く。スタイル自体が読めなければ `invalid-style`
 5. **別オリジンのスタイルが、ページと同じオリジンの URL を指していたら登録しない**（`warnings` に残す）。第三者のスタイルで同一オリジンの API を捕捉させないため
 6. `register()` は冪等である。`source.update()` で取り直し、参照が消えた `Resource` は `sourceIds` から外して空なら削除する
 
@@ -322,9 +323,11 @@ export interface EntryBody {
 
 **合流を拒否する場合**（`resource-conflict`）。`key` の形が変わるのに、既存の Entry を書き換えないため。
 
-- `credentialParams` の和が広がり、その `Resource` に Entry が既にあるとき（Entry が無ければ合流する）。別の Source の登録でも、自分自身の `update()` で広がる場合でも同じ。縮む場合は拒否せず縮めない（上）
+- `credentialParams` の和が広がり、その `Resource` に Entry が既にあるとき（Entry が無ければ合流する）。別の Source の登録でも、自分自身の `update()` で広がる場合でも同じ。縮む場合は拒否せず縮めない（上）。自分自身の `update()` で拒否になったときは、`update()` 全体が `resource-conflict` で失敗し何も変えない（`corsOk` などの消去もしない）。スタイルの下位資源のときは、その資源だけ古い方針のまま `warnings` に書き、スタイルの残りは更新する
 - `type`・`encoding`・`scheme` が違うとき
 - URL 配列が **2 つ以上の既存 `Resource`** に重なるとき。`Resource` の統合はキーの書き換えを伴うので行わない。利用者が片方を消して登録し直す
+
+**拒否しても範囲だけは足す**。範囲（`TileExtent`）はキーを変えないので、拒否の理由に当たらない。拒否した `Source` を重なった各 `Resource` の `rangeOnlySourceIds` に入れ、その `Source` の `TileExtent` を `extents` の和に加える（他の方針の合成には入れない）。`scheme` の違いで拒否したときは、座標の読み替えができないので、その `Source` の分を範囲の制限なしとして加える。`Source` を消せば `rangeOnlySourceIds` から外して和を計算し直す。これで §6 の 1 の範囲外判定が、拒否された `Source` の地図を透明画像・空本体にしない（上の表の範囲の行と同じ理由）。
 
 拒否はキャッシュの整合のためで、地図は動かせる（別の URL か、`Source` の削除で解決できる）。旧 API の `Resource` は合流しないので、この節の対象外である。
 
@@ -342,7 +345,7 @@ export interface EntryBody {
 | 6 | ネットワーク失敗・Entry あり | 古い本体 | `stale` |
 | 7 | ネットワーク失敗・Entry なし | 404 | `offline-miss` |
 
-- これは現行の `getImage` の順序そのものである（既存の試験が契約）。`x-weiwudi-status` だけが増える。SW が合成した応答はページから見て `basic` なので、別オリジンの URL でもこのヘッダを読める（§2 の計測で確認）
+- これは現行の `getImage` の順序そのものである（既存の試験が契約）。`x-weiwudi-status` だけが増える。SW が合成した応答はページから見て `basic` なので、別オリジンの URL でもこのヘッダを読める（§2 の計測で確認）。ただし opaque の応答（§4.5 の 2）は SW が合成した応答ではないので `x-weiwudi-status` を付けられず、ページからも読めない
 - 保存に失敗しても配信は続ける（#22 の現行の決まり）。応答に `x-weiwudi-error`（§9）を付ける
 - 7 を透明画像にしないのは、地図ライブラリが親タイルへ戻る動きを止めないため
 - 同じ `key` の同時要求は `Map<key, Promise>` で 1 本にまとめる
