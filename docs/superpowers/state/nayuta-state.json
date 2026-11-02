@@ -63,5 +63,5 @@
     "docs/superpowers/reports/2026-11-02-onboard-summary.md",
     "docs/superpowers/specs/2026-11-02-new-interface-spec.md"
   ],
-  "next_action": "実行するのはこのサイクルのセッション（進行役）。事前点検 第 4 回（4795383）は不合格（S 2: S-F・S-G）。作者が db65a5f で反映済み（O 6 件も採用）。次は第 5 回の再点検（新しいサブエージェント・S-F／S-G と反映で生じた新規に絞る）。S 0 になるまで m1 の実装に入らない。詳細は台帳。"
+  "next_action": "実行するのはこのサイクルのセッション（進行役）。事前点検 第 5 回（4afece2）は不合格（S 1: S-H）。作者が c6ff4a7 で反映済み。次は第 6 回の再点検（新しいサブエージェント・S-H の反映箇所だけに絞る。S 0 なら m1 の事前点検は合格。CORS・resource-conflict・範囲取得の残る細部は m2 の事前点検で見る）。S 0 になるまで m1 の実装に入らない。詳細は台帳。"
 }
