@@ -69,10 +69,16 @@ test.describe('Weiwudi offline', () => {
         expect(tile.status).toBe(404);
     });
 
-    test('serves a stale tile offline after cacheTtl', async ({ page, context }) => {
+    test('serves a stale tile offline after cacheTtl', async ({ page, context, request }) => {
         await openPage(page, { cacheTtl: 1 });
         const online = await getTile(page, 2, 0, 1);
         expect(online.status).toBe(200);
+        await page.waitForTimeout(10);
+        // 期限切れなら上流へ取りに行く（受信 +1）ことをオンラインで確かめてから、オフラインで同じ経路を通す
+        const before = await upstreamCount(request);
+        const refetched = await getTile(page, 2, 0, 1);
+        expect(refetched.status).toBe(200);
+        expect(await upstreamCount(request)).toBe(before + 1);
         await page.waitForTimeout(10);
         await context.setOffline(true);
         const tile = await getTile(page, 2, 0, 1);
@@ -128,16 +134,40 @@ test.describe('Weiwudi offline', () => {
         const online = await getTile(page, 2, 0, 0);
         expect(online.status).toBe(200);
         await context.setOffline(true);
+        // SW の runningStatus を CDP の workerVersionUpdated で追い、止まったことと起き直したことを確かめる
         const cdp = await context.newCDPSession(page);
+        let status;
+        const waiters = [];
+        cdp.on('ServiceWorker.workerVersionUpdated', ({ versions }) => {
+            const active = versions.find((v) => v.status === 'activated') ?? versions[0];
+            if (!active) return;
+            status = active.runningStatus;
+            for (const w of waiters.splice(0)) {
+                if (w.want === status) w.resolve();
+                else waiters.push(w);
+            }
+        });
+        const waitFor = (want) => new Promise((resolve, reject) => {
+            if (status === want) return resolve();
+            const timer = setTimeout(() => reject(new Error(`runningStatus stayed ${status}, want ${want}`)), 10000);
+            waiters.push({ want, resolve: () => { clearTimeout(timer); resolve(); } });
+        });
         await cdp.send('ServiceWorker.enable');
+        await waitFor('running');
         await cdp.send('ServiceWorker.stopAllWorkers');
+        // stopped は stopAllWorkers の返りより数 ms 遅れて届くので、待ってから取る
+        await waitFor('stopped');
         const tile = await getTile(page, 2, 0, 0);
         expect(tile.status).toBe(200);
         expect(tile.text).toBe('tile:2/0/0');
+        await waitFor('running');
+        expect(status).toBe('running');
     });
 
     test('keeps the client api working offline', async ({ page, context }) => {
         await openPage(page);
+        const online = await getTile(page, 2, 0, 0);
+        expect(online.status).toBe(200);
         await context.setOffline(true);
         const result = await page.evaluate(async () => {
             const first = await window.map.stats();
@@ -145,7 +175,7 @@ test.describe('Weiwudi offline', () => {
             const second = await window.map.stats();
             return { first, second };
         });
-        expect(result.first).toHaveProperty('count');
+        expect(result.first.count).toBe(1);
         expect(result.second.count).toBe(0);
     });
 });

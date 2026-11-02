@@ -19,7 +19,14 @@ const workboxDir = join(workDir, 'workbox');
 let count = 0;
 
 function serveWorkbox(pathname, res) {
-    const rel = decodeURIComponent(pathname.slice('/workbox/'.length));
+    let rel;
+    try {
+        rel = decodeURIComponent(pathname.slice('/workbox/'.length));
+    } catch (_e) {
+        res.writeHead(400, CORS);
+        res.end('Bad Request');
+        return;
+    }
     const file = normalize(join(workboxDir, rel));
     if (!file.startsWith(workboxDir + sep) || !existsSync(file) || !statSync(file).isFile()) {
         res.writeHead(404, CORS);
@@ -63,6 +70,6 @@ const server = createServer((req, res) => {
     res.end('Not Found');
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, 'localhost', () => {
     console.log(`tile-server listening on http://localhost:${PORT}`);
 });
