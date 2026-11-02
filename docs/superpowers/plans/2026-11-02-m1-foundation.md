@@ -301,7 +301,7 @@ export const legacyMessage: (code: LegacyErrorCode, params?: Record<string, stri
 | `fetch-busy` | `Error: Another fetching process is running: "${mapID}" (${count} / ${total})` | `:778` |
 | `api-not-found` | `Error: API ${apiName} not found` | `:794` |
 
-`:797` の包括の `Error: ${e}` は文面を変えない。`from` は `Error: ` の後ろの例外名で分類する。
+`:797` の包括の `Error: ${e}` は、`Error: ` で始まることと `from` の分類だけを保証する（仕様 §9）。中身は IndexedDB の例外などで変わりうる。`from` は `Error: ` の後ろの例外名で分類する。
 
 | 文字列・例外 | code |
 |---|---|

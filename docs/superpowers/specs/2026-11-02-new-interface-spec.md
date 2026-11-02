@@ -149,19 +149,21 @@
 |---|---|
 | 匿名の要求 | 組み替える: **`mode: 'cors'`・`credentials: 'same-origin'`**。ページの要求が `no-cors`（`<img>`）でも同じ（§2 の 5）。別オリジンへ Cookie を送らない点は `omit` と同じで、同一オリジンの Cookie で守られたタイル（Cloudflare Access など）は取れ続ける |
 | §4.6 の認証付きの要求 | **元の `Request` のまま**。組み替えない。下の 2〜4 も通らない |
-| テンプレートから作る要求（範囲取得・旧 API） | **`fetch(URL の文字列)` のまま**（現行の `getImage` と同じ。既定で `mode: 'cors'`・`credentials: 'same-origin'` なので組み替えた形と一致する）。`tests/unit/weiwudi-gw-logic.test.ts` の :228・:239（`toHaveBeenCalledWith(文字列)`）を差分なしで通すため |
+| テンプレートから作る要求（範囲取得・旧 API） | **`fetch(URL の文字列)` の 1 引数のまま**（現行の `getImage` と同じ。第 2 引数を足すと、`undefined` でも :228・:239 が落ちることを実走で確認済み（第 3 回の再点検）。既定で `mode: 'cors'`・`credentials: 'same-origin'` なので組み替えた形と一致する）。`tests/unit/weiwudi-gw-logic.test.ts` の :228・:239（`toHaveBeenCalledWith(文字列)`）を差分なしで通すため |
 
 以下は匿名の要求の手順である。
 
 1. 組み替えた形で取得する
 2. `TypeError` になり、元の要求が `no-cors` なら、元の要求で 1 回取り直す。opaque ならページへ渡すが**保存しない**。理由: 本体が読めず（§2 の 6）IndexedDB に入らない。状態も大きさも分からない。Cache Storage へ入れても容量の水増しで集計が壊れる
-3. CORS の拒否とネットワーク失敗はどちらも `TypeError` で区別できない。また CORS の検査は状態コードに関係なく行われるので、404・403 に `Access-Control-Allow-Origin` を付けない CORS 対応サーバ（nginx の `add_header` を `always` なしで書いたもの。海を 404 にする疎なタイル集合など）でも、cors は `TypeError`・取り直しは opaque になる。そこで、**その `Resource` で cors の取得が 1 度も成功していない（`count === 0` かつ `Resource.corsOk` が無い）うちに、2 の取り直しが opaque で成功したときだけ**、CORS 非対応の候補として数える。cors の成功が 1 度でもあれば、opaque の取り直しは `upstream` として扱い（ページへは opaque を渡す）、数えない。両方失敗（オフライン）は数えず、1 の成功で数を 0 に戻す。不安定な回線の瞬断で誤判定しないよう、次のようにする
-   - 連続 3 回で `Resource.corslessUntil = now + 24 時間` を保存する。その間は 1 を省いて元の要求を出す。`stats` で見え、このとき 1 回だけ `opaque` イベントを出す
-   - 期限を過ぎたら 1 に戻す。1 が成功すれば解除、失敗して 2 が opaque ならまた数える
-   - `source.update()` は無条件に解除する
-   - cors の初めての成功で `Resource.corsOk = true` を保存する
-   - 範囲取得は `corslessUntil` を見ずに 1 で取る。`TypeError` のタイルは `mode: 'no-cors'` で確かめる。**cors の成功が 1 件も無いうちに** opaque が 3 回続いたときだけ `opaque` で止め、それ以外の opaque は `upstream` として数えて進む。両方失敗は `network` として数える
-   - `corslessUntil` の間でも、上の条件により cors の成功がある `Resource` には `corslessUntil` が立たない。したがって「`corslessUntil` の間に Entry がある」組み合わせは、旧 DB から移した Entry を除いて起きない。起きたときは opaque を渡さず §6 の 4（古い本体）として返す（オフライン用途を優先する）
+3. CORS の拒否とネットワーク失敗はどちらも `TypeError` で区別できない。また CORS の検査は状態コードに関係なく行われるので、404・403・502・504 に `Access-Control-Allow-Origin` を付けない CORS 対応サーバ（nginx の `add_header` を `always` なしで書いたもの。海を 404 にする疎なタイル集合など）でも、cors は `TypeError`・取り直しは opaque になる。そこで判定を `Resource` の状態に結び付ける
+   - **`Resource.corsOk`** は「CORS を通った応答を 1 度でも受けた」印である（状態コードは問わない。CORS ヘッダ付きの 404 も含む）。初めて受けたときに保存する
+   - **CORS 対応の実績が無い**とは `count === 0` かつ `corsOk` が無いことを言う。実行ごとの数ではなく `Resource` の状態なので、範囲取得の再実行（＝再開、§7.2）でも同じ判定になる
+   - 実績が無いうちに 2 の取り直しが opaque で成功したときだけ、CORS 非対応の候補として数える。両方失敗（オフライン）は数えない。CORS を通った応答を受けたら数を 0 に戻し、`corslessUntil` も消す
+   - 候補が連続 3 回で `Resource.corslessUntil = now + 24 時間` を保存する。その間は 1 を省いて元の要求を出す。`stats` で見え、このとき 1 回だけ `opaque` イベントを出す。期限を過ぎたら 1 に戻す
+   - **実績がある `Resource`** で 1 が `TypeError` になったときは、上流の失敗（`upstream`）として §6 に従う: Entry があれば §6 の 4（古い本体）、無ければ 2 の取り直しの opaque をそのまま渡す（§6 の 5 に当たる。保存しない）。数えない
+   - `source.update()` は `corslessUntil`・`corsOk`・数をすべて消す（サーバの設定が変わったときの戻し方）
+   - 範囲取得は `corslessUntil` を見ずに 1 で取る。`TypeError` のタイルは `mode: 'no-cors'` で確かめる。実績が無いうちに opaque が 3 回続いたときだけ `opaque` で止め、それ以外の opaque は `upstream` として数えて進む。両方失敗は `network` として数える
+   - 元の要求が `no-cors` で、1 が 401・403 を返したときも、元の要求で 1 回取り直す（同じサイトの別オリジンで Cookie で認証し、401 に CORS ヘッダを付けるサーバのため。組み替えた形は別オリジンへ Cookie を送らない）。opaque ならページへ渡し、保存しない。数えない
 4. 元の要求が `cors` なら 2 は行わない。opaque は返せない（ネットワークエラーになる）
 
 テンプレートから URL を作るとき（範囲取得と旧 API）は、現行どおりミラーから無作為に 1 つ選ぶ。実 URL の捕捉では要求の URL をそのまま使う。
@@ -174,7 +176,7 @@
 - 保存したい場合は登録に `cachePrivate: true` を付ける。上流へは同じく元の `Request` のまま出す。IndexedDB は同じオリジンのスクリプトから読めるので、既定を「保存しない」にする。キーは利用者を区別しないので、1 つのブラウザプロファイルを 1 人が使う前提である
 - 登録の `credentials`（§10）で SW が足した資格情報は、ここで言う認証付きに当たらない。登録した者が共有を意図したものとして保存する
 - 同一オリジンの Cookie は SW から見えないので、保存の判定に使えない。同一オリジンの既定（`credentials: 'same-origin'`）の要求は匿名の要求として扱い、保存する（現行の旧 API と同じ扱い）
-- 範囲取得には元の要求が無い。`credentials` ストアの内容と同一オリジンの Cookie で取る。**別オリジンで Cookie だけで認証するサーバは対象外**である（`upstream` で数える）。cors の成功が 1 件も無いうちに 401・403 が 3 回続いたら `upstream` で止める（認証の無いまま全タイルを取りに行き続けないため）
+- 範囲取得には元の要求が無い。`credentials` ストアの内容と同一オリジンの Cookie で取る。**別オリジンで Cookie だけで認証するサーバは対象外**である（`upstream` で数える）。`Resource` の `count === 0` のときに 401・403 が 3 回続いたら `upstream` で止める（判定は §4.5 の 3 と同じく `Resource` の状態に結び付け、再実行でも同じになる）（認証の無いまま全タイルを取りに行き続けないため）
 - 上流が 200 でも `content-type` が `text/html` の応答は保存せず `upstream` として扱う（ログイン画面へのリダイレクトがタイルとして固定されないため）。スタイル・TileJSON 以外の型に適用する
 - `Range` ヘッダ付きの要求は素通しする（§11）
 
@@ -297,7 +299,7 @@ export interface EntryBody {
 1. スタイルを `serve()` 経由で取得する（2 回目以降はキャッシュから。**オフラインで同じ登録を繰り返しても失敗しない**）
 2. `sources` を走査する。`url` があれば TileJSON を取得して `tiles`・`bounds`・`minzoom`・`maxzoom`・`scheme` を得る。`tiles` があればそのまま。試作は `source.url` を読まないので TileJSON 経由の資源を落としていた
 3. `glyphs`・`sprite`（文字列か、MapLibre の `{id, url}[]`）・`geojson` の `data`（URL のとき）・`image` の `url` を登録する。スプライトは `.json`・`.png`・`@2x.json`・`@2x.png` の 4 つを同じ `Resource` の suffix とする
-4. 一部の取得に失敗したら、登録は成功させて `warnings[]` に残す。下位資源が `resource-conflict`（§5.6）になったときも同じで、その資源はキャッシュせずスタイル全体は登録する。スタイル自体が読めなければ `invalid-style`
+4. 一部の取得に失敗したら、登録は成功させて `warnings[]` に残す。下位資源が `resource-conflict`（§5.6）になったときも同じで、スタイル全体は登録する。その資源の URL は既存の `Resource` に当たるので、捕捉とキャッシュは**既存の `Resource` の方針のまま**行われ、このスタイルの指定（範囲・`cacheTtl` など）は効かない。これを `warnings` に書く。スタイル自体が読めなければ `invalid-style`
 5. **別オリジンのスタイルが、ページと同じオリジンの URL を指していたら登録しない**（`warnings` に残す）。第三者のスタイルで同一オリジンの API を捕捉させないため
 6. `register()` は冪等である。`source.update()` で取り直し、参照が消えた `Resource` は `sourceIds` から外して空なら削除する
 
@@ -320,7 +322,7 @@ export interface EntryBody {
 
 **合流を拒否する場合**（`resource-conflict`）。`key` の形が変わるのに、既存の Entry を書き換えないため。
 
-- `credentialParams` の和が変わり、その `Resource` に Entry が既にあるとき（Entry が無ければ合流する）
+- `credentialParams` の和が広がり、その `Resource` に Entry が既にあるとき（Entry が無ければ合流する）。別の Source の登録でも、自分自身の `update()` で広がる場合でも同じ。縮む場合は拒否せず縮めない（上）
 - `type`・`encoding`・`scheme` が違うとき
 - URL 配列が **2 つ以上の既存 `Resource`** に重なるとき。`Resource` の統合はキーの書き換えを伴うので行わない。利用者が片方を消して登録し直す
 
@@ -464,6 +466,7 @@ export class WeiwudiError extends Error {
 - 包括の `Error: ${e}`（IndexedDB の例外などをそのまま文にしたもの）は、`Error: ` で始まることと `from` の分類（§9 の表と例外名）だけを保証する。中身は内部の都合で変わる。既知の変化は次のとおり
   - `Error: [object Event]`: IndexedDB の補助関数（`putItem`・`countDB`・`cleanDB`・`getItem`・`deleteItem`・`getAllKeys` ほか）が `Event` を reject していたため。m1-t3 は `putItem`・`putItemWithEviction` だけを `tx.error`・`req.error` に直し、残りは m2 の `store.ts` で揃える
   - 未登録の地図の `clean` の `Error: NotFoundError: …`: m2 の載せ替えで `Error: MapID "x" not found`（`stats` と同じ。16 行の側）にする
+  - 旧 API のタイルも、200 で `content-type` が `text/html` の応答は保存しなくなる（§4.6。配信はする）。ログイン画面がタイルとして固定されるのを防ぐためで、文面の変化ではないが挙動の変化としてここに挙げる
   - `blocked` の文面の DB 名は `Weiwudi` から `WeiwudiStore` に変わる。旧 DB が `blocked` でも `delete` は失敗せず成功する（§14.2。旧 DB の削除は次の起動へ回す）
 
 文字列の reject は次の major で `WeiwudiError` へ変える。非推奨の予告は §13 の時期に合わせる。
