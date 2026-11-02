@@ -71,10 +71,10 @@
 
 | ファイル | 役割 | 値を import してよいもの |
 |---|---|---|
-| `tile_math.ts` | 座標・タイル計算（#34。m1） | なし |
+| `tile_math.ts` | 座標・タイル計算（#34。m1）・テンプレートの展開・タイルのキーの suffix（`tileKeySuffix`。新旧で 1 つ） | なし |
 | `errors.ts` | `WeiwudiError` と旧文面の表（#33。m1） | なし |
 | `url_pattern.ts` | テンプレートの解析・照合・正規化・キー | `tile_math`・`errors` |
-| `spec.ts` | 登録内容（`SourceSpec`）の検査と正規化 | `url_pattern`・`errors` |
+| `spec.ts` | 登録内容（`SourceSpec`）の検査と正規化 | `url_pattern`・`tile_math`・`errors` |
 | `plugins.ts`・`providers/` | 差し込み口（#36）・提供元（#40。m3） | `errors` |
 | `store.ts` | IndexedDB の全操作。型 `ResourceMeta` などの正本（#37） | `errors` |
 | `context.ts` | 実行中の状態（接続・照合表・同時要求・連続数・ジョブ）の入れ物。`Weiwudi_Internal` の呼び出しごとに 1 つ | `store`・`errors` |
@@ -89,7 +89,7 @@
 | `weiwudi_gw.ts`・`weiwudi_sw.ts` | SW の入口（ES・UMD） | `weiwudi_gw_logic`・`plugins` |
 | `weiwudi.ts` | ページ側 API | `errors`・`url_pattern` |
 
-**依存の決まりはこの表 1 つだけ**（m2 計画は表を写さずここを指す）。値の依存は、`import … from` と `export … from` のどちらも、表の許可先だけにする（複数行の文も同じ）。`core` は `legacy` を知らない。型だけの `import type` は制限しない（`store.ts` が `TileBox` を、`weiwudi.ts` が `ResourceMeta` を使う）。配布の `weiwudi.d.ts` に型が届くよう、m2 で `vite.config.lib.js` の `dts` の `include` を直す。
+**依存の決まりはこの表 1 つだけ**（m2 計画は表を写さずここを指す）。値の依存は、`import … from` と `export … from` のどちらも、表の許可先だけにする（複数行の文も同じ）。`core` は `legacy` を知らない。型だけの `import type` は制限しない（`store.ts` が `TileBox` を、`weiwudi.ts` が `ResourceInfo` を使う）。`/v2/` の GET（`ping`）の振り分けは配線の `weiwudi_gw_logic.ts` で行う（`legacy` から `control` を呼ばない）。配布の `weiwudi.d.ts` に型が届くよう、m2 で `vite.config.lib.js` の `dts` の `include` を直す。
 
 ## 4. 実 URL の捕捉
 
@@ -104,7 +104,7 @@
 
 **送信の前に `navigator.serviceWorker.controller` を確かめる。** 制御下に無いページで POST すると、資格情報の入った本文が SW を通らず実ホスト宛てに出る。無ければ何も送らず `sw-not-controlling` で失敗させる。
 
-**controller があっても Weiwudi の新しい SW とは限らない**（旧版の SW は `weiwudi.example.com` の GET しか受けず、POST は実ホストへ出る）。そこで新 API は、最初の POST の前に `GET /v2/ping` の成功（`{ api: 2, version }`）を必ず確かめる。404 は `sw-outdated`、ネットワーク失敗は `sw-not-controlling` とし、どちらも記憶しない（次の呼び出しで確かめ直す）。成功だけを記憶する。この確認は旧 API の `swCheck` と別の関数にする（`swCheck` は旧 API が共有し、結果を大域に固定するので、`/v2/ping` に変えると旧 SW の上で旧 API が壊れる）。
+**controller があっても Weiwudi の新しい SW とは限らない**（旧版の SW は `weiwudi.example.com` の GET しか受けず、POST は実ホストへ出る）。そこで新 API は、最初の POST の前に `GET /v2/ping` の成功（`{ api: 2, version }`）を必ず確かめる。成功は「200 で、JSON が `{ api: 2, version: 文字列 }`」のときだけで、**その controller の実体に結び付けて記憶し、`controllerchange` で捨てる**。それ以外はすべて失敗とし、記憶しない（fail-closed。次の呼び出しで確かめ直す）: 404 と、200 でも JSON が違うものは `sw-outdated`、ネットワーク失敗とその他の状態は `sw-not-controlling`。この確認は旧 API の `swCheck` と別の関数にする（`swCheck` は旧 API が共有し、結果を大域に固定するので、`/v2/ping` に変えると旧 SW の上で旧 API が壊れる）。
 
 **POST は preflight の要らない単純要求にする**: `Content-Type: text/plain;charset=UTF-8` で、本文は JSON の文字列。別オリジンへの JSON の POST は preflight（`OPTIONS`）を生み、それが SW に渡るかはブラウザに依る。単純要求なら preflight に依存しない。
 
@@ -206,7 +206,7 @@
 
 - **正規化**（`url_pattern.normalizeTemplate`。id の唯一の作り方）: 絶対化・`credentialParams` に当たるクエリ項目を除く・残りのクエリを名前順に並べる・スキームとホストを小文字にする、の 4 つだけ。**資格情報を除いた後から id を作る**ので、`?access_token=` は id にも IndexedDB にも公開の値にも残らない。重なりの判定（`templatesOverlap`）も正規化した形で比べる
 - 新 API: 先頭のテンプレートの正規化を `Resource.id` にする。URL 配列（ミラー）は 1 つの `Resource` にまとめ、既存の `Resource` のテンプレートと 1 つでも重なれば合流する。合流したときは既存の id を変えない（ミラーの順を入れ替えて登録し直しても id は同じ）。**タイルのキーに URL を使わず座標を使う**ので、`a.tile…`・`b.tile…` のどれで取っても同じ Entry になる（試作の URL キーでは 3 重に保存される）
-- 旧 API: Source の id も Resource の id も `map:<mapID>`。新 API で `map:` から始まる id は拒否する（同じ `sources` ストアで旧 API の記録と衝突させないため）。新 API の `source()`・`sources()` は旧 API の記録を見せない（`source-not-found`）。旧 API の地図は互いに共有しない。旧 API では同じ URL の 2 地図は別のキャッシュで、`clean` も片方だけに効く。この挙動を変えない
+- 旧 API: Source の id も Resource の id も `map:<mapID>`。新 API で `map:` から始まる id は拒否する（同じ `sources` ストアで旧 API の記録と衝突させないため）。**新 API の合流の候補に旧 API の Resource を入れない**（同じ URL でも別の Resource になる。合流すると旧 API の Resource は照合表に入らないので捕捉されなくなる）。新 API の `source()`・`sources()` は旧 API の記録を見せない（`source-not-found`）。旧 API の地図は互いに共有しない。旧 API では同じ URL の 2 地図は別のキャッシュで、`clean` も片方だけに効く。この挙動を変えない
 
 ### 5.2 型（#37）
 
@@ -382,7 +382,7 @@ export interface ResourceInfo {
 | 2 | 新しい Entry がある（`now - fetchedAt <= cacheTtl`） | 保存した本体 | `hit` |
 | 3 | 上流が成功 | 上流の本体（保存を試みる） | `miss`／更新なら `refresh` |
 | 4 | 上流が失敗（HTTP）・Entry あり | 古い本体 | `stale` |
-| 5 | 上流が失敗（HTTP）・Entry なし | 上流の応答をそのまま | `upstream-error` |
+| 5 | 上流が失敗（HTTP）・Entry なし | 上流の `status`・`statusText`・本体・ヘッダを写した合成応答に `x-weiwudi-*` を足す（旧 API の経路の値は golden に従う） | `upstream-error` |
 | 6 | ネットワーク失敗・Entry あり | 古い本体 | `stale` |
 | 7 | ネットワーク失敗・Entry なし | 404 | `offline-miss` |
 
@@ -481,6 +481,7 @@ export function addPlugin(plugin: WeiwudiPlugin): void;
 export function addProvider(provider: WeiwudiProvider): void;   // §10
 ```
 
+- 同じオブジェクトの 2 回目の `addPlugin` は無視する（冪等）。`addPlugin` は以後に始まる要求にだけ効く。`state` はプラグインごと・要求ごとに新しい object
 - 登録順に実行する。プラグインの例外は `console.error` に残し、そのプラグインを飛ばして続ける。地図を止めない
 - 旧 API の経路にも効く（`serve()` が 1 つだから）。旧 API の上流は `fetch(URL の文字列)` の 1 引数（§4.5）だが、`requestWillFetch` が別の `Request` を返したときだけ `fetch(その Request)` にする
 - 差し込み口に渡す資源は `ResourceInfo`（§5.2）。保存の型は渡さない
@@ -542,7 +543,9 @@ export interface WeiwudiProvider {
 
 - 標準で `providers/mapbox.ts` を持つ。形は 4 つ（スタイル・タイルセット・スプライト・フォント）
 - `@c4h/beatbox` には依存しない。SW 側で必要な変換が小さい表で済み、これのために実行時依存（現在 0 件）を増やさない。BeatBox 0.1.1 の変換表は m3 で突き合わせて写す
-- `sk.` で始まる秘密トークンは `credential-rejected` で拒否する（試作の決定を継承）。この検査は提供元に依らない文字列の検査として、汎用の資格情報と同じ m2 に入れる（`credentials` のどの値でも `sk.` で始まれば拒否。保存する前に止める）
+- `sk.` で始まる秘密トークンは `credential-rejected` で拒否する（試作の決定を継承）。この検査は提供元に依らない文字列の検査として、汎用の資格情報と同じ m2 に入れる。対象は `credentials` の `query`・`headers` の各値と、テンプレートの全クエリ値で、先頭の `Bearer `・`Token `・`Basic `（大文字小文字を問わない）と空白を剥がしてから `sk.` で始まるかを見る。保存する前に止める
+- URL の userinfo（`user:pass@`）を含むテンプレートは登録で拒否する（`attribute-invalid`）。取り除くと照合が合わず、残すと id・テンプレート・`warnings` に出る
+- 明示の `id` は公開の値（`source()` の鍵・`warnings`・`stats`）である。資格情報を入れないことを利用者との契約にする（任意の文字列から資格情報を見分ける規則は作れないので検査はしない）
 
 **資格情報の分離**
 
@@ -611,7 +614,7 @@ class Weiwudi {
 export class WeiwudiSource extends WeiwudiEventTarget {
   readonly id: string;
   readonly url: string | string[];          // 地図ライブラリへ渡す実 URL（資格情報なし）
-  readonly resources: ResourceInfo[];       // §5.2 の射影
+  readonly resources: ResourceInfo[];       // §5.2 の射影。呼び出し時点の写し
   readonly warnings: string[];              // 登録・update の時点の写し（snapshot）。後で変わらない
   stats(): Promise<SourceStats>;
   update(): Promise<void>;
@@ -627,7 +630,27 @@ export class WeiwudiSource extends WeiwudiEventTarget {
 }
 ```
 
-- 公開する型はすべて名前を付けて export する: `SourceSpec`・`CommonPolicy`・`Credentials`・`OutOfRange`・`TileBox`・`SourceInfo`（`id`・`kind`・`url`・`resources`・`warnings`）・`SourceStats`（`count`・`size`・`total?`・`percent?`・`byResource: Record<string, { count; bytes }>`）・`ResourceInfo`・`ResourceType`
+- 公開する型はすべて名前を付けて export する: `SourceSpec`・`CommonPolicy`・`Credentials`・`OutOfRange`・`TileBox`・`SourceInfo`・`SourceStats`・`ResourceInfo`・`ResourceType`。`SourceInfo` と `SourceStats` は次の完全な形とする
+
+```ts
+export interface SourceInfo {
+  id: string;
+  kind: SourceSpec['kind'];
+  url: string | string[];
+  resources: ResourceInfo[];   // 呼び出し時点の写し
+  warnings: string[];          // 登録・update の時点の写し
+}
+export interface SourceStats {
+  count: number;
+  size: number;
+  total?: number;              // 範囲が決まるときだけ
+  percent?: number;            // 同上
+  byResource: Record<string, { count: number; bytes: number }>;
+}
+```
+
+- `WeiwudiSource.resources` も呼び出し時点の写しで、後の変化は `stats()` か `source()` で読み直す
+- 上の `class` の宣言のうち、各版の d.ts と文書には、その版で入るメンバだけを書く（m2 は `register`・`source`・`sources` と、`WeiwudiSource` の `id`・`url`・`resources`・`warnings`・`stats`・`update`・`clean`（範囲なし）・`remove`・`release`）
 - `warnings` の書式は `"<code>: <subject>"`（`subject` は `Resource.id` か、クエリを除いた URL）
 - 登録を拒否するもの: `map:` から始まる `id`（§5.1。`attribute-invalid`）・`weiwudi.example.com` のテンプレート（`unsupported-template`）・その版が扱わない `kind`（`unsupported-kind`。m2 では `style`・`asset`）・`sk.` の資格情報（`credential-rejected`）
 - 提供元別の使用量（#38）は `usage().byProvider`。鍵は `ResourceMeta.provider`、無ければ origin
@@ -735,7 +758,7 @@ state の題名からの変更点は太字（進行役が state を直す）。
 | 里程 | 内容 |
 |---|---|
 | m1 | 本書・#32・#34・#33 |
-| m2 | `store.ts`（#37）・`url_pattern.ts`・`core.ts` の `serve()`・`hook.ts`（§4.3 のルート）・`upstream.ts`（§4.5・§4.6）・`control.ts`・`plugins.ts`（#36）・**`registry.ts`（§5.6。m3 から前倒し）**・`raster`・**`vector`**の登録・**汎用の資格情報（§10 のうち提供元を除く）**・**旧 API の載せ替え（§13）**。WebKit を任意で測る（Firefox は Playwright で測れない）。計画は `docs/superpowers/plans/2026-11-03-m2-core.md` |
+| m2 | `store.ts`（#37）・`url_pattern.ts`・`core.ts` の `serve()`・`hook.ts`（§4.3 のルート）・`upstream.ts`（§4.5・§4.6）・`control.ts`・`plugins.ts`（#36）・**`registry.ts`（§5.6。m3 から前倒し）**・`raster`・**`vector`**の登録・**汎用の資格情報（§10 のうち提供元を除く）**・**旧 API の載せ替え（§13）**。WebKit・Firefox は測らない（m2 計画の R14）。計画は `docs/superpowers/plans/2026-11-03-m2-core.md` |
 | m3 | スタイルの芋づる登録（§5.5）・`asset`・グリフの結合（#39）・`providers/mapbox.ts`（#40）・資源単位の削除と提供元別の使用量（#38） |
 | m4 | 範囲取得と解放・保持（§7）・**旧 DB からの移行（§14.2）**・#41・文書・master への合流 |
 
