@@ -27,7 +27,10 @@ export default defineConfig({
         {
             command: 'node tests/e2e/fixtures/tile-server.mjs',
             url: 'http://localhost:5174/__health',
-            reuseExistingServer: !process.env.CI,
+            // 5174 に別のものが居るときに取り違えず、失敗させる（申し送り 3）
+            reuseExistingServer: false,
+            // SIGTERM で止め、上流サーバが一時ディレクトリを消せるようにする（無いと SIGKILL。第 1 回 S14）
+            gracefulShutdown: { signal: 'SIGTERM', timeout: 5000 },
         },
     ],
 });
