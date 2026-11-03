@@ -72,30 +72,33 @@ const extentOf = (s: StoredSpec, scheme: ResourceMeta['scheme']): TileExtent => 
 /**
  * 実効方針（仕様 §5.6）。sources は sourceIds の Source、rangeOnly は rangeOnlySourceIds の Source。
  * extents は両方の範囲の和、その他は sources だけから作る。credentialParams は Entry がある間（count > 0）は
- * 今の値のまま（縮めない。広がる合流は planRegister が先に拒否する）。sources に新 API の Source が無ければ今の方針と、rangeOnly だけから作った範囲を返す
+ * 今の値のまま（縮めない。広がる合流は planRegister が先に拒否する）。sources に新 API の Source が無ければ今の方針と、rangeOnly だけから作った範囲を返す。
+ * extraPolicies は仮の参加者の方針（keep の Source がいるときの今の方針。PR #77 N1）で、範囲以外の合成に Source と同じ規則で入る
  */
 export function composePolicy(
   resource: ResourceMeta,
   sources: SourceRecord[],
   rangeOnly: SourceRecord[],
+  extraPolicies: readonly ResourcePolicy[] = [],
 ): Pick<ResourceMeta, 'policy' | 'extents'> {
   const specs = specsOf(sources);
   const extents = [...specs, ...specsOf(rangeOnly)].map((s) => extentOf(s, resource.scheme));
   if (specs.length === 0) return { policy: resource.policy, extents };
 
+  const policies = [...specs.map((s) => s.policy), ...extraPolicies];
   const pick = (k: 'extent' | 'zoom'): OutOfRange => {
-    const vs = specs.map((s) => s.policy.outOfRange[k]);
+    const vs = policies.map((p) => p.outOfRange[k]);
     return vs.every((v) => v === vs[0]) ? vs[0] : defaultOutOfRange(resource.encoding);
   };
   const policy: ResourcePolicy = {
-    cacheTtl: Math.min(...specs.map((s) => s.policy.cacheTtl)),
-    store: specs.every((s) => s.policy.store),
+    cacheTtl: Math.min(...policies.map((p) => p.cacheTtl)),
+    store: policies.every((p) => p.store),
     outOfRange: { extent: pick('extent'), zoom: pick('zoom') },
     credentialParams: resource.count > 0
       ? resource.policy.credentialParams.slice()
-      : unionParams(...specs.map((s) => s.policy.credentialParams)),
+      : unionParams(...policies.map((p) => p.credentialParams)),
   };
-  const retentions = specs.map((s) => s.policy.cacheRetention);
+  const retentions = policies.map((p) => p.cacheRetention);
   if (retentions.every((r): r is number => r !== undefined)) policy.cacheRetention = Math.max(...retentions);
   return { policy, extents };
 }
@@ -220,7 +223,9 @@ const isKeptIn = (rec: SourceRecord, resourceId: string): boolean =>
 
 /**
  * Resource の合成（方針・範囲・テンプレート）。keep の Source の spec はどこにも入れない:
- * - 方針: 通常の Source だけから作る。通常の Source が無ければ今の方針のまま
+ * - 方針: 通常の Source から作る。keep の Source がいれば今の方針（m.policy）を仮の参加者 1 つとして同じ規則で入れる
+ *   （credentialParams は和・store は論理積・cacheTtl は最短…。keep が続くあいだ方針は緩まない向きにだけ動く。PR #77 N1）。
+ *   通常の Source が無ければ今の方針のまま
  * - 範囲: 通常の Source と範囲だけの Source から作り、keep の Source は保存済みの extents（古い範囲）を残す
  * - テンプレート: keep の Source が無ければ通常の Source の和。あれば今の値に通常の Source の分を足す（keep の古いミラーを落とさない）
  */
@@ -228,7 +233,9 @@ const composeFor = (m: ResourceMeta, recs: Lookup): Pick<ResourceMeta, 'policy' 
   const members = recs(m.sourceIds);
   const active = members.filter((r) => !isKeptIn(r, m.id));
   const kept = members.filter((r) => isKeptIn(r, m.id)).map((r) => r.id);
-  const own = active.length > 0 ? composePolicy(m, active, []) : { policy: m.policy, extents: [] };
+  const own = active.length > 0
+    ? composePolicy(m, active, [], kept.length > 0 ? [m.policy] : [])
+    : { policy: m.policy, extents: [] };
   const oldKept = (m.extents ?? []).filter((e) => kept.indexOf(e.sourceId) >= 0).map((e) => ({ ...e }));
   const rangeOnly = composePolicy(m, [], recs(m.rangeOnlySourceIds)).extents ?? [];
   const templates = kept.length === 0

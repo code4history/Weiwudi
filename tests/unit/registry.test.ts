@@ -308,6 +308,29 @@ describe('applyRegister・applyUpdate・applyRemove', () => {
     expect(a?.extents?.find((e) => e.sourceId === 'p')?.maxZoom).toBe(5);
   });
 
+  it('keep の Source がいる間、今の credentialParams は通常の Source の update で落ちない（Entry なし。PR #77 N1）', async () => {
+    await applyRegister(store, ns({ id: 'p', url: A, credentialParams: ['foo'] }));
+    await applyRegister(store, ns({ id: 'q', url: A }));
+    await applyRegister(store, ns({ id: 'r', url: B }));
+    await applyRegister(store, ns({ id: 'p', url: [A, B], credentialParams: ['foo'] })); // A は keep
+    expect((await get(A))?.policy.credentialParams).toContain('foo');
+    await applyUpdate(store, 'q', ns({ id: 'q', url: A, cacheTtl: 5 }));
+    const a = await get(A);
+    expect(a?.count).toBe(0);
+    expect(a?.policy.credentialParams).toContain('foo');
+    expect(a?.policy.cacheTtl).toBe(5); // 締まる向きには動く
+  });
+
+  it('keep の Source がいる間、今の store: false は通常の Source だけの合成で true にならない（PR #77 N1）', async () => {
+    await applyRegister(store, ns({ id: 'p', url: A }));
+    await applyRegister(store, ns({ id: 'q', url: A, cachePrivate: true }));
+    await applyRegister(store, ns({ id: 'r', url: B }));
+    await applyRegister(store, ns({ id: 'p', url: [A, B] })); // A は keep
+    expect((await get(A))?.policy.store).toBe(false);
+    await applyUpdate(store, 'q', ns({ id: 'q', url: A, cachePrivate: true, cacheTtl: 5 }));
+    expect((await get(A))?.policy.store).toBe(false);
+  });
+
   it('自分の update() の衝突は resource-conflict の例外で、何も変わらない（corsOk も消えない）', async () => {
     await applyRegister(store, ns({ id: 'p', cacheTtl: 500 }));
     await putTile(A);
