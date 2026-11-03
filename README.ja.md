@@ -118,9 +118,6 @@ importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.1.1/dist/weiwudi-sw.u
 Workbox のプラグインのフック名を借りた Weiwudi 独自の API です。サービスワーカーのスクリプトの
 先頭で呼びます。UMD 版では `self.Weiwudi_SW.addPlugin` を使います。
 
-> **開発中の枝:** フックはまだタイルの配信に繋がっていません。m2-t5 で旧 API を新コアへ
-> 載せ替えた後に効きます。
-
 ```js
 // sw.js（ES モジュールのサービスワーカー）
 import { addPlugin } from '@c4h/weiwudi/sw';
