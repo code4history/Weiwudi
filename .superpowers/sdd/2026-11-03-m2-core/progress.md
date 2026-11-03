@@ -222,3 +222,18 @@ Ruling: 水準 1 の Minor 4 件は合流を止めずに申し送る — 動く�
 - t8 への申し送り: §9 の既知の変化に 2 行足す（fetchAll の error・errors はジョブの要求の失敗だけを数える／旧 API の Range つきの要求は上流へ素通しし 206 をそのまま返す）／容量の判定の読み出しの失敗でタイルを返さなくなる点を、storage として配信を続ける形にするか §9 に書くか決める／/v2/ の 404 を control へ差し替える
 - t6・t8 への申し送り: `map:` の id の Source（kind:'legacy'・spec:{}）を新 API の合流と sources() から外す
 - m4 への申し送り: 旧 DB（Weiwudi・Weiwudi_<mapID>）の移行と削除／QuotaExceededError の再試行（R15）／旧 API の mapID に `\0` が入るとキーの範囲が他の地図にかぶる（add で拒否か id の符号化を決め §9 に記録）
+
+## m2-t6 registry.ts — 合流と実効方針（2026-11-04・仕様 §5.6）
+
+- 実装: 23be1e9（templatesOverlap を照合の形でも比べる・m2-t3 の M4）・f0cc9db（registry.ts）・a720b5e（水準 1 の M1）・e7ece43（再レビューの N1）。PR #77 を merge commit 868991f で vector-cache へ合流。CI は Node 22・24 とも緑
+- 実測: test:unit 843 passed・typecheck exit 0（進行役が手元で確認）。実装者の報告で build・eslint exit 0・e2e 18 passed（f0cc9db 時点）。変異 22 件をすべて試験が落とす
+- 水準 1（新しい Claude）第 1 回: 不合格・Major 1（M1: keep（S-I）した Source の新しい spec が後の合成で Resource のテンプレートに入り、別の Resource のテンプレートが混ざる。b.example のタイルが A のキーで保存され得る）。a720b5e で直した
+- 第 2 回: M1 は解消したが、keep の Source を方針の合成から丸ごと外したため安全側の方針が落ちる Major（N1: credentialParams の foo が消え秘密がキーに残る・store が false → true）。e7ece43 で直した
+- 第 3 回: 合格・残る必須 0。keep がいないときに仮の参加者が紛れ込まないこと、keep が解けると通常の合成に戻ることを再現試験で確かめた
+
+Ruling: 実装者の Ruling 1・2・4〜13 を採る（M4 の直しは url_pattern.ts で行う／count > 0 の間は credentialParams を縮めない／範囲だけの出入りは extents だけを計算し直す／applyRemove は sourceIds が空かで決める（仕様 §5.6 に合わせ、計画の「isExclusiveTo だけで決める」の文言は仕様が正）／範囲の無い Source は box の無いズーム 0〜30／outOfRange は項目ごと／credentialSourceFor は order 順の最初／重なりは spec と既存の credentialParams の和で見る／id の衝突は次のテンプレートか #2／資格情報の消去は putCredentials(id, {})／applyUpdate は source-not-found・attribute-invalid／試験の access_token は値付きで見る）— 水準 1 が妥当と判定 — 誤りなら t7・t8 で直す
+Ruling: Ruling 3 を置き換える。keep の Source の新しい spec は後の合成に入れない。今の方針は仮の参加者として入れるので、keep が続く間、方針は緩まない向きにだけ動く。keep が通常の合流に戻ると解ける — S-I の「古い方針のまま」と §5.6・§10 の漏らさない側の優先を両方守る — 誤りなら Resource に Source ごとの古い spec を持たせる
+Ruling: Ruling 14 を採る。keep がいる間はテンプレートを縮めず、通常の Source の分を足すだけ — keep の Source の古いミラーを記録から見分けられない。実害は抜けたミラーへの捕捉が続くことだけで、混ざらない — 誤りなら Source ごとのテンプレートを持たせる
+- t7 への申し送り: `{y}` と `{-y}`・`{z}/{x}` と `{x}/{z}` のように同じ要求に当たる別の照合の形を、照合表の作成時に見つけて warnings に出す（後の登録が影になり黙って捕捉されない）／`putCredentials(id, {})` の後の getCredentials は `{}` を返すので、空を資格情報なしと数えて credentialSourceFor の withCredentials を作る／照合表は `map:` を除いた Resource から作り、registry の書き換えを作り直しの契機に含める／照合表の規則の順を決める
+- t8 への申し送り: register・update・remove を 1 本の直列の待ち行列に通す（apply が複数の tx で、同時の register で createResource が 2 回走り得る）／sources()・source() から `map:` を外す／clean は isExclusiveTo、remove は applyRemove、register は applyRegister（衝突は warnings）、update は applyUpdate（衝突は resource-conflict の例外）／context の corslessStreak を消す／keep の判定は warnings の文字列 `resource-conflict: <id>` に頼るので、書式を作る関数を 1 つにまとめる（m3 の下位資源でも同じ）
+- 文書への申し送り: 計画の「applyRemove は isExclusiveTo だけで決める」を仕様 §5.6 に合わせる／§10「warnings に URL を入れるときはクエリを落とす」と §5.6「warnings に Resource.id を書く」の食い違いを揃える
