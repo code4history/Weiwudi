@@ -180,3 +180,16 @@ Ruling: R6 のキーの範囲 `[id+'\0', id+'\x01')` に仕様 §5.4 の表記�
 Ruling: 水準 1 の Minor 2・3 と Info 1 は t3 の実装者に前段の直しとして渡す（複数の Resource をまとめた同値の並びの試験・大きさ 0 で maxBytes 0 の試験・putEntry で key が `resourceId + '\0'` で始まるかを確かめる守り）— どれも数行で、t4 の core が乗る前に塞ぐのが安い — 誤りなら t3 の差分が少し増えるだけ
 Ruling: Minor 1（上限つきの putEntry が毎回全件 getAll する）は m4 の退避の作業へ申し送る — 旧実装も全件走査で悪化はなく、動作は正しい。動くもの最優先 — 誤りなら上限つきの地図の取得が大きいときに遅い
 - 申し送り（t4 以降）: runTx の fn の中で IDB 以外の Promise を待たない（tx が先に完了する）。putEntry の大きさは meta.size なので、core が blob.size と揃える。MapSetting の二重定義は t5 で gw_logic 側を消す
+
+## m2-t3 url_pattern.ts と spec.ts（2026-11-03）
+
+- 実装: d7e84d0（m2-t2 の水準 1 の指摘の直し）・2e03836（本体）・9199d88（水準 1 の M1・M2・M3・M5・I1 の直し）。PR #74 を merge commit 2a642b1 で vector-cache へ合流。CI は Node 22・24 とも緑
+- 実測: test:unit 670 passed・typecheck・build・eslint exit 0・e2e 18 passed・tile-math.test.ts と errors.test.ts は削除 0
+- 水準 1（新しい Claude・資格情報の漏れを重点）: 合格・Critical 0・Major 0・Minor 5。M1（テンプレートの `#` 以降の資格情報が id に残り credentials にも移る・`#access_token=sk.` が拒否されない）・M2（移した資格情報と明示の credentials を大文字小文字で区別して両方送る）・M3（大文字の名前の除去を試験が守らない）・M5（`?v=1&v=2` が `?v=1` と同じキー）・I1（値の無い `?sk.…`）は合流の前に 9199d88 で直した。各変異で新しい試験が落ちることを実装者が確かめた
+
+Ruling: 実装者の R3〜R13 を採る（資格情報の名前は大文字小文字を問わず除く／正規化は文字列で行う／字句はパスとクエリ値だけ／z ≤ 30／テンプレートの資格情報は credentials.query へ移し明示が勝つ／NormalizedSpec は { spec, credentials? }／範囲は Source ごとの extent・無ければ全域／形の誤りは attribute-invalid で文面に値を入れない／sk. は大文字小文字を問わず URLSearchParams で decode）— 水準 1 が妥当と判定（R8 は M2 で R3 と揃えた）— 誤りなら t6・t7 で直す
+Ruling: 直し（9199d88）の R14〜R16 を採る（明示の credentials.query に大文字小文字だけ違う名前が 2 つあれば attribute-invalid／座標の項目も要求にちょうど 1 つを求める／テンプレート自身の同名の固定値は値の組で照合）— 重複した要求は捕捉せず素通しになるだけで安全側 — 誤りなら重複のある WMTS 要求がキャッシュされない
+Ruling: 直しの再レビューは置かない — 指摘どおりの小さな差分で、各指摘に変異で落ちる試験があり、進行役が差分と単体試験 670 件を確かめた — 誤りなら t4 の水準 2 で拾う
+- t6 への申し送り（M4）: templatesOverlap が既定ポート（:443）・`..`・名前の percent-encode・`+` と `%20`・IDN・`https:H.example` で、同じ照合になるテンプレートを重なりと見ない。compile した形（origin・pathRe・固定クエリ）でも比べるか、既定ポートと IDN だけ new URL で正規化する
+- t7 への申し送り（I2）: ミラーごとに資格情報が違うと先のミラーの値が全ミラーへ送られる。applyCredentials で別ホストへ鍵が送られる点を意識する
+- t5 への申し送り: 旧 API（weiwudi_gw_logic.ts:459・:481）が自前で `${z}_${x}_${y}` を組んでいるので tileKeySuffix に替える
