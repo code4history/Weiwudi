@@ -65,3 +65,36 @@ describe('Weiwudi_Internal の初期化', () => {
     expect(open).not.toHaveBeenCalled();
   });
 });
+
+// m2-t7: 照合ルートと門番を足した後も、旧 API のルートの形と経路は変わらない（仕様 §4.3）
+describe('照合ルート・門番と旧 API のルート（m2-t7）', () => {
+  it('旧 API の GET RegExp ルートはちょうど 1 本のまま。照合ルート（同期）と門番（microtask）は関数の捕捉で後ろに並ぶ', async () => {
+    const h = createSwHarness();
+    expect(h.routes).toHaveLength(2);
+    await h.flushRoutes();
+    expect(h.routes).toHaveLength(3);
+    expect(h.routes[0].capture).toBe(h.capture);
+    expect(h.routes.slice(1).every((r) => typeof r.capture === 'function' && r.method === 'GET')).toBe(true);
+    expect(h.routes.filter((r) => r.capture instanceof RegExp && r.method === 'GET')).toHaveLength(1);
+  });
+
+  it('疑似ホストの GET は門番より前の旧 API のルートが受け、照合表を読まない', async () => {
+    const h = createSwHarness();
+    const open = vi.spyOn(h.factory, 'open');
+    await h.flushRoutes();
+    expect(await (await h.dispatch('https://weiwudi.example.com/api/ping'))!.text()).toBe('Implemented');
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('旧 API の Range つきの要求のネットワーク失敗は、新 API の素通しと同じ形（404・offline-miss・network・expose）', async () => {
+    const h = createSwHarness();
+    await h.request(`/api/add?mapID=m&type=xyz&url=${encodeURIComponent('https://tile.example/{z}/{x}/{y}.png')}&width=1024&height=1024`);
+    h.fetch.mockRejectedValue(new TypeError('down'));
+    const res = await h.dispatch(new Request('https://weiwudi.example.com/api/cache/m/2/1/0', { headers: { range: 'bytes=0-1' } }));
+    expect(res?.status).toBe(404);
+    expect(res?.statusText).toBe('Not Found');
+    expect(res?.headers.get('x-weiwudi-status')).toBe('offline-miss');
+    expect(res?.headers.get('x-weiwudi-error')).toBe('network');
+    expect(res?.headers.get('access-control-expose-headers')).toBe('x-weiwudi-status, x-weiwudi-error');
+  });
+});
