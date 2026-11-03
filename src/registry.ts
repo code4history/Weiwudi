@@ -72,7 +72,7 @@ const extentOf = (s: StoredSpec, scheme: ResourceMeta['scheme']): TileExtent => 
 /**
  * 実効方針（仕様 §5.6）。sources は sourceIds の Source、rangeOnly は rangeOnlySourceIds の Source。
  * extents は両方の範囲の和、その他は sources だけから作る。credentialParams は Entry がある間（count > 0）は
- * 今の値のまま（縮めない。広がる合流は planRegister が先に拒否する）。sources に新 API の Source が無ければ今の値を返す
+ * 今の値のまま（縮めない。広がる合流は planRegister が先に拒否する）。sources に新 API の Source が無ければ今の方針と、rangeOnly だけから作った範囲を返す
  */
 export function composePolicy(
   resource: ResourceMeta,
@@ -81,7 +81,7 @@ export function composePolicy(
 ): Pick<ResourceMeta, 'policy' | 'extents'> {
   const specs = specsOf(sources);
   const extents = [...specs, ...specsOf(rangeOnly)].map((s) => extentOf(s, resource.scheme));
-  if (specs.length === 0) return { policy: resource.policy, extents: resource.extents };
+  if (specs.length === 0) return { policy: resource.policy, extents };
 
   const pick = (k: 'extent' | 'zoom'): OutOfRange => {
     const vs = specs.map((s) => s.policy.outOfRange[k]);
@@ -211,19 +211,41 @@ const lookupOf = (sources: readonly SourceRecord[]): Lookup => {
   return (ids) => (ids ?? []).map((i) => byId.get(i)).filter((r): r is SourceRecord => r !== undefined);
 };
 
+/**
+ * keep（S-I）の Source か: 自分の warnings にその Resource との衝突を持つ。その Source の保存済みの spec は新しい登録内容で、
+ * この Resource に入れると別の Resource のテンプレートや新しい方針が混ざる（PR #77 水準 1 M1）
+ */
+const isKeptIn = (rec: SourceRecord, resourceId: string): boolean =>
+  rec.warnings.indexOf(`resource-conflict: ${resourceId}`) >= 0;
+
+/**
+ * Resource の合成（方針・範囲・テンプレート）。keep の Source の spec はどこにも入れない:
+ * - 方針: 通常の Source だけから作る。通常の Source が無ければ今の方針のまま
+ * - 範囲: 通常の Source と範囲だけの Source から作り、keep の Source は保存済みの extents（古い範囲）を残す
+ * - テンプレート: keep の Source が無ければ通常の Source の和。あれば今の値に通常の Source の分を足す（keep の古いミラーを落とさない）
+ */
+const composeFor = (m: ResourceMeta, recs: Lookup): Pick<ResourceMeta, 'policy' | 'extents' | 'templates'> => {
+  const members = recs(m.sourceIds);
+  const active = members.filter((r) => !isKeptIn(r, m.id));
+  const kept = members.filter((r) => isKeptIn(r, m.id)).map((r) => r.id);
+  const own = active.length > 0 ? composePolicy(m, active, []) : { policy: m.policy, extents: [] };
+  const oldKept = (m.extents ?? []).filter((e) => kept.indexOf(e.sourceId) >= 0).map((e) => ({ ...e }));
+  const rangeOnly = composePolicy(m, [], recs(m.rangeOnlySourceIds)).extents ?? [];
+  const templates = kept.length === 0
+    ? composeTemplates(m, active)
+    : unique([...m.templates, ...composeTemplates(m, active)]);
+  return { policy: own.policy, extents: [...(own.extents ?? []), ...oldKept, ...rangeOnly], templates };
+};
+
 /** sourceIds が変わった Resource を合成し直す（方針・範囲・テンプレート） */
 const recompose = (m: ResourceMeta, recs: Lookup): ResourceMeta => {
-  const next: ResourceMeta = { ...m, ...composePolicy(m, recs(m.sourceIds), recs(m.rangeOnlySourceIds)) };
-  next.templates = composeTemplates(m, recs(m.sourceIds));
+  const next: ResourceMeta = { ...m, ...composeFor(m, recs) };
   if (next.policy.cacheRetention === undefined) delete next.policy.cacheRetention;
   return next;
 };
 
 /** rangeOnlySourceIds だけが変わった Resource は範囲だけを計算し直す（方針は sourceIds の Source だけから作るので変わらない） */
-const recomposeExtents = (m: ResourceMeta, recs: Lookup): ResourceMeta => ({
-  ...m,
-  extents: composePolicy(m, recs(m.sourceIds), recs(m.rangeOnlySourceIds)).extents,
-});
+const recomposeExtents = (m: ResourceMeta, recs: Lookup): ResourceMeta => ({ ...m, extents: composeFor(m, recs).extents });
 
 const setRangeOnly = (m: ResourceMeta, ids: string[]): ResourceMeta => {
   const next = { ...m };

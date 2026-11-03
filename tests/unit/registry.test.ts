@@ -276,6 +276,38 @@ describe('applyRegister・applyUpdate・applyRemove', () => {
     expect(after?.count).toBe(1);
   });
 
+  it('keep の Source の新しい spec は、後の合成でもテンプレートと方針に入らない（PR #77 水準 1 M1）', async () => {
+    await applyRegister(store, ns({ id: 'p', url: A, cacheTtl: 500, maxZoom: 5 }));
+    await applyRegister(store, ns({ id: 'q', url: A, cacheTtl: 400 }));
+    await applyRegister(store, ns({ id: 'r', url: B }));
+    // A と B の 2 つに重なる → A は keep（p が属している）・B は範囲だけ
+    const out = await applyRegister(store, ns({ id: 'p', url: [A, B], cacheTtl: 1, maxZoom: 9, cachePrivate: true }));
+    expect(out.warnings).toEqual([`resource-conflict: ${A}`, `resource-conflict: ${B}`]);
+    const before = await get(A);
+    expect(before?.templates).toEqual([A]);
+    await applyRemove(store, 'q'); // A を合成し直す
+    const after = await get(A);
+    expect(after?.sourceIds).toEqual(['p']);
+    expect(after?.templates).toEqual([A]);
+    expect(after?.policy).toEqual(before?.policy);
+    expect(after?.policy.cacheTtl).toBe(400);
+    expect(after?.policy.store).toBe(false);
+    expect(after?.extents?.find((e) => e.sourceId === 'p')?.maxZoom).toBe(5);
+    expect((await get(B))?.templates).toEqual([B]);
+  });
+
+  it('keep の Source と通常の Source が並ぶとき、合成は通常の Source だけから作り、keep の古い範囲は残す', async () => {
+    await applyRegister(store, ns({ id: 'p', url: A, cacheTtl: 500, maxZoom: 5 }));
+    await applyRegister(store, ns({ id: 'q', url: A, cacheTtl: 400 }));
+    await applyRegister(store, ns({ id: 'r', url: B }));
+    await applyRegister(store, ns({ id: 'p', url: [A, B], cacheTtl: 1, maxZoom: 9 }));
+    await applyUpdate(store, 'q', ns({ id: 'q', url: A, cacheTtl: 300 }));
+    const a = await get(A);
+    expect(a?.templates).toEqual([A]);
+    expect(a?.policy.cacheTtl).toBe(300);
+    expect(a?.extents?.find((e) => e.sourceId === 'p')?.maxZoom).toBe(5);
+  });
+
   it('自分の update() の衝突は resource-conflict の例外で、何も変わらない（corsOk も消えない）', async () => {
     await applyRegister(store, ns({ id: 'p', cacheTtl: 500 }));
     await putTile(A);
