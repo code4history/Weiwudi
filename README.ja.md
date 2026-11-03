@@ -112,6 +112,34 @@ importScripts("https://cdn.jsdelivr.net/npm/workbox-routing@7.4.0/build/workbox-
 importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.1.1/dist/weiwudi-sw.umd.js");
 ```
 
+### サービスワーカーの差し込み口
+
+`@c4h/weiwudi/sw` は、タイルの取得と保存に処理を差し込む `addPlugin` を export します。
+Workbox のプラグインのフック名を借りた Weiwudi 独自の API です。サービスワーカーのスクリプトの
+先頭で呼びます。UMD 版では `self.Weiwudi_SW.addPlugin` を使います。
+
+> **開発中の枝:** フックはまだタイルの配信に繋がっていません。m2-t5 で旧 API を新コアへ
+> 載せ替えた後に効きます。
+
+```js
+// sw.js（ES モジュールのサービスワーカー）
+import { addPlugin } from '@c4h/weiwudi/sw';
+
+addPlugin({
+  async requestWillFetch({ request }) {
+    return new Request(request, { headers: { 'x-api-key': 'public-key' } });
+  },
+  async cacheWillUpdate({ response }) {
+    return response.headers.get('content-type')?.startsWith('image/') ? response : null; // null は保存しない
+  },
+});
+```
+
+`requestWillFetch` で足したヘッダは、要求が `no-cors`（`<img>` 要素のタイルなど）のとき
+ブラウザが捨てます。上流が必要とするなら `mode: 'cors'` の `Request` を作り直してください。
+
+詳しくは [サービスワーカーの API](docs/api/sw.ja.md) を参照してください。
+
 ### API リファレンス
 
 - **API シグネチャ**（リリース依存）: [`docs/api/`](docs/api/) を参照

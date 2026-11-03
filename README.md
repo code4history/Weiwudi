@@ -116,6 +116,36 @@ importScripts("https://cdn.jsdelivr.net/npm/workbox-routing@7.4.0/build/workbox-
 importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.1.1/dist/weiwudi-sw.umd.js");
 ```
 
+### Service worker plugins
+
+`@c4h/weiwudi/sw` exports `addPlugin` to hook into how tiles are fetched and
+cached. It is Weiwudi's own API that borrows the hook names of Workbox plugins.
+Call it at the top of your service worker script; with the UMD build use
+`self.Weiwudi_SW.addPlugin`.
+
+> **Development branch:** the hooks are not yet connected to tile serving. They
+> take effect once the legacy API is moved onto the new core (m2-t5).
+
+```js
+// sw.js (ES module service worker)
+import { addPlugin } from '@c4h/weiwudi/sw';
+
+addPlugin({
+  async requestWillFetch({ request }) {
+    return new Request(request, { headers: { 'x-api-key': 'public-key' } });
+  },
+  async cacheWillUpdate({ response }) {
+    return response.headers.get('content-type')?.startsWith('image/') ? response : null; // null: do not cache
+  },
+});
+```
+
+Headers added in `requestWillFetch` are dropped by the browser when the request
+is `no-cors` (for example a tile requested by an `<img>` element). Build a new
+`Request` with `mode: 'cors'` if the upstream needs them.
+
+Details: [Service worker API](docs/api/sw.md).
+
 ### API reference
 
 - **API signatures** (release-dependent): see [`docs/api/`](docs/api/)
