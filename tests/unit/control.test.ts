@@ -378,6 +378,30 @@ describe('照合表の作り直しの失敗（Ruling）', () => {
   });
 });
 
+describe('影の warnings の保存の失敗（PR #80）', () => {
+  it('putSource が失敗しても登録は成功として返す（表の作り直しの失敗と同じ扱い）', async () => {
+    let puts = 0;
+    const { post } = direct(async () => {
+      const s = await openStore();
+      return {
+        ...s,
+        putSource: async (r: Parameters<Store['putSource']>[0]) => {
+          puts++;
+          // 2 つ目の登録の影の保存（2 つ目の登録の 2 回目の putSource）だけ失敗させる
+          if (puts === 3) throw new DOMException('write failed', 'UnknownError');
+          return s.putSource(r);
+        },
+      };
+    });
+    expect((await post('register', { kind: 'raster', id: 'a', url: TPL })).ok).toBe(true);
+    const other = 'https://t.example/{z}/{y}/{x}.png';
+    const r = await post('register', { kind: 'raster', id: 'b', url: other });
+    expect(puts).toBe(3);
+    expect(r.ok).toBe(true);
+    expect(r.result.id).toBe('b');
+  });
+});
+
 describe('直列の待ち行列', () => {
   it('前の op の失敗は次の op に持ち越さない', async () => {
     const { post } = direct();

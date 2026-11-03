@@ -283,7 +283,7 @@ interface TileBox { minX: number; maxX: number; minY: number; maxY: number }
 
 **`WeiwudiError` で reject するとき:**
 - `attribute-invalid`: 項目の形の誤り・`map:` で始まる／空の／`\0` を含む `id`・userinfo（`user:pass@`）を含むテンプレート
-- `unsupported-template`: 未対応の字句・絶対でない URL・`weiwudi.example.com` のテンプレート
+- `unsupported-template`: 未対応の字句・解決できないか `http:`・`https:` でない URL（相対 URL は先にページの場所で絶対化する）・`weiwudi.example.com` のテンプレート
 - `unsupported-kind`: `style`・`asset`（この版では扱わない）
 - `credential-rejected`: `credentials` かテンプレートの秘密トークン（`sk.`）
 - `sw-not-controlling`・`sw-outdated`: [呼び出しの前の確認](#呼び出しの前の確認) を参照
@@ -328,7 +328,7 @@ type ResourceType = 'style' | 'tilejson' | 'tile' | 'glyph' | 'sprite' | 'data';
 | `stats()` | `Promise<SourceStats>` |
 | `update()` | 保存した登録内容で合流と方針を作り直し、CORS の判定をやり直す。自分の資源が衝突すると `resource-conflict` で reject し、何も変えない |
 | `clean()` | 保存した Entry を消す。他の Source と共有する資源の Entry は残す |
-| `remove()` | 登録と Entry を消し（共有の Entry は残す）、`release()` を呼ぶ |
+| `remove()` | 登録と Entry を消し、`release()` を呼ぶ。他の Source が `sourceIds` に持つ資源の Entry は残す。`sourceIds` が空になった資源は、範囲だけ（`rangeOnly`）で参照している Source があっても Entry ごと消す |
 | `release()` | ページ側のリスナを外す。以後のメソッドは `instance-released` で reject |
 
 ```typescript
@@ -356,7 +356,7 @@ Source の API は、まずページがこの API を持つサービスワーカ
 （`GET https://weiwudi.example.com/v2/ping` が `{ api: 2, version }` を返すか）。失敗したら何も送りません。
 
 - `sw-not-controlling`: 制御下に無い・確認がサービスワーカーに届かない・確認の間に controller が替わった
-- `sw-outdated`: 制御しているのはこの API の無い古い Weiwudi（新しい版が有効になってから読み込み直す）
+- `sw-outdated`: 制御しているのはこの API の無い古い Weiwudi（`/v2/ping` が 404）か、200 でも本文が `{ api: 2, version: 空でない文字列 }` の形でない（新しい版が有効になってから読み込み直す）
 
 確認の成功は、制御しているワーカーごとに `controllerchange` まで覚えます。制御の要求は
 `Content-Type: text/plain;charset=UTF-8` の `POST` で、preflight を出しません。

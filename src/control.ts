@@ -116,12 +116,19 @@ const refreshTable = async (ctx: Context, resourceIds: readonly string[]): Promi
   return warnings.filter((w) => resourceIds.some((id) => w === `template-shadowed: ${id}`));
 };
 
-/** 影の warnings を Source の warnings に足して保存する（source()・sources() でも同じ写しが見える） */
+/**
+ * 影の warnings を Source の warnings に足して保存する（source()・sources() でも同じ写しが見える）。
+ * 保存の失敗は登録の失敗にしない（照合表の作り直しの失敗と同じ扱い。戻り値には影を含める。PR #80）
+ */
 const withShadows = async (store: Store, rec: SourceRecord, shadows: readonly string[]): Promise<SourceRecord> => {
   const extra = shadows.filter((w) => rec.warnings.indexOf(w) < 0);
   if (extra.length === 0) return rec;
   const next: SourceRecord = { ...rec, warnings: [...rec.warnings, ...extra] };
-  await store.putSource(next);
+  try {
+    await store.putSource(next);
+  } catch (_e) {
+    // 保存した warnings は影を含まないまま（次の register・update で書き直す）
+  }
   return next;
 };
 

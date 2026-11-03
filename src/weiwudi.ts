@@ -41,6 +41,8 @@ let swChecked: boolean | undefined;
 // モジュール変数に置く理由: ページの 1 つの module 実例を使うのは 1 つのページだけ（module-state.test.ts の除外の理由と同じ）
 
 const V2URL = 'https://weiwudi.example.com/v2/';
+/** HTTP キャッシュの 200 を成功と取り違えず、リダイレクトで本文を別オリジンへ移さない（PR #80） */
+const V2_FETCH: Readonly<RequestInit> = Object.freeze({ cache: 'no-store', redirect: 'error' });
 /** ping が成功した controller の実体（controllerchange で捨てる。第 2 回 D2） */
 let v2Verified = new WeakMap<ServiceWorker, true>();
 /** 進行中の確認（同時の呼び出しを ping 1 本にまとめる。第 3 回 推奨） */
@@ -57,7 +59,7 @@ const controllerOf = (): ServiceWorker | null =>
 const pingOnce = async (): Promise<void> => {
     let res: Response;
     try {
-        res = await fetch(`${V2URL}ping`);
+        res = await fetch(`${V2URL}ping`, { ...V2_FETCH });
     } catch (_e) {
         throw notControlling('The service worker did not answer /v2/ping');
     }
@@ -75,16 +77,27 @@ const pingOnce = async (): Promise<void> => {
     }
 };
 
-/** ping の前と後で controller の実体を比べ、違えば 1 回だけ確かめ直す。なお違えば sw-not-controlling（第 3 回 M2） */
+/**
+ * ping の前と後で controller の実体を比べ、違えば 1 回だけ確かめ直す。なお違えば sw-not-controlling（第 3 回 M2）。
+ * ping が失敗したときも比べる: 替わっていれば失敗は前の controller のものなので確かめ直し、替わっていなければ
+ * その失敗を返す（PR #80 水準 2 必須）
+ */
 const verify = async (): Promise<void> => {
     for (let attempt = 0; attempt < 2; attempt++) {
         const before = controllerOf();
         if (!before) throw notControlling('This page is not controlled by a service worker');
-        await pingOnce();
-        if (controllerOf() === before) {
-            v2Verified.set(before, true);
-            return;
+        let failure: unknown;
+        let failed = false;
+        try {
+            await pingOnce();
+        } catch (e) {
+            failed = true;
+            failure = e;
         }
+        if (controllerOf() !== before) continue;
+        if (failed) throw failure;
+        v2Verified.set(before, true);
+        return;
     }
     throw notControlling('The controlling service worker changed while checking /v2/ping');
 };
@@ -103,16 +116,23 @@ const ensureV2 = async (): Promise<void> => {
             v2Pending = undefined;
         });
     }
-    if (v2Verified.has(controller)) return;
-    if (!v2Pending) {
-        const p = verify();
-        v2Pending = p;
-        const done = () => {
-            if (v2Pending === p) v2Pending = undefined;
-        };
-        p.then(done, done);
+    // 進行中の確認を待った後、今の controller が確認済みかを見直す。替わっていれば 1 回だけ確かめ直す（水準 1 Minor 6）
+    for (let round = 0; round < 2; round++) {
+        const current = controllerOf();
+        if (!current) throw notControlling('This page is not controlled by a service worker');
+        if (v2Verified.has(current)) return;
+        if (!v2Pending) {
+            const p = verify();
+            v2Pending = p;
+            const done = () => {
+                if (v2Pending === p) v2Pending = undefined;
+            };
+            p.then(done, done);
+        }
+        await v2Pending;
     }
-    return v2Pending;
+    const last = controllerOf();
+    if (!last || !v2Verified.has(last)) throw notControlling('The controlling service worker changed while checking /v2/ping');
 };
 
 /** POST /v2/<op>（text/plain;charset=UTF-8 の JSON。preflight の要らない単純要求。第 1 回 C1）。失敗は WeiwudiError */
@@ -121,6 +141,7 @@ const postV2 = async <T>(op: string, body: unknown): Promise<T> => {
     let res: Response;
     try {
         res = await fetch(`${V2URL}${op}`, {
+            ...V2_FETCH,
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
             body: JSON.stringify(body),

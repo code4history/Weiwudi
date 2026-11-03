@@ -289,8 +289,9 @@ interface TileBox { minX: number; maxX: number; minY: number; maxY: number }
 **Rejects with `WeiwudiError`:**
 - `attribute-invalid`: a malformed attribute, an `id` starting with `map:`, empty
   or containing `\0`, or a template with user info (`user:pass@`)
-- `unsupported-template`: an unsupported token, a non-absolute URL, or a
-  template on `weiwudi.example.com`
+- `unsupported-template`: an unsupported token, a URL that cannot be resolved
+  or is not `http:` / `https:` (relative URLs are resolved against the page
+  first), or a template on `weiwudi.example.com`
 - `unsupported-kind`: `style` or `asset` (not handled by this version)
 - `credential-rejected`: a secret token (`sk.`) in `credentials` or in the template
 - `sw-not-controlling` / `sw-outdated`: see [Before every call](#before-every-call)
@@ -336,7 +337,7 @@ type ResourceType = 'style' | 'tilejson' | 'tile' | 'glyph' | 'sprite' | 'data';
 | `stats()` | `Promise<SourceStats>` |
 | `update()` | Rebuilds merging and policies from the saved spec and resets the CORS detection. Rejects with `resource-conflict` (and changes nothing) when its own resources conflict |
 | `clean()` | Deletes cached entries. Entries of resources shared with another source are kept |
-| `remove()` | Deletes the registration and its entries (shared entries are kept) and calls `release()` |
+| `remove()` | Deletes the registration and its entries and calls `release()`. Entries of a resource that another source still has in its `sourceIds` are kept; a resource whose `sourceIds` becomes empty is deleted with its entries, even when another source still refers to it only by range (`rangeOnly`) |
 | `release()` | Removes the page-side listener. Other methods then reject with `instance-released` |
 
 ```typescript
@@ -368,7 +369,8 @@ with this API (`GET https://weiwudi.example.com/v2/ping` answering
 - `sw-not-controlling`: the page is not controlled, the check could not reach
   the service worker, or the controller changed during the check
 - `sw-outdated`: the controlling service worker is an older Weiwudi without
-  this API (reload after the new one activates)
+  this API (`/v2/ping` is 404), or it answered 200 with a body that is not
+  `{ api: 2, version: <non-empty string> }` (reload after the new one activates)
 
 A successful check is remembered for the controlling worker until
 `controllerchange`. Control requests are `POST` with

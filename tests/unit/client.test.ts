@@ -170,6 +170,78 @@ describe('ensureV2（仕様 §4.1）', () => {
     expect(posts()).toHaveLength(0);
   });
 
+  it('ping の失敗（404）の間に controller が替わっていたら、新しい controller を確かめ直す（PR #80 水準 2 必須）', async () => {
+    const m = await setup();
+    let n = 0;
+    pingReply = async () => {
+      n++;
+      if (n === 1) {
+        container.controller = {};
+        return new Response('Not Found', { status: 404 });
+      }
+      return pingOk();
+    };
+    expect(await m.default.sources()).toHaveLength(1);
+    expect(pings()).toBe(2);
+    expect(posts()).toHaveLength(1);
+  });
+
+  it('ping の失敗の間に 2 回とも controller が替わると sw-not-controlling（元の例外を返さない）', async () => {
+    const m = await setup();
+    pingReply = async () => {
+      container.controller = {};
+      return new Response('Not Found', { status: 404 });
+    };
+    await rejectsWith(m.default.sources(), 'sw-not-controlling', m);
+    expect(pings()).toBe(2);
+    expect(posts()).toHaveLength(0);
+  });
+
+  it('ping の失敗の間に controller が替わらなければ、元の例外を 1 回で返す', async () => {
+    const m = await setup();
+    pingReply = async () => { throw new TypeError('down'); };
+    await rejectsWith(m.default.sources(), 'sw-not-controlling', m);
+    pingReply = async () => jsonRes({ api: 2, version: '' });
+    await rejectsWith(m.default.sources(), 'sw-outdated', m);
+    expect(pings()).toBe(2);
+  });
+
+  it('進行中の確認を待った後、今の controller が確認済みでなければ確かめ直す（水準 1 Minor 6）', async () => {
+    const m = await setup();
+    const A = {};
+    const B = {};
+    let pinged = false;
+    let reads = 0;
+    // ping の後の読み出し: 1 回目は verify の比較（A）、2 回目は先の呼び出しの見直し（A）、3 回目からは後の呼び出しの
+    // 見直しで B（確認が終わってから、後の呼び出しが再開するまでの間に替わった）
+    Object.defineProperty(container, 'controller', {
+      configurable: true,
+      get: () => {
+        if (!pinged) return A;
+        reads++;
+        return reads >= 3 ? B : A;
+      },
+    });
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    let n = 0;
+    pingReply = async () => {
+      n++;
+      if (n === 1) {
+        await held;
+        pinged = true;
+      }
+      return pingOk();
+    };
+    const a = m.default.sources();
+    const b = m.default.sources();
+    await Promise.resolve();
+    release();
+    await Promise.all([a, b]);
+    expect(pings()).toBe(2);
+    expect(posts()).toHaveLength(2);
+  });
+
   it('同時の 2 つの呼び出しで ping は 1 本（第 3 回 推奨）', async () => {
     const m = await setup();
     let release!: () => void;
@@ -218,6 +290,16 @@ describe('POST の形（仕様 §4.1・§12）', () => {
     expect(new Headers(p.init!.headers).get('content-type')).toBe('text/plain;charset=UTF-8');
     expect(typeof p.init!.body).toBe('string');
     expect(JSON.parse(String(p.init!.body))).toEqual({ kind: 'raster', url: TPL, minZoom: 2 });
+  });
+
+  it('ping と POST は cache: no-store・redirect: error（キャッシュの 200 を成功と取り違えず、本文を別オリジンへ移さない）', async () => {
+    const m = await setup();
+    await m.default.sources();
+    expect(log).toHaveLength(2);
+    for (const c of log) {
+      expect(c.init?.cache).toBe('no-store');
+      expect(c.init?.redirect).toBe('error');
+    }
   });
 
   it('相対の url はページの場所で絶対化する（字句は符号化しない）。絶対の url はそのまま', async () => {
