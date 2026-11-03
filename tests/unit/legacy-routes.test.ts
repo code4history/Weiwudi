@@ -47,9 +47,10 @@ describe('Weiwudi_Internal の初期化', () => {
     expect(waitUntil).toHaveBeenCalledWith(sentinel);
   });
 
-  it('/v2/ で始まるパスは旧 API へ渡さず 404・Not Found（t8 の control まで。仕様 §3・計画 m2-t5）', async () => {
+  it('/v2/ で始まるパスは旧 API へ渡さない。ping は control が答え、他は 404・Not Found（仕様 §3・計画 m2-t5・m2-t8）', async () => {
     const h = createSwHarness();
-    const res = await h.dispatch('https://weiwudi.example.com/v2/ping');
+    expect((await (await h.dispatch('https://weiwudi.example.com/v2/ping'))!.json()).api).toBe(2);
+    const res = await h.dispatch('https://weiwudi.example.com/v2/nope');
     expect(res?.status).toBe(404);
     expect(await res?.text()).toBe('Not Found');
     // /api/v2/… は旧 API の未知の API のまま
@@ -68,13 +69,14 @@ describe('Weiwudi_Internal の初期化', () => {
 
 // m2-t7: 照合ルートと門番を足した後も、旧 API のルートの形と経路は変わらない（仕様 §4.3）
 describe('照合ルート・門番と旧 API のルート（m2-t7）', () => {
-  it('旧 API の GET RegExp ルートはちょうど 1 本のまま。照合ルート（同期）と門番（microtask）は関数の捕捉で後ろに並ぶ', async () => {
+  it('旧 API の GET RegExp ルートはちょうど 1 本のまま。制御の POST（m2-t8）の後に、照合ルート（同期）と門番（microtask）が関数の捕捉で並ぶ', async () => {
     const h = createSwHarness();
-    expect(h.routes).toHaveLength(2);
-    await h.flushRoutes();
     expect(h.routes).toHaveLength(3);
+    await h.flushRoutes();
+    expect(h.routes).toHaveLength(4);
     expect(h.routes[0].capture).toBe(h.capture);
-    expect(h.routes.slice(1).every((r) => typeof r.capture === 'function' && r.method === 'GET')).toBe(true);
+    expect(h.routes[1].method).toBe('POST');
+    expect(h.routes.slice(2).every((r) => typeof r.capture === 'function' && r.method === 'GET')).toBe(true);
     expect(h.routes.filter((r) => r.capture instanceof RegExp && r.method === 'GET')).toHaveLength(1);
   });
 

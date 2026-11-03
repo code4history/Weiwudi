@@ -97,8 +97,9 @@ describe('dispatch の選び方（Workbox の Router と同じ）', () => {
     const h = createSwHarness();
     const seen = vi.fn(async ({ request }: { request: Request }) =>
       new Response(`${request.headers.get('content-type')}|${await request.text()}`));
-    h.registerRoute(new RegExp(`^${SW_ORIGIN}/v2/`), seen, 'POST');
-    const res = await h.post('/v2/register', { id: 'a' });
+    // /v2/ は Weiwudi 自身の制御のルートが先に受ける（m2-t8）ので、別のパスで確かめる
+    h.registerRoute(new RegExp(`^${SW_ORIGIN}/x/`), seen, 'POST');
+    const res = await h.post('/x/register', { id: 'a' });
     expect(await res!.text()).toBe('text/plain;charset=UTF-8|{"id":"a"}');
   });
 });

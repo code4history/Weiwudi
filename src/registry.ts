@@ -16,6 +16,12 @@ const LEGACY_PREFIX = 'map:';
 
 const isLegacy = (r: ResourceMeta): boolean => r.id.startsWith(LEGACY_PREFIX);
 
+/**
+ * 衝突の warnings の書式の唯一の出どころ（仕様 §12 の "<code>: <subject>"）。keep の判定（isKeptIn）もこれで照らす
+ * （書式が変わると keep の Source の spec が合成に紛れ込むため。m2-t6 の申し送り）
+ */
+export const conflictWarning = (resourceId: string): string => `resource-conflict: ${resourceId}`;
+
 const without = (xs: readonly string[] | undefined, id: string): string[] => (xs ?? []).filter((x) => x !== id);
 
 const unique = (xs: readonly string[]): string[] => xs.filter((x, i) => xs.indexOf(x) === i);
@@ -193,7 +199,7 @@ export function planRegister(spec: NormalizedSpec, existing: SourceRecord | unde
     // 2 つ以上に重なるか、1 つと衝突した
     for (const r of overlapping) {
       plan.conflicts.push(r.id);
-      plan.warnings.push(`resource-conflict: ${r.id}`);
+      plan.warnings.push(conflictWarning(r.id));
       if (existing !== undefined && r.sourceIds.indexOf(id) >= 0) plan.keep.push(r.id);
       else plan.rangeOnly.push(r.id);
     }
@@ -219,7 +225,7 @@ const lookupOf = (sources: readonly SourceRecord[]): Lookup => {
  * この Resource に入れると別の Resource のテンプレートや新しい方針が混ざる（PR #77 水準 1 M1）
  */
 const isKeptIn = (rec: SourceRecord, resourceId: string): boolean =>
-  rec.warnings.indexOf(`resource-conflict: ${resourceId}`) >= 0;
+  rec.warnings.indexOf(conflictWarning(resourceId)) >= 0;
 
 /**
  * Resource の合成（方針・範囲・テンプレート）。keep の Source の spec はどこにも入れない:

@@ -65,19 +65,20 @@ describe('候補の条件（仕様 §4.3）', () => {
 });
 
 describe('ルートの登録順（仕様 §4.3）', () => {
-  it('旧 API・照合・利用者のルート・門番の順。旧 API の GET RegExp ルートはちょうど 1 本', async () => {
+  it('旧 API・制御（POST）・照合・利用者のルート・門番の順。旧 API の GET RegExp ルートはちょうど 1 本', async () => {
     const h = harness();
     const user = vi.fn(async () => new Response('user'));
     h.registerRoute(/^https:\/\/user\.example\//, user, 'GET');
-    expect(h.routes).toHaveLength(3);
-    await h.flushRoutes();
     expect(h.routes).toHaveLength(4);
+    await h.flushRoutes();
+    expect(h.routes).toHaveLength(5);
     expect(h.routes[0].capture).toBe(h.capture);
-    expect(typeof h.routes[1].capture).toBe('function');
-    expect(String(h.routes[2].capture)).toBe(String(/^https:\/\/user\.example\//));
-    expect(typeof h.routes[3].capture).toBe('function');
+    expect(h.routes[1].method).toBe('POST');
+    expect(typeof h.routes[2].capture).toBe('function');
+    expect(String(h.routes[3].capture)).toBe(String(/^https:\/\/user\.example\//));
+    expect(typeof h.routes[4].capture).toBe('function');
     expect(h.routes.filter((r) => r.capture instanceof RegExp && r.method === 'GET')).toHaveLength(2);
-    expect(h.routes.every((r) => r.method === 'GET')).toBe(true);
+    expect(h.routes.filter((r) => r.method !== 'GET')).toEqual([h.routes[1]]);
   });
 });
 
@@ -87,8 +88,8 @@ describe('門番と照合ルート', () => {
     const ctx = createContext();
     await applyRegister(await ctx.store(), normalizeSpec({ kind: 'raster', url: TPL }));
     await h.flushRoutes();
-    const gate = vi.spyOn(h.routes[2], 'handle');
-    const match = vi.spyOn(h.routes[1], 'handle');
+    const gate = vi.spyOn(h.routes[3], 'handle');
+    const match = vi.spyOn(h.routes[2], 'handle');
     const first = await h.dispatch(TILE);
     expect(first!.headers.get('x-weiwudi-status')).toBe('miss');
     expect(gate).toHaveBeenCalledTimes(1);
