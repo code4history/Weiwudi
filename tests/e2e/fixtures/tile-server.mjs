@@ -7,7 +7,7 @@
 // 一時ディレクトリの片付け（m2-t1・第 1 回 S14・第 2 回 O19）:
 // - SIGTERM・SIGINT で一時ディレクトリを消してから process.exit(0)。exit の処理でも消す
 //   （playwright.config.js の gracefulShutdown で SIGTERM が届く。無いと SIGKILL で止まり消えない）
-// - 起動時に、作られてから 1 時間より古い weiwudi-e2e-* を消す（SIGKILL で残った分の保険）
+// - listen に成功した後に、作られてから 1 時間より古い weiwudi-e2e-* を消す（SIGKILL で残った分の保険）
 import { createServer } from 'node:http';
 import { mkdtempSync, readFileSync, readdirSync, existsSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -19,19 +19,6 @@ const CORS = { 'access-control-allow-origin': '*' };
 
 const PREFIX = 'weiwudi-e2e-';
 const STALE_MS = 60 * 60 * 1000;
-
-// 前の走行が SIGKILL などで残した古い一時ディレクトリを消す
-for (const name of readdirSync(tmpdir())) {
-    if (!name.startsWith(PREFIX)) continue;
-    const dir = join(tmpdir(), name);
-    try {
-        const st = statSync(dir);
-        const created = st.birthtimeMs || st.ctimeMs;
-        if (st.isDirectory() && Date.now() - created > STALE_MS) rmSync(dir, { recursive: true, force: true });
-    } catch (_e) {
-        // 消せないものは次の起動に任せる
-    }
-}
 
 const workDir = mkdtempSync(join(tmpdir(), PREFIX));
 const cleanup = () => {
@@ -73,6 +60,23 @@ function serveWorkbox(pathname, res) {
     res.end(readFileSync(file));
 }
 
+// 前の走行が SIGKILL などで残した古い一時ディレクトリを消す。listen に成功した後にだけ呼ぶ
+// （ポートを取れなかった起動は、走っている別の実例の一時ディレクトリを消しうるので掃除しない）
+const sweepStale = () => {
+    for (const name of readdirSync(tmpdir())) {
+        if (!name.startsWith(PREFIX)) continue;
+        const dir = join(tmpdir(), name);
+        if (dir === workDir) continue;
+        try {
+            const st = statSync(dir);
+            const created = st.birthtimeMs || st.ctimeMs;
+            if (st.isDirectory() && Date.now() - created > STALE_MS) rmSync(dir, { recursive: true, force: true });
+        } catch (_e) {
+            // 消せないものは次の起動に任せる
+        }
+    }
+};
+
 const server = createServer((req, res) => {
     const { pathname } = new URL(req.url, `http://localhost:${PORT}`);
     if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -106,5 +110,6 @@ const server = createServer((req, res) => {
 });
 
 server.listen(PORT, 'localhost', () => {
+    sweepStale();
     console.log(`tile-server listening on http://localhost:${PORT}`);
 });

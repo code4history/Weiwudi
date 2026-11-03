@@ -5,6 +5,8 @@
 // - `let`・`var` があれば失敗（`declare` は除く）
 // - `const` の初期値が `new Map`・`new Set`・`new WeakMap`・`new WeakSet`・配列の literal・object の literal なら失敗
 //   （`as const`・`satisfies`・括弧・型の表明は剥がして見る）
+// - 最上位の class の static フィールドの初期値が、上と同じ可変の入れ物なら失敗（`static readonly` でも中身は変えられる
+//   ので失敗。名前は `Class.field` で出す）
 // - ただし型の注記が `Readonly` か `readonly` で始まる宣言と、下の許可の一覧の名前は許す
 // 見ないもの:
 // - plugins.ts（差し込み口の登録表だけはモジュール変数に置く。試験用の _resetPluginsForTest つき）
@@ -58,6 +60,18 @@ const findModuleState = (code: string, fileName = 'x.ts'): { name: string; reaso
   const sf = ts.createSourceFile(fileName, code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   const found: { name: string; reason: string }[] = [];
   for (const st of sf.statements) {
+    // 最上位の class の static フィールドも、モジュールの読み込み時に 1 つだけ作られる入れ物になる
+    if (ts.isClassDeclaration(st)) {
+      if (st.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) continue;
+      const cls = st.name?.text ?? 'default';
+      for (const m of st.members) {
+        if (!ts.isPropertyDeclaration(m) || !m.initializer) continue;
+        if (!m.modifiers?.some((x) => x.kind === ts.SyntaxKind.StaticKeyword)) continue;
+        if (m.type && /^(readonly|Readonly)/.test(m.type.getText(sf))) continue;
+        if (isMutableContainer(m.initializer)) found.push({ name: `${cls}.${m.name.getText(sf)}`, reason: 'static mutable container' });
+      }
+      continue;
+    }
     if (!ts.isVariableStatement(st)) continue;
     if (st.modifiers?.some((m) => m.kind === ts.SyntaxKind.DeclareKeyword)) continue;
     const flags = st.declarationList.flags;
@@ -113,6 +127,22 @@ describe('検査の読み取り（自己確認）', () => {
       'function g() { let inner = 1; return inner; }',
     ].join('\n');
     expect(findModuleState(code)).toEqual([]);
+  });
+
+  it('最上位の class の static フィールドで可変の入れ物を作るものを見つける', () => {
+    const code = [
+      'export class Holder { static cache = new Map(); }',
+      'class K { static readonly list = []; static obj = { a: 1 }; }',
+      'export default class { static seen = new Set<string>(); }',
+      'class Ok {',
+      '  static readonly N = 1;',
+      '  static re = /x/g;',
+      '  static ro: ReadonlyMap<string, number> = new Map();',
+      '  static make() { return new Map(); }',
+      '  inst = new Map();',
+      '}',
+    ].join('\n');
+    expect(findModuleState(code).map((f) => f.name)).toEqual(['Holder.cache', 'K.list', 'K.obj', 'default.seen']);
   });
 });
 
