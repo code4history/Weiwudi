@@ -30,6 +30,7 @@ Weiwudi is open-source under the MIT License.
 - Per-map cache capacity limit (`cacheMaxBytes`) with least-recently-used eviction
 - Bulk prefetch (`fetchAll`) with progress events (`proceed` / `finish` / `stop`)
 - Works with any map library (Leaflet, OpenLayers, etc.) through the URL template
+- Source API (`Weiwudi.register`) that caches the real tile URLs the map library already requests
 - Open-source (MIT) with a peer dependency on `workbox-routing`
 
 <!-- SECTION 5: Quick Start -->
@@ -142,6 +143,41 @@ is `no-cors` (for example a tile requested by an `<img>` element). Build a new
 `Request` with `mode: 'cors'` if the upstream needs them.
 
 Details: [Service worker API](docs/api/sw.md).
+
+### Caching real tile URLs (source API)
+
+`Weiwudi.register` registers the URL templates that your map library requests.
+The service worker then caches those real URLs directly, so you pass the
+original URL to the map library.
+
+```typescript
+import Weiwudi from '@c4h/weiwudi';
+
+await Weiwudi.registerSW('./sw.js', { scope: './' });
+const source = await Weiwudi.register({
+  kind: 'raster', // or 'vector'
+  url: 'https://tile.example.com/{z}/{x}/{y}.png',
+});
+// Create the map after register() resolves; earlier requests are not cached
+L.tileLayer(source.url as string).addTo(leafletMap);
+
+console.log(source.warnings, await source.stats());
+```
+
+- Only Chromium is tested. **WebKit and Firefox are not verified yet.**
+- In this version `kind` is `'raster'` or `'vector'`; `'style'` and `'asset'` are
+  rejected with `unsupported-kind`.
+- An explicit `id` is a public value (it appears in `sources()` and `warnings`).
+  Do not put credentials in it; pass them as `credentials` instead.
+- Failures reject with `WeiwudiError` (`sw-not-controlling`, `sw-outdated`,
+  `source-not-found`, …). A resource that cannot be merged with an existing one
+  does not fail `register()`; it is reported in `source.warnings`.
+- In your service worker, **put the Weiwudi import first** (`import '@c4h/weiwudi/sw'`
+  or the `importScripts` line) and register your own Workbox routes after it.
+  A catch-all route (for example `/.*/`) registered before Weiwudi takes every
+  tile request from it.
+
+Details: [Source API](docs/api/weiwudi.md#source-api).
 
 ### API reference
 

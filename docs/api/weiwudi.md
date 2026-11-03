@@ -3,6 +3,9 @@
 The main class of `@c4h/weiwudi`. Instances are created via `Weiwudi.registerMap`
 and expose tile-cache operations for a registered map.
 
+The source API (`Weiwudi.register` and `WeiwudiSource`) caches the real tile URLs
+your map library already uses; see [Source API](#source-api).
+
 ## Static Methods
 
 ### `Weiwudi.registerSW(sw, swOptions?)`
@@ -195,7 +198,7 @@ Fired periodically during a `fetchAll()` operation to report progress.
 - `mapID` (string): Map identifier
 - `error` (number): Number of failed tiles so far (total)
 - `errors` (object): Failed tiles so far by kind: `{ network, upstream, quota, storage }`.
-  This also counts failures of other tile requests served while `fetchAll()` is running
+  Only the tiles requested by this `fetchAll()` are counted
 - Additional progress information
 
 ---
@@ -208,7 +211,7 @@ Fired when a `fetchAll()` operation completes successfully.
 - `mapID` (string): Map identifier
 - `error` (number): Number of failed tiles (total)
 - `errors` (object): Failed tiles by kind: `{ network, upstream, quota, storage }`.
-  This also counts failures of other tile requests served while `fetchAll()` is running
+  Only the tiles requested by this `fetchAll()` are counted
 
 ---
 
@@ -220,6 +223,178 @@ Fired when a `fetchAll()` operation stops due to an error or cancellation.
 - `mapID` (string): Map identifier
 - `reason`: The error that stopped the operation
 - `code` (string): `WeiwudiError.from(reason).code` (see [Errors](#errors))
+
+## Source API
+
+Register the URL templates your map library requests. The service worker then
+catches those real URLs directly, so you pass the original URL to the map
+library instead of a `weiwudi.example.com` URL.
+
+```typescript
+import Weiwudi from '@c4h/weiwudi';
+
+await Weiwudi.registerSW('./sw.js', { scope: './' });
+const source = await Weiwudi.register({
+  kind: 'raster',
+  url: 'https://tile.example.com/{z}/{x}/{y}.png',
+  bounds: [139.7, 35.6, 139.8, 35.7], minZoom: 0, maxZoom: 16,
+});
+// Create the map after register() resolves; earlier requests are not cached
+L.tileLayer(source.url as string).addTo(leafletMap);
+```
+
+Only Chromium is tested. WebKit and Firefox are not verified yet.
+
+### `Weiwudi.register(spec)`
+
+Register a source. Calling it again with the same spec is idempotent.
+
+**Parameters:** `spec` (`SourceSpec`)
+
+```typescript
+type SourceSpec = CommonPolicy & (
+  | { kind: 'raster' | 'vector'; id?: string; url: string | string[];
+      bounds?: [west: number, south: number, east: number, north: number]; box?: TileBox;
+      minZoom?: number; maxZoom?: number; scheme?: 'xyz' | 'tms'; tileSize?: number;
+      outOfRange?: { extent?: OutOfRange; zoom?: OutOfRange } }
+  | { kind: 'style'; id?: string; url: string; fonts?: string[] }
+  | { kind: 'asset'; id?: string; url: string | string[] }
+);
+interface CommonPolicy {
+  cacheTtl?: number;          // freshness in ms (default 24 h)
+  cacheRetention?: number;    // deletion deadline in ms (default: none)
+  cacheMaxBytes?: number;     // capacity of this source in bytes
+  cachePrivate?: boolean;     // also cache authenticated requests (default false)
+  credentials?: Credentials;  // added by the service worker; never stored outside the credentials store
+  credentialParams?: string[];// query names dropped from cache keys (added to the defaults)
+}
+type Credentials = { query?: Record<string, string>; headers?: Record<string, string> };
+type OutOfRange = 'transparent' | 'empty' | 'not-found';
+interface TileBox { minX: number; maxX: number; minY: number; maxY: number }
+```
+
+- `url`: one template or an array of mirrors. Tokens: `{z}` `{x}` `{y}` `{-y}`
+  `{quadkey}` `{ratio}` `{prefix}`. A relative URL is resolved against the page.
+- `id`: defaults to the normalized first template. An explicit `id` is a public
+  value (the key of `source()`, the `id` of `sources()`, and `warnings`): **do not
+  put credentials in it**. It must be a non-empty string without `\0` and must not
+  start with `map:` (reserved for maps registered with `registerMap`).
+- **`kind: 'style'` and `kind: 'asset'` are rejected with `unsupported-kind` in this
+  version.**
+- Out-of-range tiles are a transparent PNG (raster) or an empty 200 body (vector)
+  by default. Use `outOfRange: { zoom: 'not-found' }` to get a 404 outside the zoom range.
+
+**Returns:** `Promise<WeiwudiSource>`
+
+**Rejects with `WeiwudiError`:**
+- `attribute-invalid`: a malformed attribute, an `id` starting with `map:`, empty
+  or containing `\0`, or a template with user info (`user:pass@`)
+- `unsupported-template`: an unsupported token, a URL that cannot be resolved
+  or is not `http:` / `https:` (relative URLs are resolved against the page
+  first), or a template on `weiwudi.example.com`
+- `unsupported-kind`: `style` or `asset` (not handled by this version)
+- `credential-rejected`: a secret token (`sk.`) in `credentials` or in the template
+- `sw-not-controlling` / `sw-outdated`: see [Before every call](#before-every-call)
+
+A resource that cannot be merged with an existing one does **not** make
+`register()` fail. The source is saved and `warnings` gets
+`resource-conflict: <resource id>`.
+
+### `Weiwudi.source(id)`
+
+**Returns:** `Promise<WeiwudiSource>`. Rejects with `source-not-found` when no
+source has the id (maps registered with `registerMap` are not listed).
+
+### `Weiwudi.sources()`
+
+**Returns:** `Promise<SourceInfo[]>` in registration order.
+
+```typescript
+interface SourceInfo {
+  id: string;
+  kind: SourceSpec['kind'];
+  url: string | string[];      // the real URL without credentials
+  resources: ResourceInfo[];   // a copy taken at the time of the call
+  warnings: string[];          // a copy taken at register() / update()
+}
+interface ResourceInfo {
+  id: string; type: ResourceType; templates: string[];
+  count: number; bytes: number;
+  rangeOnly?: true;            // only the range of this source was added (resource-conflict)
+  corsless?: true;             // treated as a server without CORS for now
+}
+type ResourceType = 'style' | 'tilejson' | 'tile' | 'glyph' | 'sprite' | 'data';
+```
+
+### `WeiwudiSource`
+
+| Member | Description |
+|---|---|
+| `id` | Source id |
+| `url` | Real URL(s) to pass to the map library (without credentials) |
+| `resources` | `ResourceInfo[]`, a copy taken at the time of the call. Read `stats()` or `Weiwudi.source()` again for later changes |
+| `warnings` | `string[]`, a copy taken at `register()` / `update()` (it does not change afterwards) |
+| `stats()` | `Promise<SourceStats>` |
+| `update()` | Rebuilds merging and policies from the saved spec and resets the CORS detection. Rejects with `resource-conflict` (and changes nothing) when its own resources conflict |
+| `clean()` | Deletes cached entries. Entries of resources shared with another source are kept |
+| `remove()` | Deletes the registration and its entries and calls `release()`. Entries of a resource that another source still has in its `sourceIds` are kept; a resource whose `sourceIds` becomes empty is deleted with its entries, even when another source still refers to it only by range (`rangeOnly`) |
+| `release()` | Removes the page-side listener. Other methods then reject with `instance-released` |
+
+```typescript
+interface SourceStats {
+  count: number;
+  size: number;
+  total?: number;      // only when the range is known (bounds or box)
+  percent?: number;    // same
+  byResource: Record<string, { count: number; bytes: number }>;
+}
+```
+
+### `warnings`
+
+Each entry is `"<code>: <subject>"`. The subject is a resource id (credentials
+are already removed) or a URL without its query.
+
+| code | Meaning |
+|---|---|
+| `resource-conflict` | The resource could not be merged with an existing one (different `type`, `scheme` or encoding, wider `credentialParams` while entries exist, or overlapping two resources). It keeps the existing policy; only the range of this source is added |
+| `template-shadowed` | Another registered template matches the same requests and is evaluated first, so this resource is not captured |
+
+### Before every call
+
+The source API first checks that the page is controlled by a service worker
+with this API (`GET https://weiwudi.example.com/v2/ping` answering
+`{ api: 2, version }`). Nothing is sent when the check fails:
+
+- `sw-not-controlling`: the page is not controlled, the check could not reach
+  the service worker, or the controller changed during the check
+- `sw-outdated`: the controlling service worker is an older Weiwudi without
+  this API (`/v2/ping` is 404), or it answered 200 with a body that is not
+  `{ api: 2, version: <non-empty string> }` (reload after the new one activates)
+
+A successful check is remembered for the controlling worker until
+`controllerchange`. Control requests are `POST` with
+`Content-Type: text/plain;charset=UTF-8` so that no preflight is sent.
+
+### Tile responses: `x-weiwudi-status`
+
+Responses that the service worker builds for captured URLs (and for `map.url`)
+carry `x-weiwudi-status`, and `x-weiwudi-error` on failure. Both can be read
+from the page because `access-control-expose-headers` lists them.
+
+| `x-weiwudi-status` | Meaning |
+|---|---|
+| `out-of-range` | Outside the registered range |
+| `hit` | Fresh cached entry |
+| `miss` | Fetched from upstream (cached when possible) |
+| `refresh` | Stale entry replaced by a new upstream response |
+| `stale` | Upstream failed; the cached entry was served |
+| `upstream-error` | Upstream failed (HTTP) with no cached entry; the upstream status is passed on |
+| `offline-miss` | Network failure with no cached entry (404) |
+
+`x-weiwudi-error` is one of `network`, `upstream`, `quota`, `storage`.
+Opaque responses (servers without CORS, requested from `<img>`) are passed on
+uncached and carry no header. New values may be added in a minor release.
 
 ---
 
@@ -302,9 +477,16 @@ try {
 **Other codes:** `db-blocked`, `quota`, `internal` (from wrapped exceptions, see
 above) and `network`, `upstream`, `storage` (tile failures, see below).
 
-**Codes reserved for the upcoming API:** `unsupported-template`, `invalid-style`,
-`opaque`, `sw-outdated`, `credential-rejected`, `source-not-found`,
-`resource-conflict`, `unsupported-kind` (a `kind` the version does not handle yet).
+**Codes of the source API** (rejected as `WeiwudiError`, see [Source API](#source-api)):
+`unsupported-template` and `credential-rejected` (`register`),
+`unsupported-kind` (`register` with `kind: 'style'` or `'asset'` in this version),
+`sw-outdated` (the controlling service worker lacks the source API),
+`source-not-found` (`source()` and the `WeiwudiSource` methods for an unknown id),
+`resource-conflict` (`update()` only; `register()` writes it to `warnings`).
+The source API also uses `attribute-invalid`, `sw-not-controlling`,
+`instance-released` and `api-not-found` from the table above, with its own messages.
+
+**Codes reserved for the upcoming API:** `invalid-style`, `opaque`.
 They are part of the `WeiwudiErrorCode` type but are not produced yet.
 
 **New codes may be added in a minor release.** When you `switch` on `code`,

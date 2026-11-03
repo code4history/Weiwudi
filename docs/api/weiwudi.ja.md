@@ -2,6 +2,8 @@
 
 `@c4h/weiwudi` のメインクラスです。インスタンスは `Weiwudi.registerMap` 経由で作成され、登録されたマップのタイルキャッシュ操作を提供します。
 
+Source の API（`Weiwudi.register` と `WeiwudiSource`）は、地図ライブラリが使う実際のタイルの URL をそのままキャッシュします。[Source の API](#source-の-api) を参照してください。
+
 ## 静的メソッド
 
 ### `Weiwudi.registerSW(sw, swOptions?)`
@@ -194,7 +196,7 @@ Weiwudiインスタンスは `WeiwudiEventTarget` を継承し、以下のイベ
 - `mapID` (string): マップ識別子
 - `error` (number): それまでに失敗したタイルの数（合計）
 - `errors` (object): それまでに失敗したタイルの種類別の数 `{ network, upstream, quota, storage }`。
-  `fetchAll()` の実行中に配った他のタイルの取得の失敗も含みます
+  その `fetchAll()` が取得したタイルの失敗だけを数えます
 - 追加の進行状況情報
 
 ---
@@ -207,7 +209,7 @@ Weiwudiインスタンスは `WeiwudiEventTarget` を継承し、以下のイベ
 - `mapID` (string): マップ識別子
 - `error` (number): 失敗したタイルの数（合計）
 - `errors` (object): 失敗したタイルの種類別の数 `{ network, upstream, quota, storage }`。
-  `fetchAll()` の実行中に配った他のタイルの取得の失敗も含みます
+  その `fetchAll()` が取得したタイルの失敗だけを数えます
 
 ---
 
@@ -219,6 +221,163 @@ Weiwudiインスタンスは `WeiwudiEventTarget` を継承し、以下のイベ
 - `mapID` (string): マップ識別子
 - `reason`: 停止の原因となったエラー
 - `code` (string): `WeiwudiError.from(reason).code`（[エラー](#エラー) を参照）
+
+## Source の API
+
+地図ライブラリが要求する URL テンプレートを登録します。サービスワーカーがその実 URL を直接捕捉するので、地図ライブラリには
+`weiwudi.example.com` の URL ではなく元の URL を渡します。
+
+```typescript
+import Weiwudi from '@c4h/weiwudi';
+
+await Weiwudi.registerSW('./sw.js', { scope: './' });
+const source = await Weiwudi.register({
+  kind: 'raster',
+  url: 'https://tile.example.com/{z}/{x}/{y}.png',
+  bounds: [139.7, 35.6, 139.8, 35.7], minZoom: 0, maxZoom: 16,
+});
+// register() の完了を待ってから地図を作る（先に出た要求はキャッシュされない）
+L.tileLayer(source.url as string).addTo(leafletMap);
+```
+
+試験しているのは Chromium だけです。WebKit・Firefox は未確認です。
+
+### `Weiwudi.register(spec)`
+
+Source を登録します。同じ内容で何度呼んでも結果は同じです（冪等）。
+
+**パラメータ:** `spec`（`SourceSpec`）
+
+```typescript
+type SourceSpec = CommonPolicy & (
+  | { kind: 'raster' | 'vector'; id?: string; url: string | string[];
+      bounds?: [west: number, south: number, east: number, north: number]; box?: TileBox;
+      minZoom?: number; maxZoom?: number; scheme?: 'xyz' | 'tms'; tileSize?: number;
+      outOfRange?: { extent?: OutOfRange; zoom?: OutOfRange } }
+  | { kind: 'style'; id?: string; url: string; fonts?: string[] }
+  | { kind: 'asset'; id?: string; url: string | string[] }
+);
+interface CommonPolicy {
+  cacheTtl?: number;          // 鮮度（ms。既定 24 時間）
+  cacheRetention?: number;    // 削除期限（ms。既定なし）
+  cacheMaxBytes?: number;     // この Source の容量（byte）
+  cachePrivate?: boolean;     // 認証付きの要求も保存する（既定 false）
+  credentials?: Credentials;  // サービスワーカーが足す。credentials ストアの外には残さない
+  credentialParams?: string[];// キャッシュのキーから落とすクエリの名前（既定の名前に足す）
+}
+type Credentials = { query?: Record<string, string>; headers?: Record<string, string> };
+type OutOfRange = 'transparent' | 'empty' | 'not-found';
+interface TileBox { minX: number; maxX: number; minY: number; maxY: number }
+```
+
+- `url`: テンプレート 1 つか、ミラーの配列。字句は `{z}` `{x}` `{y}` `{-y}` `{quadkey}` `{ratio}` `{prefix}`。
+  相対 URL はページの場所で解決します
+- `id`: 既定は先頭のテンプレートを正規化したもの。明示の `id` は公開の値です（`source()` の鍵・`sources()` の `id`・
+  `warnings`）。**資格情報を入れないでください。** 空でない・`\0` を含まない文字列で、`map:` で始めてはいけません
+  （`registerMap` で登録した地図のための予約）
+- **`kind: 'style'` と `kind: 'asset'` は、この版では `unsupported-kind` で拒否します。**
+- 範囲外のタイルは、既定でラスタは透明 PNG、ベクタは 200 の空本体です。ズームの外を 404 にしたいときは
+  `outOfRange: { zoom: 'not-found' }` を指定します
+
+**戻り値:** `Promise<WeiwudiSource>`
+
+**`WeiwudiError` で reject するとき:**
+- `attribute-invalid`: 項目の形の誤り・`map:` で始まる／空の／`\0` を含む `id`・userinfo（`user:pass@`）を含むテンプレート
+- `unsupported-template`: 未対応の字句・解決できないか `http:`・`https:` でない URL（相対 URL は先にページの場所で絶対化する）・`weiwudi.example.com` のテンプレート
+- `unsupported-kind`: `style`・`asset`（この版では扱わない）
+- `credential-rejected`: `credentials` かテンプレートの秘密トークン（`sk.`）
+- `sw-not-controlling`・`sw-outdated`: [呼び出しの前の確認](#呼び出しの前の確認) を参照
+
+既存の資源と合流できない資源があっても `register()` は**失敗しません**。Source を保存し、`warnings` に
+`resource-conflict: <資源の id>` を書きます。
+
+### `Weiwudi.source(id)`
+
+**戻り値:** `Promise<WeiwudiSource>`。その id の Source が無ければ `source-not-found` で reject します
+（`registerMap` で登録した地図は出ません）。
+
+### `Weiwudi.sources()`
+
+**戻り値:** 登録順の `Promise<SourceInfo[]>`。
+
+```typescript
+interface SourceInfo {
+  id: string;
+  kind: SourceSpec['kind'];
+  url: string | string[];      // 資格情報を除いた実 URL
+  resources: ResourceInfo[];   // 呼び出し時点の写し
+  warnings: string[];          // register()・update() の時点の写し
+}
+interface ResourceInfo {
+  id: string; type: ResourceType; templates: string[];
+  count: number; bytes: number;
+  rangeOnly?: true;            // この Source の範囲だけを足した資源（resource-conflict）
+  corsless?: true;             // いまは CORS 非対応のサーバとして扱っている
+}
+type ResourceType = 'style' | 'tilejson' | 'tile' | 'glyph' | 'sprite' | 'data';
+```
+
+### `WeiwudiSource`
+
+| メンバ | 説明 |
+|---|---|
+| `id` | Source の id |
+| `url` | 地図ライブラリへ渡す実 URL（資格情報なし） |
+| `resources` | `ResourceInfo[]`。呼び出し時点の写しで、後の変化は `stats()` か `Weiwudi.source()` で読み直す |
+| `warnings` | `string[]`。`register()`・`update()` の時点の写し（後で変わらない） |
+| `stats()` | `Promise<SourceStats>` |
+| `update()` | 保存した登録内容で合流と方針を作り直し、CORS の判定をやり直す。自分の資源が衝突すると `resource-conflict` で reject し、何も変えない |
+| `clean()` | 保存した Entry を消す。他の Source と共有する資源の Entry は残す |
+| `remove()` | 登録と Entry を消し、`release()` を呼ぶ。他の Source が `sourceIds` に持つ資源の Entry は残す。`sourceIds` が空になった資源は、範囲だけ（`rangeOnly`）で参照している Source があっても Entry ごと消す |
+| `release()` | ページ側のリスナを外す。以後のメソッドは `instance-released` で reject |
+
+```typescript
+interface SourceStats {
+  count: number;
+  size: number;
+  total?: number;      // 範囲（bounds か box）が決まるときだけ
+  percent?: number;    // 同上
+  byResource: Record<string, { count: number; bytes: number }>;
+}
+```
+
+### `warnings`
+
+各要素は `"<code>: <subject>"` です。subject は資源の id（資格情報は除いてある）か、クエリを除いた URL です。
+
+| code | 意味 |
+|---|---|
+| `resource-conflict` | 既存の資源と合流できなかった（`type`・`scheme`・符号化の違い、Entry があるのに `credentialParams` が広がる、2 つの資源に重なる）。既存の方針のままで、この Source の範囲だけを足す |
+| `template-shadowed` | 同じ要求に当たる別のテンプレートが先に評価されるので、この資源は捕捉されない |
+
+### 呼び出しの前の確認
+
+Source の API は、まずページがこの API を持つサービスワーカーの制御下にあるかを確かめます
+（`GET https://weiwudi.example.com/v2/ping` が `{ api: 2, version }` を返すか）。失敗したら何も送りません。
+
+- `sw-not-controlling`: 制御下に無い・確認がサービスワーカーに届かない・確認の間に controller が替わった
+- `sw-outdated`: 制御しているのはこの API の無い古い Weiwudi（`/v2/ping` が 404）か、200 でも本文が `{ api: 2, version: 空でない文字列 }` の形でない（新しい版が有効になってから読み込み直す）
+
+確認の成功は、制御しているワーカーごとに `controllerchange` まで覚えます。制御の要求は
+`Content-Type: text/plain;charset=UTF-8` の `POST` で、preflight を出しません。
+
+### タイルの応答: `x-weiwudi-status`
+
+サービスワーカーが捕捉した URL（と `map.url`）に作る応答には `x-weiwudi-status` が付き、失敗したときは
+`x-weiwudi-error` も付きます。`access-control-expose-headers` に載せるので、ページから読めます。
+
+| `x-weiwudi-status` | 意味 |
+|---|---|
+| `out-of-range` | 登録した範囲の外 |
+| `hit` | 新しい Entry |
+| `miss` | 上流から取得した（保存できれば保存） |
+| `refresh` | 古い Entry を上流の新しい応答で置き換えた |
+| `stale` | 上流が失敗したので保存した Entry を返した |
+| `upstream-error` | 上流が HTTP で失敗し、Entry も無い（上流の状態をそのまま渡す） |
+| `offline-miss` | 通信の失敗で、Entry も無い（404） |
+
+`x-weiwudi-error` は `network`・`upstream`・`quota`・`storage` のどれかです。CORS 非対応のサーバへの `<img>` の
+要求（opaque の応答）は保存せずにそのまま渡すので、ヘッダは付きません。値は minor の版で増えることがあります。
 
 ---
 
@@ -295,9 +454,16 @@ try {
 **ほかのコード:** `db-blocked`・`quota`・`internal`（包んだ例外から。上を参照）と、
 `network`・`upstream`・`storage`（タイルの失敗。下を参照）。
 
-**今後の API のために予約したコード:** `unsupported-template`・`invalid-style`・
-`opaque`・`sw-outdated`・`credential-rejected`・`source-not-found`・
-`resource-conflict`・`unsupported-kind`（その版がまだ扱わない `kind`）。`WeiwudiErrorCode` の
+**Source の API のコード**（`WeiwudiError` で reject します。[Source の API](#source-の-api) を参照）:
+`unsupported-template`・`credential-rejected`（`register`）、
+`unsupported-kind`（この版の `register` で `kind: 'style'`・`'asset'`）、
+`sw-outdated`（制御しているサービスワーカーに Source の API が無い）、
+`source-not-found`（`source()` と `WeiwudiSource` のメソッドで、無い id）、
+`resource-conflict`（`update()` だけ。`register()` は `warnings` に書く）。
+Source の API は上の表の `attribute-invalid`・`sw-not-controlling`・`instance-released`・`api-not-found` も、
+独自の文面で使います。
+
+**今後の API のために予約したコード:** `invalid-style`・`opaque`。`WeiwudiErrorCode` の
 型には入っていますが、まだ作られません。
 
 **code は今後の minor で増えることがあります。** `code` で `switch` するときは、

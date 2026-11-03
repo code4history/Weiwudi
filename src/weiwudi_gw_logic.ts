@@ -1,9 +1,11 @@
 /// <reference lib="webworker" />
 // 配線だけ（仕様 §3・§13・§4.3）。実行中の状態（context）を呼び出しごとに 1 つ作り、install・activate のリスナと、
-// 疑似ホストの GET のルート 1 本・照合ルート・門番（hook）を登録する。/v2/ で始まるパスは t8 の control へ、
-// それ以外は legacy へ渡す（legacy から control を呼ばない。第 2 回 O12）。t8 までは /v2/ も legacy と同じ 404。
+// 疑似ホストの GET のルート 1 本・制御の POST のルート（/v2/*）・照合ルート・門番（hook）をこの順に登録する。
+// 疑似ホストの GET のうち /v2/ で始まるパス（ping）は control へ、それ以外は legacy へ渡す（legacy から control を
+// 呼ばない。第 2 回 O12）。
 import type { RouteHandlerCallback, RouteMatchCallback } from 'workbox-core';
 import { createContext } from './context';
+import { createControl } from './control';
 import { handleLegacy } from './legacy';
 import { installHook } from './hook';
 import { credentialSourceFor } from './registry';
@@ -25,12 +27,15 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp | RouteMatchCal
     event.waitUntil(self.clients.claim());
   });
 
+  const control = createControl(ctx);
   const handlerCb: RouteHandlerCallback = async (options) => {
-    if (options.url.pathname.startsWith('/v2/')) return new Response('Not Found', { status: 404 });
+    if (options.url.pathname.startsWith('/v2/')) return control.get(options);
     return handleLegacy(ctx, options);
   };
 
   registerRoute(/^https?:\/\/weiwudi\.example\.com(?=[/?#]|$)/, handlerCb, 'GET');
+  // 制御（仕様 §4.3 の表の 2 本目）。本文は text/plain;charset=UTF-8 の JSON（preflight の要らない単純要求）
+  registerRoute(/^https?:\/\/weiwudi\.example\.com\/v2\//, control.post, 'POST');
   // 照合ルート（同期）と門番（queueMicrotask）。資格情報の Source は registry の規則で選ぶ（hook は registry を import できない）
   installHook(ctx, registerRoute, { pickCredentialSource: credentialSourceFor });
 }

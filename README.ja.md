@@ -27,6 +27,7 @@ Weiwudi は MIT License のオープンソースソフトウェアです。
 - マップ単位のキャッシュ容量上限（`cacheMaxBytes`）と LRU 自動削除
 - 一括取得 (`fetchAll`) と進捗イベント (`proceed` / `finish` / `stop`)
 - URL テンプレート経由で Leaflet・OpenLayers など任意のマップライブラリと連携
+- 地図ライブラリが要求する実際のタイルの URL をそのままキャッシュする Source の API（`Weiwudi.register`）
 - MIT ライセンスのオープンソース・peer dependency は `workbox-routing`
 
 <!-- SECTION 5: Quick Start -->
@@ -136,6 +137,36 @@ addPlugin({
 ブラウザが捨てます。上流が必要とするなら `mode: 'cors'` の `Request` を作り直してください。
 
 詳しくは [サービスワーカーの API](docs/api/sw.ja.md) を参照してください。
+
+### 実際のタイルの URL をキャッシュする（Source の API）
+
+`Weiwudi.register` に地図ライブラリが要求する URL テンプレートを登録すると、サービスワーカーがその実 URL を
+直接キャッシュします。地図ライブラリには元の URL をそのまま渡します。
+
+```typescript
+import Weiwudi from '@c4h/weiwudi';
+
+await Weiwudi.registerSW('./sw.js', { scope: './' });
+const source = await Weiwudi.register({
+  kind: 'raster', // または 'vector'
+  url: 'https://tile.example.com/{z}/{x}/{y}.png',
+});
+// register() の完了を待ってから地図を作る（先に出た要求はキャッシュされない）
+L.tileLayer(source.url as string).addTo(leafletMap);
+
+console.log(source.warnings, await source.stats());
+```
+
+- 試験しているのは Chromium だけです。**WebKit・Firefox は未確認です。**
+- この版の `kind` は `'raster'` と `'vector'` です。`'style'`・`'asset'` は `unsupported-kind` で拒否します。
+- 明示の `id` は公開の値です（`sources()` と `warnings` に出ます）。資格情報を入れず、`credentials` で渡してください。
+- 失敗は `WeiwudiError`（`sw-not-controlling`・`sw-outdated`・`source-not-found` など）で reject します。
+  既存の資源と合流できない資源があっても `register()` は失敗せず、`source.warnings` に書きます。
+- サービスワーカーでは **Weiwudi の import を先に書き**（`import '@c4h/weiwudi/sw'` か `importScripts` の行）、
+  自分の Workbox のルートはその後に登録してください。Weiwudi より前に登録した全捕捉のルート（`/.*/` など）は、
+  タイルの要求をすべて先に取ります。
+
+詳しくは [Source の API](docs/api/weiwudi.ja.md#source-の-api) を参照してください。
 
 ### API リファレンス
 
