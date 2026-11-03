@@ -62,12 +62,12 @@
       "plan": null,
       "ledger": null,
       "security_review": "pending",
-      "carried_from_precheck": "m1 の事前点検の第 6 回から O-3 持ち主の Source の削除で範囲だけの region が残る（region は範囲取得と一緒に作る）と、m2 の R20（opaque イベント）と、m1 のまとめの「m4 への申し送り」（dist の 4 点・latToMercY(90) が有限・移行無しで master へ入れない）、m2 の R13・R15（範囲取得の CORS・認証、容量超過時の退避と再試行）"
+      "carried_from_precheck": "m1 の事前点検の第 6 回から O-3 持ち主の Source の削除で範囲だけの region が残る（region は範囲取得と一緒に作る）と、m2 の R20（opaque イベント）と、m1 のまとめの「m4 への申し送り」（dist の 4 点・latToMercY(90) が有限・移行無しで master へ入れない）、m2 の R13・R15（範囲取得の CORS・認証、容量超過時の退避と再試行）、m2-t2 の水準 1 Minor 1（上限つきの putEntry が保存のたびに全件 getAll する。bytes−pinnedBytes で予算内なら走査を省き、超えるときだけ索引の cursor で古い順に引く）"
     }
   ],
   "design_references": [
     "docs/superpowers/reports/2026-11-02-onboard-summary.md",
     "docs/superpowers/specs/2026-11-02-new-interface-spec.md"
   ],
-  "next_action": "実行するのはこのサイクルのセッション（進行役）。m1 の事前点検は第 6 回で m1 の範囲について合格（進行役の Ruling。台帳）。m1-t1 は PR #67（0d34e10）、m1-t2 は PR #69（dec9098）、m1-t3 は PR #71（efddaa0。水準 1・水準 2 を 5 回で通過、CI は Node 22・24 とも緑）で vector-cache へ合流済み。m1 は 2026-11-03 に完了（区切りのレビュー合格・セキュリティ Critical 0／Major 0。まとめは reports/2026-11-03-m1-foundation-summary.md）。m2 の計画（plans/2026-11-03-m2-core.md・t1〜t9）は事前点検を 4 回で合格（07c8873。S は 15→7→3→1 で収束、台帳の第 4 回の Ruling）。m2-t1（試験の土台）は PR #72（53d43f3。水準 1 合格・CI 緑）で合流済み。次は m2-t2（store.ts・#37）。t1 の水準 1 の Minor 5 件を前段の直しとして含める（台帳）。順は t1 → t2 → t3∥t4 → t5（t3・t4 の後）∥t6 → t7 → t8 → t9。t4・t8 は水準 2 のレビューを含む。人間の判断 2 件（mapbox:// の標準搭載・旧 API の非推奨時期）は推奨案で進めてよく、m3・m4 までに要る。"
+  "next_action": "実行するのはこのサイクルのセッション（進行役）。m1 の事前点検は第 6 回で m1 の範囲について合格（進行役の Ruling。台帳）。m1-t1 は PR #67（0d34e10）、m1-t2 は PR #69（dec9098）、m1-t3 は PR #71（efddaa0。水準 1・水準 2 を 5 回で通過、CI は Node 22・24 とも緑）で vector-cache へ合流済み。m1 は 2026-11-03 に完了（区切りのレビュー合格・セキュリティ Critical 0／Major 0。まとめは reports/2026-11-03-m1-foundation-summary.md）。m2 の計画（plans/2026-11-03-m2-core.md・t1〜t9）は事前点検を 4 回で合格（07c8873。S は 15→7→3→1 で収束、台帳の第 4 回の Ruling）。m2-t1（試験の土台）は PR #72（53d43f3。水準 1 合格・CI 緑）で合流済み。m2-t2（store.ts・#37）は PR #73（f39a8f2。水準 1 合格・CI 緑）で合流済み。次は m2-t3（url_pattern.ts・spec.ts）と m2-t4（core・plugins・context。水準 2 あり）。t3 には t2 の水準 1 の Minor 2・3 と Info 1 を前段の直しとして含める（台帳）。順は t1 → t2 → t3∥t4 → t5（t3・t4 の後）∥t6 → t7 → t8 → t9。t4・t8 は水準 2 のレビューを含む。人間の判断 2 件（mapbox:// の標準搭載・旧 API の非推奨時期）は推奨案で進めてよく、m3・m4 までに要る。"
 }

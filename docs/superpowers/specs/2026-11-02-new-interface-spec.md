@@ -312,7 +312,7 @@ export interface ResourceInfo {
 - メタと本体を分ける: 現行は cache hit のたびに Blob ごと `put` し直す（`getImage` の accessedAt 更新）。分ければメタだけで済む
 - `count`・`bytes` を `resources` に持ち、Entry の増減と同じトランザクションで更新する: 現行の `stats` は全件走査、`putItemWithEviction` は保存のたびに全件走査で、`fetchAll` 全体が O(N²)
 - LRU と期限の掃除は `pinned = 0` の範囲を索引で引く。固定が多くても読み飛ばさない
-- 資源の一括削除は `delete(IDBKeyRange.bound(id + '\0', id + '\0￿'))` 1 回で済む（#38）
+- 資源の一括削除は `delete(IDBKeyRange.bound(id + '\0', id + '\x01', false, true))` 1 回で済む（#38。id に `\0` は入らないので、この半開区間で漏れなく取れる。`id + '\0￿'` を上端にすると U+FFFF で始まる suffix を取りこぼす。m2-t2 の Ruling R6）
 - `fetchAll` の「既に有るか」は `allKeys.indexOf` をやめ、バッチごとに `getKey` する
 
 `openDatabase` の `onblocked` 処理・`onversionchange` で閉じる処理（#59）は `store.ts` へそのまま移す。`getDB` の「store が無ければ版を上げる」は不要になる。

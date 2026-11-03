@@ -168,3 +168,15 @@ Ruling: 第 4 回の直しは進行役が直接行い（指摘の裁定案どお
 
 Ruling: 実装者の Ruling 1〜4 を採る — 1 構文木で読む・2 providers/ どうしの import は許す（plugins と providers の間は禁止のまま）・3 legacy に最初から migrate・4 plugins を変数経由の動的 import で読む（理由は IDE の型エラー避け。tsconfig は tests を見ない）— 誤りなら 2 は m3 で提供元が plugins へ登録する形にするときに表の読み方を決め直す
 Ruling: 水準 1 の Minor 5 件は t2 の実装者に前段の直しとして渡す（動的 import()・class の static フィールドの検出、ハーネスの RegExp の lastIndex と method の大文字化を実物どおりにする、plugins の読み込みの catch を「ファイルが無い」だけに絞る、古いディレクトリの掃除を listen の成功の後へ移す）— どれも条件違反ではなく試験の抜け穴で、t2 以降の試験が乗る前に塞ぐのが安い — 誤りなら t2 の差分が少し増えるだけ
+
+## m2-t2 store.ts（2026-11-03・#37）
+
+- 実装: 15b290f（m2-t1 の水準 1 の Minor 5 件の直し）・c4e9c4c（store.ts）。PR #73 を merge commit f39a8f2 で vector-cache へ合流。CI は Node 22・24 とも緑
+- 実測: test:unit 487 passed・typecheck・build・eslint exit 0・e2e 18 passed・`weiwudi-e2e-*` は前後とも 0 個
+- 水準 1（新しい Claude）: 合格・Critical 0・Major 0・Minor 3・Info 5。変異 19 件のうち 16 件で試験が落ちる（偽の緑ではない）
+
+Ruling: 実装者の R1〜R9 を採る（openStore は blocked でも resolve・blocked の間は BlockedError で即 reject／putEntry は保存の可否を全要素で先に決める／patchResource・replaceResource は数を保存済みの値から引き継ぐ／MapSetting などの型は t5 まで store.ts に置く／SourceRecord.spec は t3 で SourceSpec に狭める）— 水準 1 がすべて妥当と判定 — 誤りなら t3〜t5 で型と置き場所を直す
+Ruling: R6 のキーの範囲 `[id+'\0', id+'\x01')` に仕様 §5.4 の表記を揃えた — 仕様の `id+'\0￿'` は U+FFFF で始まる suffix を取りこぼす — 誤りなら仕様の表記に戻す
+Ruling: 水準 1 の Minor 2・3 と Info 1 は t3 の実装者に前段の直しとして渡す（複数の Resource をまとめた同値の並びの試験・大きさ 0 で maxBytes 0 の試験・putEntry で key が `resourceId + '\0'` で始まるかを確かめる守り）— どれも数行で、t4 の core が乗る前に塞ぐのが安い — 誤りなら t3 の差分が少し増えるだけ
+Ruling: Minor 1（上限つきの putEntry が毎回全件 getAll する）は m4 の退避の作業へ申し送る — 旧実装も全件走査で悪化はなく、動作は正しい。動くもの最優先 — 誤りなら上限つきの地図の取得が大きいときに遅い
+- 申し送り（t4 以降）: runTx の fn の中で IDB 以外の Promise を待たない（tx が先に完了する）。putEntry の大きさは meta.size なので、core が blob.size と揃える。MapSetting の二重定義は t5 で gw_logic 側を消す
