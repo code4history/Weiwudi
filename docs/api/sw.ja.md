@@ -2,6 +2,10 @@
 
 [English](sw.md)
 
+> **開発中の枝での状態:** フックはまだタイルの配信に繋がっていません。`addPlugin` は export され、
+> 登録もできますが、m2-t5 で旧 API を新コアへ載せ替えるまでは、実際の要求ではどのフックも呼ばれません。
+> この注記は m2-t5 で外します。
+
 サービスワーカーの入口は、import した時点で Weiwudi のルートを登録します。
 副作用 import はこれまでどおり動きます。
 
@@ -61,7 +65,14 @@ self.Weiwudi_SW.addPlugin({ /* フック */ });
 
 ## `WeiwudiPlugin`
 
-フックはどれも省略できます。名前と意味は Workbox のプラグインと同じです。
+フックはどれも省略できます。これは Weiwudi 独自の API で、フックの名前は Workbox のプラグインから
+借りていますが、Workbox のプラグインではなく、Workbox のプラグインを渡すこともできません。
+Workbox との違い:
+
+- どのフックにも `event` を渡しません。
+- `state` を渡すのは `requestWillFetch`・`fetchDidSucceed`・`fetchDidFail` だけです。
+- `cacheWillUpdate`・`cachedResponseWillBeUsed` には、キャッシュのキーではなく元の要求
+  （`requestWillFetch` を通す前のもの）を渡します。
 
 ```ts
 interface WeiwudiPlugin {
@@ -76,16 +87,19 @@ interface WeiwudiPlugin {
 | フック | 呼ぶとき | 戻り値 |
 |---|---|---|
 | `requestWillFetch` | 上流へ要求を出す前 | 別の `Request` を返すと、それで取りに行く。何も返さなければそのまま。次のプラグインは結果を受け取る |
-| `fetchDidSucceed` | 上流から応答が届いた後（HTTP のエラーを含む） | 別の `Response` を返すと、それを使う |
+| `fetchDidSucceed` | 上流から応答が届いた後（HTTP のエラーと opaque の応答を含む） | 別の `Response` を返すと、それを使う。本体を読んで何も返さない（または読んだ応答を返す）と、エラーを残して、フックを呼ぶ前の応答を使う |
 | `fetchDidFail` | 上流へ届かなかったとき（ネットワークの失敗） | 使わない |
-| `cacheWillUpdate` | 応答を保存する前 | `null` で保存しない。別の `Response` を返すと、それを保存する（ページへは元の応答を返す） |
+| `cacheWillUpdate` | Weiwudi が応答の保存を試みる直前 | `null` で保存しない。別の `Response` を返すと、それを保存する（ページへは元の応答を返す）。その本体が読めなければ、保存せずに `x-weiwudi-error: storage` を付けて配る |
 | `cachedResponseWillBeUsed` | 保存した応答を配る前（新しいとき、または上流の失敗で古いものを配るとき） | `null` で「保存した応答が無い」として扱う。別の `Response` を返すと、それを配る |
 
 1 つの要求での順:
 
-- 保存済みで新しい: `cachedResponseWillBeUsed`
+- 保存済みで新しい: `cachedResponseWillBeUsed`。`null` を返すと、下の「未保存」の順へ進みます。
 - 未保存、または古い: `requestWillFetch` → `fetchDidSucceed` → `cacheWillUpdate`（保存するときだけ）
+- HTTP のエラー（または opaque の応答、タイルの代わりの `text/html` のページ）で古いものがある:
+  `requestWillFetch` → `fetchDidSucceed` → `cachedResponseWillBeUsed`
 - ネットワークの失敗: `requestWillFetch` → `fetchDidFail` → `cachedResponseWillBeUsed`（古いものがあるときだけ）
+- 資源の登録が無くなった要求と、`Range` ヘッダつきの要求では、どのフックも呼びません（上流へそのまま出します）。
 
 注意:
 
@@ -93,9 +107,11 @@ interface WeiwudiPlugin {
   `requestWillFetch`・`fetchDidSucceed`・`fetchDidFail` に同じ object を渡します。
 - `cacheWillUpdate` は、Weiwudi が保存しようとする応答でだけ呼びます。HTTP のエラー、タイルの代わりに
   返された `text/html` のページ、opaque の応答、保存しない認証付きの要求では呼びません。
+- 上流の成功（2xx）の応答は `200 OK` として配り、保存します（旧 API と同じ）。
 - 旧 API（`Weiwudi.registerMap`）の経路では、Weiwudi は URL の文字列で上流へ取りに行きます。
   `requestWillFetch` が別の `Request` を返したときだけ、その `Request` で取りに行きます。
-- 同じタイルへの同時の要求は 1 本にまとめます。まとめた要求に対してフックは 1 回だけ走ります。
+- 同じタイルへの匿名の同時の要求は 1 本にまとめます。フックは 1 回だけ、最初の要求が始まったときの登録で走ります。
+  認証付きの要求はまとめません。
 
 ## `ResourceInfo`
 

@@ -2,6 +2,11 @@
 
 [日本語](sw.ja.md)
 
+> **Status on the development branch:** the hooks are not yet connected to tile
+> serving. `addPlugin` is exported and registers plugins, but until the legacy
+> API is moved onto the new core (m2-t5), no hook is called for real requests.
+> This note is removed in m2-t5.
+
 The service worker entry registers Weiwudi's routes when it is imported. A
 side-effect import keeps working as before:
 
@@ -63,7 +68,15 @@ self.Weiwudi_SW.addPlugin({ /* hooks */ });
 
 ## `WeiwudiPlugin`
 
-Every hook is optional. The names and meanings follow Workbox plugins.
+Every hook is optional. This is Weiwudi's own API. It borrows the hook names of
+Workbox plugins, but it is not a Workbox plugin and Workbox plugins cannot be
+passed to it. Differences from Workbox:
+
+- No `event` is passed to any hook.
+- `state` is passed only to `requestWillFetch`, `fetchDidSucceed` and
+  `fetchDidFail`.
+- `cacheWillUpdate` and `cachedResponseWillBeUsed` receive the original request
+  (before `requestWillFetch`), not a cache key.
 
 ```ts
 interface WeiwudiPlugin {
@@ -78,16 +91,23 @@ interface WeiwudiPlugin {
 | Hook | When | Return value |
 |---|---|---|
 | `requestWillFetch` | Before the request goes upstream | A different `Request` to fetch instead. Nothing keeps the current one. The next plugin receives the result |
-| `fetchDidSucceed` | After a response arrives from upstream, including HTTP errors | A different `Response` to use instead |
+| `fetchDidSucceed` | After a response arrives from upstream, including HTTP errors and opaque responses | A different `Response` to use instead. If the hook reads the body and returns nothing (or returns the read response), Weiwudi logs an error and uses the response from before the hook |
 | `fetchDidFail` | When upstream could not be reached (network failure) | Ignored |
-| `cacheWillUpdate` | Before a response is cached | `null`: do not cache. A different `Response`: cache that one (the page still receives the original response) |
+| `cacheWillUpdate` | Just before Weiwudi tries to cache a response | `null`: do not cache. A different `Response`: cache that one (the page still receives the original response). If its body cannot be read, the tile is served with `x-weiwudi-error: storage` and not cached |
 | `cachedResponseWillBeUsed` | Before a cached response is served (fresh, or stale after an upstream failure) | `null`: treat it as not cached. A different `Response`: serve that one |
 
 Order for one request:
 
-- Cached and fresh: `cachedResponseWillBeUsed`
-- Not cached, or expired: `requestWillFetch` → `fetchDidSucceed` → `cacheWillUpdate` (only when the response will be cached)
-- Network failure: `requestWillFetch` → `fetchDidFail` → `cachedResponseWillBeUsed` (only when a stale copy exists)
+- Cached and fresh: `cachedResponseWillBeUsed`. If it returns `null`, the request
+  continues as "not cached" below.
+- Not cached, or expired: `requestWillFetch` → `fetchDidSucceed` → `cacheWillUpdate`
+  (only when the response will be cached)
+- HTTP error (or an opaque response, or a `text/html` page instead of a tile)
+  with a stale copy: `requestWillFetch` → `fetchDidSucceed` → `cachedResponseWillBeUsed`
+- Network failure: `requestWillFetch` → `fetchDidFail` → `cachedResponseWillBeUsed`
+  (only when a stale copy exists)
+- No hook is called for a request whose resource is no longer registered, or for
+  a request with a `Range` header (these go to upstream unchanged).
 
 Notes:
 
@@ -97,11 +117,14 @@ Notes:
 - `cacheWillUpdate` is called only when Weiwudi would cache the response. It is
   not called for HTTP errors, a `text/html` page served instead of a tile, opaque
   responses, or authenticated requests that are not cached.
+- A successful (2xx) upstream response is served and cached as `200 OK`, the
+  same as the legacy API.
 - With the legacy API (`Weiwudi.registerMap`), Weiwudi fetches upstream with the
   URL string. When `requestWillFetch` returns a different `Request`, it fetches
   that `Request` instead.
-- Concurrent requests for the same tile are merged into one. The hooks run once
-  for the merged request.
+- Concurrent anonymous requests for the same tile are merged into one. The hooks
+  run once, with the plugins registered when the first request started.
+  Authenticated requests are never merged.
 
 ## `ResourceInfo`
 
