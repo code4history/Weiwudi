@@ -251,3 +251,17 @@ Ruling: 水準 1 の Minor 6 件は合流を止めずに申し送る。Minor 1�
 - m3 への申し送り: 資格情報は差し込み口を通した後の要求のオリジンが元と同じときだけ足す（requestChanged が今は使われていない）／1 つの Source の中のミラーごとに資格情報が違う場合（spec.ts が先のミラーの値 1 つにまとめる。I2 の残り）／style・tilejson で isStyleLike を立てる／リダイレクトの先にヘッダの資格情報が付くことを文書に書く
 - m4 への申し送り: serve が reject すると（save の evictScopesFor の読み出しの失敗）上流へ 2 回出る／opaque イベントと jobOpaqueStreak／IndexedDB の open が永久に終わらないと門番が毎回 3 秒待つ（実害の実績なし）
 - Info（記録だけ）: 同時の要求をまとめると cors の要求に opaque が渡り得る（まれ）／作り直した要求に signal・cache・integrity・priority が写らない／失敗の直後は 1 秒空けてからやり直す（仕様は「次の要求で」）
+
+## m2-t8 制御（/v2/*）とページ側 API（2026-11-04）
+
+- 実装: bc1a7c5（前段: m2-t7 の水準 1 Minor 1 の偽の緑の試験）・8ab407e（control.ts 新規・Weiwudi.register／source／sources と WeiwudiSource・ensureV2）・ffb537d（README と docs/api の英日・仕様 §4.3・§9・§10・§12 と計画の文言）・d4309fd（水準 2 の必須と推奨の直し）。PR #80 を merge commit d4177b3 で vector-cache へ合流。CI は Node 22・24 とも緑
+- 実測: test:unit 966 passed・typecheck exit 0（進行役が手元で確認）。実装者の報告で build・eslint・check-dts・`tsc -p tests/dts` exit 0・e2e 18 passed・依存の追加なし・weiwudi_gw_logic.ts は 41 行
+- 水準 1（新しい Claude）: 合格・Critical 0・Major 0・Minor 6・Info 6。直列の待ち行列を外すと同時の register が実際に失敗すること（偽の緑でない）・資格情報がどの応答にも出ないこと・旧 API の map: がどの op からも見えないこと・t5〜t7 の t8 への申し送りがすべて片付いたことを確かめた
+- 水準 2 の第 1 回（Codex・範囲を src/control.ts・weiwudi.ts・weiwudi_gw_logic.ts と docs/api の Source の API の節に絞り、30 分で切り上げる指定）: 約 32 分で最終報告。合流不可・必須 1（ensureV2 が ping の例外で controller を比べず、A の 404 が B の sw-outdated として返る。§4.1 に反する）・推奨 6。必須と推奨 4 件（cache: 'no-store'・redirect: 'error'／withShadows の保存失敗でも登録を成功に／文書の unsupported-template・sw-outdated）と水準 1 の Minor 3・6 を d4309fd で直した
+- 水準 2 の第 2 回: Codex に再確認を出したが、15 分の指定を超えて 20 分以上出力が止まった（最後はサンドボックスでの vitest の失敗）。同じ確認を水準 1 の Claude にも並べて出し、先に出た Claude の判定（合格・必須の解消・新しい欠陥なし・試行は ping 最大 4 本で必ず終わる・redirect: 'error' は /v2/ だけで旧 API に効かない）で合流した。Codex の中継は止めた
+
+Ruling: 実装者の Ruling 1〜9 を採る（対象外の 6 本の直し／tableChanged の reject は登録を成功にして表を捨てる／template-shadowed はその Source の Resource のものだけ保存／容量判定の読み出しの失敗は §9 に記録して m4／update() は保存した spec と資格情報で applyUpdate／byResource は {count, bytes}・範囲だけの Resource も含む／エラーコードの割り当て／絶対 URL は絶対化しない／WeiwudiSource は sourceId の一致する message だけ流す）と、直しの Ruling（影の保存に失敗しても戻り値の warnings には影を含める）— 水準 1 が妥当と判定 — 誤りなら m3・m4 で直す
+Ruling: 水準 2 の第 2 回（再確認）は Codex の結果を待たず Claude の判定で合流する — 第 1 回の必須は 1 件で直しが小さく、変異で落ちる試験がある。Codex は指定の時間を超えて止まった。委任先の推奨は禁止ではない — 誤りなら m2 の区切りのレビューで差し戻す
+- t9 への申し送り: 制御の POST が SW に届きネットワークへ出ない（hits 0 件）ことを実ブラウザで測る／別オリジンのページから /v2/ping と POST の応答が読めること（制御応答の CORS。Codex の推奨）／実ブラウザの controllerchange の後に確かめ直すことを 1 本
+- m3 への申し送り: WeiwudiError.from が未知の code を internal に作り直す（新しい SW の code が消える）／style・asset の登録を足すときは control.ts の infoOf・statsOf・refreshTable の絞り込みを広げる
+- m4 への申し送り: stats の count と percent を「その Source の範囲の中の Entry」で数える（今は共有で 100 を超え得る）／control の IndexedDB の失敗を storage に分類／register の途中で store が失敗したときも照合表を作り直す／照合表の読み込みが終わらないと変更の op が待ち続ける（門番と同じ上限を検討）／容量判定の読み出しの失敗を storage で配信を続ける形に（§9 に記録済み）／範囲つきの clean・regions の削除・persist()／ジョブのイベントは WeiwudiSource の message の受け口を使う／直列の待ち行列は 1 つの SW の中だけ
