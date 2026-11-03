@@ -210,6 +210,8 @@ describe('null の 2 種', () => {
     addPlugin({ cacheWillUpdate: async () => null });
     const res = await run();
     expect(res.headers.get('x-weiwudi-status')).toBe('miss');
+    // 保存しないのは意図どおりで、保存の失敗ではない
+    expect(res.headers.get('x-weiwudi-error')).toBeNull();
     expect(await store.getEntry(KEY)).toBeUndefined();
   });
 
@@ -295,12 +297,62 @@ describe('渡すもの', () => {
     expect(states.b[0]).not.toBe(a1);
   });
 
-  it('fetchDidFail に error、fetchDidSucceed に response が渡る', async () => {
+  it('fetchDidFail に error、fetchDidSucceed に上流の response が渡る（L1 m5）', async () => {
     const err = new TypeError('offline');
     let gotErr: unknown;
     addPlugin({ fetchDidFail: async ({ error }) => { gotErr = error; } });
     await run({ upstream: async () => ({ kind: 'network', error: err }) });
     expect(gotErr).toBe(err);
+    const upstreamResponse = new Response('up', { status: 200, headers: { 'content-type': 'image/png' } });
+    let gotResponse: unknown;
+    addPlugin({ fetchDidSucceed: async ({ response }) => { gotResponse = response; } });
+    await run({ key: `${RID}\u00001_1_0`, coord: { z: 1, x: 1, y: 0 }, upstream: async () => ({ kind: 'response', response: upstreamResponse }) });
+    expect(gotResponse).toBe(upstreamResponse);
+  });
+});
+
+describe('レビューの指摘（PR #75）', () => {
+  it('fetchDidSucceed が本体を読んで何も返さなくても配信を続け、読む前の応答に戻して console.error に残す（L1 m1）', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    addPlugin({ fetchDidSucceed: async ({ response }) => { await response.text(); } });
+    const res = await run({ upstream: async () => ok('body-kept') });
+    expect(res.headers.get('x-weiwudi-status')).toBe('miss');
+    expect(await res.text()).toBe('body-kept');
+    expect(await (await store.getEntry(KEY))?.body.blob.text()).toBe('body-kept');
+    expect(error).toHaveBeenCalledTimes(1);
+  });
+
+  it('fetchDidSucceed が読み終えた Response を返しても、読む前の応答に戻す', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    addPlugin({ fetchDidSucceed: async ({ response }) => { await response.arrayBuffer(); return response; } });
+    const res = await run({ upstream: async () => ok('body-kept') });
+    expect(await res.text()).toBe('body-kept');
+  });
+
+  it('hit で cachedResponseWillBeUsed が null でも、保存し直す Entry は保存済みの pinned を引き継ぐ（L1 m2）', async () => {
+    const blob = new Blob(['cached']);
+    await store.putEntry(
+      { key: KEY, resourceId: RID, size: blob.size, fetchedAt: T, accessedAt: T, pinned: 1 },
+      { key: KEY, blob, headers: { 'content-type': 'image/png' } },
+      [],
+    );
+    addPlugin({ cachedResponseWillBeUsed: async () => null });
+    const res = await run({ upstream: async () => ok('fresh') });
+    expect(res.headers.get('x-weiwudi-status')).toBe('miss');
+    const saved = await store.getEntry(KEY);
+    expect(await saved?.body.blob.text()).toBe('fresh');
+    expect(saved?.meta.pinned).toBe(1);
+  });
+
+  it('cacheWillUpdate が返した Response の本体が読めなければ、保存の失敗（storage）として配信を続ける（L2 推奨）', async () => {
+    const used = new Response('used');
+    await used.text();
+    addPlugin({ cacheWillUpdate: async () => used });
+    const res = await run({ upstream: async () => ok('served') });
+    expect(res.headers.get('x-weiwudi-status')).toBe('miss');
+    expect(res.headers.get('x-weiwudi-error')).toBe('storage');
+    expect(await res.text()).toBe('served');
+    expect(await store.getEntry(KEY)).toBeUndefined();
   });
 });
 

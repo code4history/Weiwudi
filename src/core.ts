@@ -6,7 +6,9 @@
 // - モジュール変数を持たない（同時要求の Map は context が持つ）
 // - 合成した応答すべてに x-weiwudi-status（7 値）・失敗時の x-weiwudi-error（4 語）・
 //   access-control-expose-headers を付ける（上流の同名のヘッダは上書き。R9）。opaque には付けない
-// - 合成した応答と保存する応答から 4 ヘッダ（content-encoding・content-length・transfer-encoding・set-cookie）を落とす
+// - 合成した応答と保存する応答から 4 ヘッダ（content-encoding・content-length・transfer-encoding・set-cookie）と
+//   上流の x-weiwudi-* をすべて落とす
+// - 同時要求をまとめるのは storable の要求だけ。Range つきの要求は素通し（仕様 §11）
 // - hit の touch は応答を返す前に呼び、完了は待たない（R8・第 1 回 O-6）
 // - 保存に失敗しても配信は続け、x-weiwudi-error に quota か storage を付ける（#22）
 // - store の読み出しの失敗（接続・Resource・Entry）は reject で返す（呼び出し側が旧 API の文面などへ直す）
@@ -31,14 +33,17 @@ export interface ServeInput {
   key: string;
   /** タイルの座標（範囲外の判定と Entry の z・x・y）。タイル以外は無し */
   coord?: { z: number; x: number; y: number };
-  /** 差し込み口へ渡す要求 */
+  /**
+   * 差し込み口へ渡す要求。`Range` ヘッダつきの要求は呼び出し側が serve に入れないのが契約（仕様 §11）。
+   * 入ってきたときは守りとして素通しする（上流の応答をそのまま返し、保存・まとめ・差し込み口を使わない）
+   */
   request: Request;
   /**
    * 上流の取得。request は差し込み口を通した後の要求。requestChanged は差し込み口が別の Request に替えたとき真
    * （旧 API はこれで fetch(URL の文字列) から fetch(Request) に切り替える。第 1 回 S8）
    */
   upstream: (request: Request, ctx: { hasEntry: boolean; requestChanged: boolean }) => Promise<UpstreamResult>;
-  /** 仕様 §4.6 の判定（認証付きの要求は偽） */
+  /** 仕様 §4.6 の判定（認証付きの要求は偽）。偽の要求は同時要求をまとめない（他の要求と応答を共有しない） */
   storable: boolean;
   /** style・tilejson は 200 の text/html を失敗にしない */
   isStyleLike?: boolean;
@@ -68,19 +73,22 @@ const H_ERROR = 'x-weiwudi-error';
 const H_EXPOSE = 'access-control-expose-headers';
 const EXPOSE_VALUE = `${H_STATUS}, ${H_ERROR}`;
 
-/** 上流の値を写さない名前（こちらが付ける。上流の同名は上書き・削除） */
-const OWN_HEADERS: readonly string[] = [H_STATUS, H_ERROR, H_EXPOSE];
+/** 上流の値を写さない名前の前置き（こちらの名前空間。上流の x-weiwudi-* はすべて落とす） */
+const OWN_PREFIX = 'x-weiwudi-';
 
 const JOB_BATCH = 5;
 
 // ---- ヘッダの補助 ----
 
-/** Headers を名前小文字の record にし、4 ヘッダを落とす */
+/** 保存にも合成にも写さないヘッダ（4 ヘッダと x-weiwudi-*） */
+const isDropped = (n: string): boolean => DROPPED_HEADERS.indexOf(n) >= 0 || n.startsWith(OWN_PREFIX);
+
+/** Headers を名前小文字の record にし、4 ヘッダと x-weiwudi-* を落とす */
 const copyHeaders = (h: Headers): Record<string, string> => {
   const out: Record<string, string> = {};
   h.forEach((value, name) => {
     const n = name.toLowerCase();
-    if (DROPPED_HEADERS.indexOf(n) < 0) out[n] = value;
+    if (!isDropped(n)) out[n] = value;
   });
   return out;
 };
@@ -100,7 +108,7 @@ const synthesize = (p: Parts, status: ServeStatus, error?: TileFailure): Respons
   const headers = new Headers();
   for (const [name, value] of Object.entries(p.headers)) {
     const n = name.toLowerCase();
-    if (DROPPED_HEADERS.indexOf(n) >= 0 || OWN_HEADERS.indexOf(n) >= 0) continue;
+    if (isDropped(n) || n === H_EXPOSE) continue;
     headers.set(n, value);
   }
   headers.set(H_STATUS, status);
@@ -154,12 +162,23 @@ const runRequestWillFetch = async (h: Hooks, request: Request): Promise<Request>
   return current;
 };
 
+/**
+ * 本体を読んだまま何も返さない（または読み終えた Response を返す）プラグインがあっても配信を止めないよう、
+ * 呼ぶ前の写しを持ち、使えない本体になったら写しへ戻して console.error に残す（PR #75 L1 m1）
+ */
 const runFetchDidSucceed = async (h: Hooks, request: Request, response: Response): Promise<Response> => {
   let current = response;
   for (const p of h.plugins) {
     if (!p.fetchDidSucceed) continue;
+    const backup = current.clone();
     const r = await callHook(p, 'fetchDidSucceed', () => p.fetchDidSucceed!({ request, response: current, resource: h.info, state: stateOf(h, p) }));
-    if (r instanceof Response) current = r;
+    const next = r instanceof Response ? r : current;
+    if (next.bodyUsed) {
+      console.error('Weiwudi plugin fetchDidSucceed consumed the response body without returning a new Response; the response before the hook is used');
+      current = backup;
+    } else {
+      current = next;
+    }
   }
   return current;
 };
@@ -257,9 +276,13 @@ export async function evictScopesFor(store: Store, resource: ResourceMeta): Prom
  * 各呼び出し側へ clone() を返す。差し込み口は呼び出しの始めの登録の写しで進める
  */
 export function serve(ctx: Context, input: ServeInput, now: () => number): Promise<Response> {
+  // Range つきは素通し（仕様 §11。206 を全体として保存すると壊れる）
+  if (input.request.headers.has('range')) return passThrough(input);
+  const plugins = getPlugins();
+  // 認証付き（保存しない）要求はまとめない。匿名の要求と応答を共有しない（PR #75 L1 M1）
+  if (!input.storable) return serveOnce(ctx, input, now(), plugins);
   const shared = ctx.inflight.get(input.key);
   if (shared) return shared.then((r) => r.clone());
-  const plugins = getPlugins();
   const p = serveOnce(ctx, input, now(), plugins);
   ctx.inflight.set(input.key, p);
   const done = () => {
@@ -268,6 +291,20 @@ export function serve(ctx: Context, input: ServeInput, now: () => number): Promi
   p.then(done, done);
   return p.then((r) => r.clone());
 }
+
+/** Range つきの要求の素通し。ネットワーク失敗だけは表の 7 の形で返す */
+const passThrough = async (input: ServeInput): Promise<Response> => {
+  let result: UpstreamResult;
+  try {
+    result = await input.upstream(input.request, { hasEntry: false, requestChanged: false });
+  } catch (error) {
+    result = { kind: 'network', error };
+  }
+  if (result.kind === 'network') {
+    return synthesize({ body: null, status: 404, statusText: 'Not Found', headers: {} }, 'offline-miss', 'network');
+  }
+  return result.response;
+};
 
 interface LiveEntry {
   meta: EntryMeta;
@@ -291,8 +328,11 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
 
   // Entry（削除期限を過ぎたものは無いもの。固定は対象外。R21）
   let entry: LiveEntry | undefined;
+  // 保存し直すときに引き継ぐ固定（Entry を無いもの扱いにしても、保存済みの値を保つ。PR #75 L1 m2）
+  let savedPinned: 0 | 1 = 0;
   if (resource) {
     const got = await store.getEntry(input.key);
+    if (got) savedPinned = got.meta.pinned;
     const retention = resource.policy.cacheRetention;
     if (got && !(retention !== undefined && got.meta.pinned !== 1 && t - got.meta.fetchedAt > retention)) {
       entry = { meta: got.meta, blob: got.body.blob, headers: got.body.headers };
@@ -342,8 +382,11 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
   }
 
   const response = hooks ? await runFetchDidSucceed(hooks, request, result.response) : result.response;
-  // opaque は SW が合成した応答ではないので、そのまま返す（保存せず、ヘッダも付けない）
-  if (response.type === 'opaque') return response;
+  // opaque（仕様 §4.5-3）: Entry があれば §6 の 4（古い本体・stale・upstream）。無ければ SW が合成した応答では
+  // ないので、そのまま返す（保存せず、ヘッダも付けない）
+  if (result.kind === 'opaque' || response.type === 'opaque') {
+    return (await stale('upstream')) ?? response;
+  }
 
   const up = await partsOf(response);
   // 4・5 上流が失敗（HTTP）。!ok と、スタイル・TileJSON 以外の 200 の text/html（§4.6）
@@ -351,11 +394,11 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
     return (await stale('upstream')) ?? synthesize(up, 'upstream-error', 'upstream');
   }
 
-  // 3 上流が成功
+  // 3 上流が成功。2xx は 200 OK として配信・保存する（旧 API の miss と同じ。hit の再生とも揃う。Ruling）
   const status: ServeStatus = entry ? 'refresh' : 'miss';
   let failure: TileFailure | undefined;
   if (resource && input.storable) {
-    failure = await save(store, resource, input, hooks!, up, entry, t);
+    failure = await save(store, resource, input, hooks!, up, savedPinned, t);
   }
   return synthesize({ ...up, status: 200, statusText: 'OK' }, status, failure);
 };
@@ -363,7 +406,7 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
 /** 保存する。失敗は種類を返す（配信は続ける）。cacheWillUpdate には元の要求（ServeInput.request）を渡す */
 const save = async (
   store: Store, resource: ResourceMeta, input: ServeInput, hooks: Hooks,
-  up: Parts, entry: LiveEntry | undefined, t: number,
+  up: Parts, pinned: 0 | 1, t: number,
 ): Promise<TileFailure | undefined> => {
   let blob = up.body as Blob;
   let headers = up.headers;
@@ -372,7 +415,12 @@ const save = async (
     const r = await runCacheWillUpdate(hooks, input.request, offered);
     if (r === null) return undefined;
     if (r !== offered) {
-      blob = await r.blob();
+      try {
+        blob = await r.blob();
+      } catch (_e) {
+        // 差し替えた応答の本体が読めない: 保存の失敗として配信を続ける
+        return 'storage';
+      }
       headers = copyHeaders(r.headers);
     }
   }
@@ -383,7 +431,7 @@ const save = async (
     size: blob.size,
     fetchedAt: t,
     accessedAt: t,
-    pinned: entry?.meta.pinned ?? 0,
+    pinned,
   };
   if (input.coord) {
     meta.z = input.coord.z;
@@ -391,8 +439,9 @@ const save = async (
     meta.y = input.coord.y;
   }
   if (headers['content-type'] !== undefined) meta.contentType = headers['content-type'];
+  // 退避の範囲の読み出しの失敗は reject で返す（store の読み出しは R3）。書き込みの失敗だけを種類に直す
+  const evict = await evictScopesFor(store, resource);
   try {
-    const evict = await evictScopesFor(store, resource);
     await store.putEntry(meta, { key: input.key, blob, headers }, evict);
     return undefined;
   } catch (err) {
@@ -419,7 +468,8 @@ export interface JobSpec<T> {
 
 /**
  * 現行の fetchAll の進め方（batchSize ずつ・各バッチの前に isAlive、次に isCanceled）。
- * isAlive・isCanceled・run・onBatch の例外は捕まえずに reject で返す（呼び出し側が stop を出す。第 1 回 O-4）
+ * isAlive・isCanceled・run・onBatch の例外は捕まえずに reject で返す（呼び出し側が stop を出す。第 1 回 O-4）。
+ * 途中で終わるときは tasks の反復子の return() を呼ぶ
  */
 export async function runJob<T>(job: JobSpec<T>): Promise<'finished' | 'canceled' | 'gone'> {
   const size = job.batchSize ?? JOB_BATCH;
@@ -434,12 +484,19 @@ export async function runJob<T>(job: JobSpec<T>): Promise<'finished' | 'canceled
     return batch;
   };
   let processed = 0;
-  for (let batch = take(); batch.length > 0; batch = take()) {
-    if (!(await job.isAlive())) return 'gone';
-    if (await job.isCanceled()) return 'canceled';
-    await Promise.all(batch.map((task) => job.run(task)));
-    processed += batch.length;
-    if (job.onBatch) await job.onBatch(processed);
+  let exhausted = false;
+  try {
+    for (let batch = take(); batch.length > 0; batch = take()) {
+      if (!(await job.isAlive())) return 'gone';
+      if (await job.isCanceled()) return 'canceled';
+      await Promise.all(batch.map((task) => job.run(task)));
+      processed += batch.length;
+      if (job.onBatch) await job.onBatch(processed);
+    }
+    exhausted = true;
+    return 'finished';
+  } finally {
+    // 途中で終わる（gone・canceled・例外）ときは生成器を閉じる（finally を走らせる。PR #75 L2）
+    if (!exhausted) it.return?.();
   }
-  return 'finished';
 }

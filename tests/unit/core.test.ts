@@ -10,6 +10,7 @@ import {
 import type { EntryMeta, ResourceMeta, ResourcePolicy, SourceRecord, Store } from '../../src/store';
 import type { StoredSpec } from '../../src/spec';
 import { opaqueResponse } from './sw-harness';
+import { addPlugin, _resetPluginsForTest } from '../../src/plugins';
 
 // ---- 公開の契約（仕様 §6）。値を増やすときは minor で文書に足す ----
 const STATUSES = ['out-of-range', 'hit', 'miss', 'refresh', 'stale', 'upstream-error', 'offline-miss'];
@@ -102,6 +103,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  _resetPluginsForTest();
   store.close();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -394,6 +396,8 @@ describe('serve: ヘッダ', () => {
         'x-keep': 'k',
         'access-control-expose-headers': 'x-up',
         'x-weiwudi-error': 'quota',
+        'x-weiwudi-foo': 'f',
+        'x-weiwudi-status': 'hit',
       },
     }),
   });
@@ -614,5 +618,146 @@ describe('runJob（現行の fetchAll の進め方）', () => {
       onBatch: () => { seen.push(pulled); },
     });
     expect(seen).toEqual([3, 6, 7]);
+  });
+});
+
+describe('レビューの指摘（PR #75）', () => {
+  const gated = () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    return { gate, release };
+  };
+
+  it('認証付き（storable が偽）の要求はまとめず、Map にも登録しない（L1 M1）', async () => {
+    const { gate, release } = gated();
+    const upstream = vi.fn<Up>(async (req) => {
+      await gate;
+      return ok(10, {}, req.headers.get('authorization') ? 7 : 3);
+    });
+    const privateReq = new Request('https://t.example/1/0/0.png', { headers: { authorization: 'Bearer x' } });
+    const p = run({ upstream, storable: false, request: privateReq });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ctx.inflight.has(k('1_0_0'))).toBe(false);
+    const a = run({ upstream });
+    const p2 = run({ upstream, storable: false, request: privateReq });
+    release();
+    const [priv, anon, priv2] = await Promise.all([p, a, p2]);
+    expect(upstream).toHaveBeenCalledTimes(3);
+    expect(await bytesOf(priv)).toEqual(bodyOf(10, 7));
+    expect(await bytesOf(priv2)).toEqual(bodyOf(10, 7));
+    expect(await bytesOf(anon)).toEqual(bodyOf(10, 3));
+  });
+
+  it('匿名の要求の処理中に来た認証付きの要求も、匿名の応答を受け取らない', async () => {
+    const { gate, release } = gated();
+    const upstream = vi.fn<Up>(async (req) => {
+      await gate;
+      return ok(10, {}, req.headers.get('authorization') ? 7 : 3);
+    });
+    const a = run({ upstream });
+    const p = run({ upstream, storable: false, request: new Request('https://t.example/1/0/0.png', { headers: { authorization: 'Bearer x' } }) });
+    release();
+    const [anon, priv] = await Promise.all([a, p]);
+    expect(upstream).toHaveBeenCalledTimes(2);
+    expect(await bytesOf(anon)).toEqual(bodyOf(10, 3));
+    expect(await bytesOf(priv)).toEqual(bodyOf(10, 7));
+  });
+
+  it('退避の範囲の読み出しの失敗は storage にせず reject で返す（L2・R3）', async () => {
+    const err = new DOMException('read failed', 'UnknownError');
+    vi.spyOn(store, 'getSource').mockRejectedValue(err);
+    await expect(run()).rejects.toBe(err);
+  });
+
+  it('putEntry の書き込みの失敗だけを storage にする（読み出しは成功）', async () => {
+    const getSource = vi.spyOn(store, 'getSource');
+    vi.spyOn(store, 'putEntry').mockRejectedValueOnce(new DOMException('x', 'UnknownError'));
+    const res = await run();
+    expect(getSource).toHaveBeenCalled();
+    expect(res.headers.get('x-weiwudi-error')).toBe('storage');
+  });
+
+  it('上流の x-weiwudi- で始まるヘッダは、合成した応答にも保存にも残らない（L2）', async () => {
+    const res = await run({
+      upstream: async () => ({ kind: 'response', response: new Response(bodyOf(10), { status: 200, headers: { 'content-type': 'image/png', 'X-Weiwudi-Foo': 'f', 'x-weiwudi-error': 'quota' } }) }),
+    });
+    expect(res.headers.get('x-weiwudi-foo')).toBeNull();
+    expect(res.headers.get('x-weiwudi-error')).toBeNull();
+    const saved = await store.getEntry(k('1_0_0'));
+    expect(Object.keys(saved?.body.headers ?? {}).filter((h) => h.startsWith('x-weiwudi-'))).toEqual([]);
+    // 保存済みのヘッダに紛れていても、hit の合成で落とす
+    await store.putEntry(
+      { key: k('1_1_0'), resourceId: RID, size: 1, fetchedAt: T, accessedAt: T, pinned: 0 },
+      { key: k('1_1_0'), blob: new Blob(['x']), headers: { 'x-weiwudi-bar': 'b', 'x-weiwudi-status': 'miss' } },
+      [],
+    );
+    const hit = await run({ key: k('1_1_0'), coord: { z: 1, x: 1, y: 0 } });
+    expect(hit.headers.get('x-weiwudi-bar')).toBeNull();
+    expect(hit.headers.get('x-weiwudi-status')).toBe('hit');
+  });
+
+  it('opaque: Entry があれば §6 の 4（古い本体・stale・upstream）、無ければ opaque をそのまま（L2・仕様 §4.5-3）', async () => {
+    await seed('1_0_0', { fetchedAt: T - TTL - 1 });
+    const res = await run({ upstream: async () => ({ kind: 'opaque', response: opaqueResponse() }) });
+    expect(res.headers.get('x-weiwudi-status')).toBe('stale');
+    expect(res.headers.get('x-weiwudi-error')).toBe('upstream');
+    expect(await bytesOf(res)).toEqual(bodyOf(5, 9));
+    expect((await store.getEntry(k('1_0_0')))?.meta.fetchedAt).toBe(T - TTL - 1);
+  });
+
+  it('opaque の判定は kind でも見る（L1 m3。response.type が opaque でなくても保存せず、ヘッダを付けない）', async () => {
+    const res = await run({ upstream: async () => ({ kind: 'opaque', response: new Response('o') }) });
+    expect(res.headers.get('x-weiwudi-status')).toBeNull();
+    expect(await store.getEntry(k('1_0_0'))).toBeUndefined();
+  });
+
+  it('上流の 2xx は 200 OK として配信・保存する（Ruling。旧 API の miss と同じ）', async () => {
+    const res = await run({ upstream: async () => ({ kind: 'response', response: new Response(bodyOf(4), { status: 203, statusText: 'Non-Authoritative' }) }) });
+    expect(res.status).toBe(200);
+    expect(res.statusText).toBe('OK');
+    expect(res.headers.get('x-weiwudi-status')).toBe('miss');
+  });
+
+  it('Range つきの要求は素通し: 上流の応答をそのまま返し、保存もまとめもせず、差し込み口も呼ばない（仕様 §11）', async () => {
+    await seed('1_0_0', { fetchedAt: T });
+    const hook = vi.fn(async () => undefined);
+    addPlugin({ requestWillFetch: hook, cachedResponseWillBeUsed: hook });
+    const partial = new Response(bodyOf(3), { status: 206, headers: { 'content-range': 'bytes 0-2/10' } });
+    const req = new Request('https://t.example/1/0/0.png', { headers: { range: 'bytes=0-2' } });
+    const upstream = vi.fn<Up>(async () => ({ kind: 'response', response: partial }));
+    const p = run({ upstream, request: req });
+    expect(ctx.inflight.has(k('1_0_0'))).toBe(false);
+    const res = await p;
+    expect(res).toBe(partial);
+    expect(upstream).toHaveBeenCalledWith(req, { hasEntry: false, requestChanged: false });
+    expect(hook).not.toHaveBeenCalled();
+    expect((await store.getEntry(k('1_0_0')))?.meta.size).toBe(5);
+  });
+
+  it('Range つきでネットワーク失敗なら 404・offline-miss', async () => {
+    const req = new Request('https://t.example/1/0/0.png', { headers: { range: 'bytes=0-2' } });
+    const res = await run({ request: req, upstream: async () => ({ kind: 'network', error: 1 }) });
+    expect(res.status).toBe(404);
+    expect(res.headers.get('x-weiwudi-status')).toBe('offline-miss');
+  });
+
+  it('runJob が gone・canceled で途中で終わるとき、生成器の return を呼ぶ（L2）', async () => {
+    const closed: string[] = [];
+    function* gen(name: string) {
+      try { for (let i = 0; i < 20; i++) yield i; } finally { closed.push(name); }
+    }
+    await runJob({ tasks: gen('gone'), isAlive: async () => false, isCanceled: () => false, run: async () => undefined });
+    let n = 0;
+    await runJob({ tasks: gen('canceled'), isAlive: async () => true, isCanceled: () => n++ >= 1, run: async () => undefined });
+    expect(closed).toEqual(['gone', 'canceled']);
+  });
+
+  it('runJob の例外のときも生成器の return を呼ぶ', async () => {
+    const closed: string[] = [];
+    function* gen() {
+      try { for (let i = 0; i < 20; i++) yield i; } finally { closed.push('x'); }
+    }
+    await expect(runJob({ tasks: gen(), isAlive: async () => { throw new Error('e'); }, isCanceled: () => false, run: async () => undefined })).rejects.toThrow('e');
+    expect(closed).toEqual(['x']);
   });
 });
