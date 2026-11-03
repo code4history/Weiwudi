@@ -71,6 +71,10 @@ async function stopServiceWorker(context, page) {
 }
 
 test.describe('Weiwudi hook (real urls)', () => {
+    // 上流の記録を試験ごとに空にする（workers: 1。CI の再試行で前の試行の記録を見ないため）
+    test.beforeEach(async ({ request }) => {
+        await request.get(`${UPSTREAM}/__log?reset=1`);
+    });
 
     test('hooks a real cross-origin tile url after register', async ({ page }) => {
         await openPage(page);
@@ -133,8 +137,8 @@ test.describe('Weiwudi hook (real urls)', () => {
         expect(JSON.parse(r.post.body)).toMatchObject({ ok: true, result: { kind: 'raster' } });
         expect(JSON.parse(r.bad.body)).toMatchObject({ ok: false, error: { code: 'api-not-found' } });
         expect(r.legacy).toMatchObject({ status: 200, body: 'Implemented' });
-        // 合成した応答はページから basic に見える（フィルタされない）
-        expect([r.ping.type, r.post.type, r.bad.type, r.legacy.type]).toEqual(['basic', 'basic', 'basic', 'basic']);
+        // 合成した応答の type は、Chromium では basic・仕様上は cors もあり得る。読めることは上で見ている
+        for (const t of [r.ping.type, r.post.type, r.bad.type, r.legacy.type]) expect(['basic', 'cors']).toContain(t);
     });
 
     test('re-verifies the new api after controllerchange', async ({ page, context }) => {
