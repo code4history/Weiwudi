@@ -6,6 +6,7 @@
 // - reject する値は tx.error・req.error・投げられた DOMException（Event を reject しない。仕様 §9）
 // - Entry の増減と同じ tx で Resource の count・bytes・pinnedBytes を直す
 import type { TileBox } from './tile_math';
+import type { StoredSpec } from './spec';
 
 export const STORE_DB_NAME = 'WeiwudiStore';
 export const STORE_DB_VERSION = 1;
@@ -142,8 +143,11 @@ export type SourceKind = 'style' | 'raster' | 'vector' | 'asset' | 'legacy';
 export interface SourceRecord {
   id: string;
   kind: SourceKind;
-  /** 登録内容（資格情報を除く）。形は spec.ts の SourceSpec（t3）。旧 API は空でよい */
-  spec: Record<string, unknown>;
+  /**
+   * 登録内容（資格情報を除く）。新 API は spec.ts の normalizeSpec が作る StoredSpec（t2 の R8）。
+   * 旧 API（kind === 'legacy'）は空の object（設定は legacy に持つ）
+   */
+  spec: StoredSpec | Record<string, never>;
   /** 登録順の連番（呼び出し側が振る） */
   order: number;
   /** §12 */
@@ -271,6 +275,21 @@ const req2p = <T>(req: IDBRequest<T>): Promise<T> =>
 /** Resource の Entry のキーの範囲（key = resourceId + '\0' + suffix。id は \0 を含まない） */
 const entryRange = (resourceId: string): IDBKeyRange =>
   IDBKeyRange.bound(`${resourceId}\0`, `${resourceId}\x01`, false, true);
+
+/**
+ * putEntry のキーの形の守り（m2-t2 水準 1 Info 1）。key が `resourceId + '\0'` で始まらない Entry は
+ * deleteResource・clearEntries のキーの範囲から外れて数が合わなくなるので、tx を作る前に止める（何も書かない）。
+ * 本体の key がメタの key と違うときも同じ。問題が無ければ undefined
+ */
+const entryKeyError = (meta: EntryMeta, body: EntryBody): Promise<never> | undefined => {
+  if (!meta.key.startsWith(`${meta.resourceId}\0`)) {
+    return Promise.reject(new DOMException(`Entry key does not start with the id of resource "${meta.resourceId}"`, 'DataError'));
+  }
+  if (body.key !== meta.key) {
+    return Promise.reject(new DOMException('Entry body key does not match the entry key', 'DataError'));
+  }
+  return undefined;
+};
 
 /**
  * tx を作り、fn を同期に呼ぶ。fn の値は tx の complete の後に返す。
@@ -453,7 +472,7 @@ export const openStore = async (): Promise<Store> => {
       const meta = (await req2p(s.get(key))) as EntryMeta | undefined;
       if (meta) s.put({ ...meta, accessedAt });
     }),
-    putEntry: (meta, body, evict) => tx([S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t) => {
+    putEntry: (meta, body, evict) => entryKeyError(meta, body) ?? tx([S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t) => {
       const resources = t.objectStore(S_RESOURCES);
       const entries = t.objectStore(S_ENTRIES);
       const bodies = t.objectStore(S_BODIES);
