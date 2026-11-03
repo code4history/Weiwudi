@@ -193,3 +193,19 @@ Ruling: 直しの再レビューは置かない — 指摘どおりの小さな�
 - t6 への申し送り（M4）: templatesOverlap が既定ポート（:443）・`..`・名前の percent-encode・`+` と `%20`・IDN・`https:H.example` で、同じ照合になるテンプレートを重なりと見ない。compile した形（origin・pathRe・固定クエリ）でも比べるか、既定ポートと IDN だけ new URL で正規化する
 - t7 への申し送り（I2）: ミラーごとに資格情報が違うと先のミラーの値が全ミラーへ送られる。applyCredentials で別ホストへ鍵が送られる点を意識する
 - t5 への申し送り: 旧 API（weiwudi_gw_logic.ts:459・:481）が自前で `${z}_${x}_${y}` を組んでいるので tileKeySuffix に替える
+
+## m2-t4 core.ts・plugins.ts・context.ts（2026-11-04・#36）
+
+- 実装: f47a179（本体）・e348592（水準 1・水準 2 の直し）・8ed23d8（文書）・01c8e66（認証付きの要求の hit を飛ばす）。PR #75 を merge commit 145f8f5 で vector-cache へ合流。CI は Node 22・24 とも緑
+- 実測: test:unit 760 passed・typecheck exit 0（進行役が手元で確認）。実装者の報告で build・check-dts・eslint exit 0・e2e 18 passed。core・plugins に変異 32 件のうち 31 件で落ちる（残りは等価）
+- 水準 1（新しい Claude）: Minor の M1（inflight が storable を問わずまとめる）ほかを e348592 で直した
+- 水準 2 の第 1 回（Codex）: 合流不可・必須 4 件（evictScopesFor の読み出しの失敗が保存の try の中／落とす x-weiwudi ヘッダが 3 つだけ／opaque が既存の Entry を無視／文書が addPlugin を配線済みのように書く）。e348592・8ed23d8 で直した
+- 水準 2 の第 2 回: Codex は約 3 時間の探索の末に最終報告を書かずに終了した（途中経過では必須 4 件は解消・storable が偽の要求が保存済み Entry を hit で返し得る点を §4.6 との食い違いの疑いとして挙げた）。疑いの点を 01c8e66 で直し、新しい Claude で再判定した: 必須 4 件とも解消・新たな必須なし・合流可・推奨 5 件
+
+Ruling: 第 2 回の水準 2 の判定は Codex の出し直しではなく新しい Claude で行う — Codex は 3 時間で結論を出さず、出し直しも長引く見込み。委任先の推奨は禁止ではない — 誤りなら t8 の水準 2 は Codex の範囲を絞って出す
+Ruling: storable が偽（§4.6 の認証付き）の要求は表の 1・2 の hit を飛ばして必ず上流へ出し、上流が失敗したときだけ表の 4 以降で Entry を使う — §4.6 の「元の Request のまま上流へ出して配信」。退避に使うのは匿名で保存された公開の本体で漏えいにならない — 誤りなら上流の失敗時も Entry を使わない
+Ruling: その場合に上流が成功したときの状態は refresh ではなく miss — 保存しないので Entry の更新に当たらない — 誤りなら refresh に戻す
+Ruling: 実装者の判断を採る（Range つきの要求は core でも素通しする守り／上流の 2xx は 200 OK として配信・保存（旧 API と同じ）／opaque は kind を先に見る／dts の include に errors・url_pattern を足さない（check-dts は通る））— 水準 2 が仕様と一致と判定 — 誤りなら t5 で直す
+- t5 への申し送り: Range つきの要求を serve へ入れない／容量の判定の読み出しの失敗が reject になったので旧 API での文面を決める／旧 API の `${z}_${x}_${y}` を tileKeySuffix に替える／MapSetting の二重定義を消す／noOutput の空読み／plugins へは上流 URL の Request を渡す／配線が済んだら文書の「m2-t5 まで効かない」の注記を外す
+- t7 への申し送り: 門番で Range を serve の前に分ける（passThrough のネットワーク失敗は 404・offline-miss を合成している）／認証付きの要求のとき upstream が hasEntry を見ないことを試験で押さえる／ミラーごとの資格情報（I2）
+- 推奨（文書か t5〜t7）: fetchDidSucceed の backup clone は戻り値が無いか bodyUsed のときだけ戻す形に最適化できる／getReader() だけ取って読まないプラグインは次の clone で TypeError（文書に注記）／opaque の後にプラグインが opaque でない Response に差し替えたときの扱いを一行書く
