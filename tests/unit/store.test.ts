@@ -6,6 +6,7 @@ import {
   openStore, toResourceInfo, STORE_DB_NAME,
   type EntryBody, type EntryMeta, type ResourceMeta, type ResourcePolicy, type SourceRecord, type Store,
 } from '../../src/store';
+import { normalizeSpec } from '../../src/spec';
 
 let factory: IDBFactory;
 const opened: Store[] = [];
@@ -159,7 +160,8 @@ describe('往復', () => {
   it('Source・Resource・Entry・資格情報・kv を書いて読める', async () => {
     const s = await open();
     const src: SourceRecord = {
-      id: 'https://a.example/{z}/{x}/{y}.png', kind: 'raster', spec: { url: 'https://a.example/{z}/{x}/{y}.png' },
+      id: 'https://a.example/{z}/{x}/{y}.png', kind: 'raster',
+      spec: normalizeSpec({ kind: 'raster', url: 'https://a.example/{z}/{x}/{y}.png' }).spec,
       order: 1, warnings: ['w'], createdAt: 10,
     };
     await s.putSource(src);

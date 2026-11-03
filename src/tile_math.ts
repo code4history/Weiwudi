@@ -77,10 +77,56 @@ export const pixelSizeToTileBox = (width: number, height: number, tileSize: numb
   };
 };
 
-/** {z}{x}{y}{-y} の展開。各字句は最初の 1 回だけ置換する（String.replace のまま） */
-export const expandTileTemplate = (template: string, z: number, x: number, y: number) => {
-  return template.replace('{z}', String(z))
-    .replace('{x}', String(x))
-    .replace('{y}', String(y))
-    .replace('{-y}', String(Math.pow(2, z) - y - 1));
+/** expandTileTemplate の新 API 向けの指定（R6。展開の実装は新旧で 1 つ） */
+export interface ExpandOptions {
+  /** 全出現を置換する。無ければ各字句の最初の出現だけ */
+  all?: boolean;
+  /** {ratio} の値（'' か '@2x'）。既定は '' */
+  ratio?: string;
+}
+
+/** Bing の quadkey（z 桁の 4 進。z 0 は空文字） */
+export const tileToQuadkey = (z: number, x: number, y: number): string => {
+  let key = '';
+  for (let i = z; i > 0; i--) {
+    const mask = 1 << (i - 1);
+    key += String(((x & mask) !== 0 ? 1 : 0) + ((y & mask) !== 0 ? 2 : 0));
+  }
+  return key;
 };
+
+/** {prefix} の値: (x % 16) と (y % 16) の 16 進 1 字ずつ */
+export const tilePrefix = (x: number, y: number): string => (x % 16).toString(16) + (y % 16).toString(16);
+
+const replaceToken = (s: string, token: string, value: string, all: boolean): string =>
+  all ? s.split(token).join(value) : s.replace(token, () => value);
+
+/**
+ * テンプレートの展開。
+ * - opts なし（旧 API）: {z}{x}{y}{-y} の各字句を最初の 1 回だけ置換する（String.replace のまま。BASE と 1 字も変えない）
+ * - opts あり（新 API）: 上の 4 字句に {quadkey}・{prefix}・{ratio} を足す。opts.all なら全出現を置換する。
+ *   グリフの {fontstack}・{range} は展開しない
+ */
+export const expandTileTemplate = (template: string, z: number, x: number, y: number, opts?: ExpandOptions) => {
+  if (!opts) {
+    return template.replace('{z}', String(z))
+      .replace('{x}', String(x))
+      .replace('{y}', String(y))
+      .replace('{-y}', String(Math.pow(2, z) - y - 1));
+  }
+  const all = opts.all === true;
+  const pairs: [string, string][] = [
+    ['{z}', String(z)],
+    ['{x}', String(x)],
+    ['{y}', String(y)],
+    ['{-y}', String(Math.pow(2, z) - y - 1)],
+    ['{quadkey}', tileToQuadkey(z, x, y)],
+    ['{prefix}', tilePrefix(x, y)],
+    ['{ratio}', opts.ratio ?? ''],
+  ];
+  return pairs.reduce((s, [token, value]) => replaceToken(s, token, value, all), template);
+};
+
+/** タイルのキーの suffix（仕様 §5.3・R2。新旧で 1 つ）。`<z>_<x>_<y>`、ratio が '@2x' なら `<z>_<x>_<y>@2x` */
+export const tileKeySuffix = (z: number, x: number, y: number, ratio?: string): string =>
+  `${z}_${x}_${y}${ratio === '@2x' ? '@2x' : ''}`;

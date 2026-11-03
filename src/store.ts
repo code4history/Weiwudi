@@ -6,6 +6,7 @@
 // - reject する値は tx.error・req.error・投げられた DOMException（Event を reject しない。仕様 §9）
 // - Entry の増減と同じ tx で Resource の count・bytes・pinnedBytes を直す
 import type { TileBox } from './tile_math';
+import type { StoredSpec } from './spec';
 
 export const STORE_DB_NAME = 'WeiwudiStore';
 export const STORE_DB_VERSION = 1;
@@ -142,8 +143,11 @@ export type SourceKind = 'style' | 'raster' | 'vector' | 'asset' | 'legacy';
 export interface SourceRecord {
   id: string;
   kind: SourceKind;
-  /** 登録内容（資格情報を除く）。形は spec.ts の SourceSpec（t3）。旧 API は空でよい */
-  spec: Record<string, unknown>;
+  /**
+   * 登録内容（資格情報を除く）。新 API は spec.ts の normalizeSpec が作る StoredSpec（t2 の R8）。
+   * 旧 API（kind === 'legacy'）は空の object（設定は legacy に持つ）
+   */
+  spec: StoredSpec | Record<string, never>;
   /** 登録順の連番（呼び出し側が振る） */
   order: number;
   /** §12 */

@@ -297,7 +297,8 @@ try {
 
 **今後の API のために予約したコード:** `unsupported-template`・`invalid-style`・
 `opaque`・`sw-outdated`・`credential-rejected`・`source-not-found`・
-`resource-conflict`。`WeiwudiErrorCode` の型には入っていますが、まだ作られません。
+`resource-conflict`・`unsupported-kind`（その版がまだ扱わない `kind`）。`WeiwudiErrorCode` の
+型には入っていますが、まだ作られません。
 
 **code は今後の minor で増えることがあります。** `code` で `switch` するときは、
 必ず `default` を置いてください。

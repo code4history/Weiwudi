@@ -304,8 +304,8 @@ above) and `network`, `upstream`, `storage` (tile failures, see below).
 
 **Codes reserved for the upcoming API:** `unsupported-template`, `invalid-style`,
 `opaque`, `sw-outdated`, `credential-rejected`, `source-not-found`,
-`resource-conflict`. They are part of the `WeiwudiErrorCode` type but are not
-produced yet.
+`resource-conflict`, `unsupported-kind` (a `kind` the version does not handle yet).
+They are part of the `WeiwudiErrorCode` type but are not produced yet.
 
 **New codes may be added in a minor release.** When you `switch` on `code`,
 always keep a `default` branch.

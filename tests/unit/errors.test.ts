@@ -2,6 +2,7 @@
 // 旧 API の文面は 1 字も変えない（仕様 §9）。文面の固定の試験だけは文字列を直書きする。
 import { describe, expect, it, vi } from 'vitest';
 import { WeiwudiError, legacyMessage, type LegacyErrorCode } from '../../src/errors';
+import type { WeiwudiErrorCode } from '../../src/errors';
 
 // [code, 差し込み値, 現行の文面（直書き）, from で detail に入る値]
 const LEGACY: [LegacyErrorCode, Record<string, string | number> | undefined, string, Record<string, unknown> | undefined][] = [
@@ -563,5 +564,18 @@ describe('照合の速さ: apiName・target（第 3 回レビュー）', () => {
     expect(e.code).toBe(code);
     expect(e.detail?.[name]).toBe(value);
     expect(ms).toBeLessThan(50);
+  });
+});
+
+describe('unsupported-kind（m2-t3・第 2 回 S-2）', () => {
+  it('WeiwudiErrorCode にあり、new WeiwudiError で作れる', () => {
+    const code: WeiwudiErrorCode = 'unsupported-kind';
+    expect(new WeiwudiError(code, 'x').code).toBe('unsupported-kind');
+  });
+
+  it('from で internal に落ちない（本物の WeiwudiError も、印の無い別のコピーも）', () => {
+    expect(WeiwudiError.from(new WeiwudiError('unsupported-kind', 'x')).code).toBe('unsupported-kind');
+    const other = Object.assign(new Error('x'), { name: 'WeiwudiError', code: 'unsupported-kind' });
+    expect(WeiwudiError.from(other).code).toBe('unsupported-kind');
   });
 });

@@ -14,6 +14,8 @@ const OTHER_CODES = ['db-blocked', 'quota', 'network', 'upstream', 'storage', 'i
 const NEW_API_CODES = [
   'unsupported-template', 'invalid-style', 'opaque', 'sw-outdated',
   'credential-rejected', 'source-not-found', 'resource-conflict',
+  // その版がまだ扱わない kind（m2 では style・asset。仕様 §9）
+  'unsupported-kind',
 ] as const;
 
 /** 旧 API に文面があるコード（16 件） */
