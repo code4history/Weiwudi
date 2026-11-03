@@ -152,10 +152,38 @@ export function stripTemplateParams(t: string, params: readonly string[]): strin
   return release(joinUrl(u), held.tokens);
 }
 
-/** 正規化した形が 1 つでも一致すれば重なる（ミラーの順に依らない） */
+/**
+ * 照合の形（compileTemplate の origin・パスの正規表現と字句の並び・クエリの字句と固定値）。compile できなければ undefined。
+ * 文字列の正規化では別の形でも同じ要求に当たるもの（既定ポート・`..`・名前の percent-encode・`+` と `%20`・IDN・
+ * `https:H.example`）が同じ値になる（m2-t3 の申し送り M4）
+ */
+const matchShape = (t: string, credentialParams: readonly string[]): string | undefined => {
+  let c: CompiledTemplate;
+  try {
+    c = compileTemplate(normalizeTemplate(t, credentialParams));
+  } catch (_e) {
+    return undefined;
+  }
+  return JSON.stringify([
+    c.origin,
+    c.pathRe.source,
+    c.pathTokens,
+    c.queryTokens.map((q) => [q.name, q.token]).sort(),
+    c.queryFixed.map((f) => [f.name, f.value]).sort(),
+  ]);
+};
+
+/**
+ * 1 つでも同じ要求に当たれば重なる（ミラーの順に依らない）。正規化した形の一致か、照合の形（matchShape）の一致で見る
+ */
 export function templatesOverlap(a: readonly string[], b: readonly string[], credentialParams: readonly string[]): boolean {
   const left = new Set(a.map((t) => normalizeTemplate(t, credentialParams)));
-  return b.some((t) => left.has(normalizeTemplate(t, credentialParams)));
+  const leftShapes = new Set(a.map((t) => matchShape(t, credentialParams)).filter((s) => s !== undefined));
+  return b.some((t) => {
+    if (left.has(normalizeTemplate(t, credentialParams))) return true;
+    const shape = matchShape(t, credentialParams);
+    return shape !== undefined && leftShapes.has(shape);
+  });
 }
 
 /** 字句を退避名にして new URL で解決し戻す（`%7B` を作らない）。解決できなければ unsupported-template */

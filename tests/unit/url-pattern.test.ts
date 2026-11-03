@@ -217,6 +217,42 @@ describe('templatesOverlap', () => {
     expect(templatesOverlap([A, B], [C], CP)).toBe(false);
     expect(templatesOverlap([A], ['https://a.example/{z}/{x}/{y}.jpg'], CP)).toBe(false);
   });
+
+  // m2-t3 の申し送り M4（m2-t6）: 文字列の正規化では別の形でも、照合（compileTemplate）が同じなら重なる
+  it.each([
+    ['既定ポート', 'https://a.example:443/{z}/{x}/{y}.png', 'https://a.example/{z}/{x}/{y}.png', 'https://a.example/3/1/2.png'],
+    ['..', 'https://a.example/x/../{z}/{x}/{y}.png', 'https://a.example/{z}/{x}/{y}.png', 'https://a.example/3/1/2.png'],
+    ['名前の percent-encode', 'https://a.example/{z}/{x}/{y}.png?l%61yer=a', 'https://a.example/{z}/{x}/{y}.png?layer=a',
+      'https://a.example/3/1/2.png?layer=a'],
+    ['+ と %20', 'https://a.example/{z}/{x}/{y}.png?s=a+b', 'https://a.example/{z}/{x}/{y}.png?s=a%20b',
+      'https://a.example/3/1/2.png?s=a+b'],
+    ['IDN', 'https://日本.example/{z}/{x}/{y}.png', 'https://xn--wgv71a.example/{z}/{x}/{y}.png',
+      'https://xn--wgv71a.example/3/1/2.png'],
+    ['https:H.example', 'https:H.example/{z}/{x}/{y}.png', 'https://h.example/{z}/{x}/{y}.png', 'https://h.example/3/1/2.png'],
+  ])('同じ照合になる形は重なる: %s', (_label, a, b, url) => {
+    // 前提: 文字列の正規化は違うが、どちらも同じ URL に当たる
+    expect(normalizeTemplate(a, CP)).not.toBe(normalizeTemplate(b, CP));
+    expect(matchUrl(compileTemplate(a), new URL(url))).not.toBeNull();
+    expect(matchUrl(compileTemplate(b), new URL(url))).not.toBeNull();
+    expect(templatesOverlap([a], [b], CP)).toBe(true);
+    expect(templatesOverlap([b], [a], CP)).toBe(true);
+  });
+
+  it.each([
+    ['字句の並び（z と x）', 'https://a.example/{z}/{x}/{y}.png', 'https://a.example/{x}/{z}/{y}.png'],
+    ['{y} と {-y}', 'https://a.example/{z}/{x}/{y}.png', 'https://a.example/{z}/{x}/{-y}.png'],
+    ['固定値の違い', 'https://a.example/{z}/{x}/{y}.png?layer=a', 'https://a.example/{z}/{x}/{y}.png?layer=b'],
+    ['名前の大文字', 'https://a.example/{z}/{x}/{y}.png?Layer=a', 'https://a.example/{z}/{x}/{y}.png?layer=a'],
+    ['ポートの違い', 'https://a.example:8443/{z}/{x}/{y}.png', 'https://a.example/{z}/{x}/{y}.png'],
+  ])('照合が違えば重ならない: %s', (_label, a, b) => {
+    expect(templatesOverlap([a], [b], CP)).toBe(false);
+  });
+
+  it('compile できないテンプレートは文字列の正規化だけで比べる（投げない）', () => {
+    const bad = 'https://a.example/{nope}/{x}/{y}.png';
+    expect(templatesOverlap([bad], [bad], CP)).toBe(true);
+    expect(templatesOverlap([bad], [A], CP)).toBe(false);
+  });
 });
 
 describe('stripParams', () => {
