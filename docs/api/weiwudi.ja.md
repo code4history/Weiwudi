@@ -251,7 +251,8 @@ Source を登録します。同じ内容で何度呼んでも結果は同じで�
 ```typescript
 type SourceSpec = CommonPolicy & (
   | { kind: 'raster' | 'vector'; id?: string; url: string | string[];
-      bounds?: [west: number, south: number, east: number, north: number]; box?: TileBox;
+      bounds?: [west: number, south: number, east: number, north: number];
+      box?: TileBox;  // maxZoom のタイル座標。この Source の scheme の座標（'tms' なら y は南から数える）
       minZoom?: number; maxZoom?: number; scheme?: 'xyz' | 'tms'; tileSize?: number;
       outOfRange?: { extent?: OutOfRange; zoom?: OutOfRange } }
   | { kind: 'style'; id?: string; url: string; fonts?: string[] }
@@ -263,7 +264,7 @@ interface CommonPolicy {
   cacheMaxBytes?: number;     // この Source の容量（byte）
   cachePrivate?: boolean;     // 認証付きの要求も保存する（既定 false）
   credentials?: Credentials;  // サービスワーカーが足す。credentials ストアの外には残さない
-  credentialParams?: string[];// キャッシュのキーから落とすクエリの名前（既定の名前に足す）
+  credentialParams?: string[];// キャッシュのキーから落とすクエリの名前（既定の名前と credentials.query の名前に足す）
 }
 type Credentials = { query?: Record<string, string>; headers?: Record<string, string> };
 type OutOfRange = 'transparent' | 'empty' | 'not-found';
@@ -343,12 +344,14 @@ interface SourceStats {
 
 ### `warnings`
 
-各要素は `"<code>: <subject>"` です。subject は資源の id（資格情報は除いてある）か、クエリを除いた URL です。
+各要素は `"<code>: <subject>"` です。subject は資源の id（資格情報は除いてある）です。
 
 | code | 意味 |
 |---|---|
-| `resource-conflict` | 既存の資源と合流できなかった（`type`・`scheme`・符号化の違い、Entry があるのに `credentialParams` が広がる、2 つの資源に重なる）。既存の方針のままで、この Source の範囲だけを足す |
+| `resource-conflict` | 既存の資源と合流できなかった（`type`・`scheme`・符号化の違い、Entry があるのに `credentialParams` が広がる、2 つの資源に重なる）。既存の方針のままで、この Source の範囲だけを足す。その資源に既に属していた Source を同じ `id` で登録し直したときは範囲も足さず、資源は古い方針と、この Source の古い範囲のまま残る |
 | `template-shadowed` | 同じ要求に当たる別のテンプレートが先に評価されるので、この資源は捕捉されない |
+
+知らない code は無視してください。code は minor の版で増えることがあります。
 
 ### 呼び出しの前の確認
 
@@ -377,7 +380,9 @@ Source の API は、まずページがこの API を持つサービスワーカ
 | `offline-miss` | 通信の失敗で、Entry も無い（404） |
 
 `x-weiwudi-error` は `network`・`upstream`・`quota`・`storage` のどれかです。CORS 非対応のサーバへの `<img>` の
-要求（opaque の応答）は保存せずにそのまま渡すので、ヘッダは付きません。値は minor の版で増えることがあります。
+要求（opaque の応答）は保存しません。保存した Entry が無ければ、opaque の応答をそのまま渡すので、ヘッダは付きません。
+古い Entry があれば、その Entry を `x-weiwudi-status: stale`・`x-weiwudi-error: upstream` を付けて返します。
+値は minor の版で増えることがあります。
 
 ---
 
@@ -472,7 +477,8 @@ Source の API は上の表の `attribute-invalid`・`sw-not-controlling`・`ins
 ### タイルの応答: `x-weiwudi-error`
 
 `map.url` から配るタイルは、状態と本体を変えずに、取得や保存に失敗したときは応答ヘッダ
-`x-weiwudi-error` を付けます。
+`x-weiwudi-error` を付けます。上流が成功した応答（2xx のどれでも）は、旧 API と同じく
+`200 OK` にして返します（本体は変えません）。
 
 | 場面 | 応答 | `x-weiwudi-error` |
 |---|---|---|
