@@ -183,7 +183,7 @@
 ### 4.6 認証付きの要求
 
 - 要求に `Authorization` がある、または `mode: 'cors'` で `credentials: 'include'` のときは、**捕捉しても保存しない**。元の `Request` のまま上流へ出して配信する（§4.5）。`<img>` の `credentials: include` は既定値なので対象にしない（§2 の 4）
-- 保存したい場合は登録に `cachePrivate: true` を付ける。上流へは同じく元の `Request` のまま出す。IndexedDB は同じオリジンのスクリプトから読めるので、既定を「保存しない」にする。キーは利用者を区別しないので、1 つのブラウザプロファイルを 1 人が使う前提である
+- 保存したい場合は登録に `cachePrivate: true` を付ける。上流へは同じく元の `Request` のまま出す。IndexedDB は同じオリジンのスクリプトから読めるので、既定を「保存しない」にする。キーは利用者を区別しないので、1 つのブラウザプロファイルを 1 人が使う前提である。同じ前提で、同じキーへ同時に来た要求（認証付きと匿名を含む）も 1 本の上流の取得にまとめる
 - 登録の `credentials`（§10）で SW が足した資格情報は、ここで言う認証付きに当たらない。登録した者が共有を意図したものとして保存する
 - 同一オリジンの Cookie は SW から見えないので、保存の判定に使えない。同一オリジンの既定（`credentials: 'same-origin'`）の要求は匿名の要求として扱い、保存する（現行の旧 API と同じ扱い）
 - 範囲取得には元の要求が無い。`credentials` ストアの内容と同一オリジンの Cookie で取る。**別オリジンで Cookie だけで認証するサーバは対象外**である（`upstream` で数える）。`Resource` の `count === 0` のときに 401・403 が 3 回続いたら `upstream` で止める（判定は §4.5 の 3 と同じく `Resource` の状態に結び付け、再実行でも同じになる）（認証の無いまま全タイルを取りに行き続けないため）
@@ -235,7 +235,7 @@ export interface ResourceMeta {
 
 export interface TileExtent {
   minZoom: number; maxZoom: number;
-  box?: TileBox;              // maxZoom での x/y の範囲（tile_math.ts の型）
+  box?: TileBox;              // maxZoom での x/y の範囲（tile_math.ts の型）。Source の scheme の座標（bounds から作るときは tms なら y を反転する）
   sourceId: string;
 }
 
@@ -291,7 +291,7 @@ export interface ResourceInfo {
 | glyph | `<fontstack>`（範囲は §11 で 1 レコードに束ねる） |
 | sprite・style・tilejson・data | 残りのパス＋残りのクエリ。無ければ空 |
 
-クエリの正規化: `credentialParams`（既定 `access_token`・`token`・`key`・`api_key`・`apikey`・`sku`。登録で足せる）を除き、残りを名前順に並べる。`sku` を含むのは Mapbox GL が要求ごとに変えるから。
+クエリの正規化: `credentialParams`（既定 `access_token`・`token`・`key`・`api_key`・`apikey`・`sku`。登録で足せる。明示の `credentials.query` の名前は大文字小文字を問わずに自動で足す）を除き、残りを名前順に並べる。`sku` を含むのは Mapbox GL が要求ごとに変えるから。
 
 ### 5.4 ストア
 
@@ -547,7 +547,7 @@ export interface WeiwudiProvider {
 
 - 標準で `providers/mapbox.ts` を持つ。形は 4 つ（スタイル・タイルセット・スプライト・フォント）
 - `@c4h/beatbox` には依存しない。SW 側で必要な変換が小さい表で済み、これのために実行時依存（現在 0 件）を増やさない。BeatBox 0.1.1 の変換表は m3 で突き合わせて写す
-- `sk.` で始まる秘密トークンは `credential-rejected` で拒否する（試作の決定を継承）。この検査は提供元に依らない文字列の検査として、汎用の資格情報と同じ m2 に入れる。対象は `credentials` の `query`・`headers` の各値と、テンプレートの全クエリ値で、先頭の `Bearer `・`Token `・`Basic `（大文字小文字を問わない）と空白を剥がしてから `sk.` で始まるかを見る。クエリ値は percent-decode した後の値も見る（`%73k.` を通さない）。保存する前に止める
+- `sk.` で始まる秘密トークンは `credential-rejected` で拒否する（試作の決定を継承）。この検査は提供元に依らない文字列の検査として、汎用の資格情報と同じ m2 に入れる。対象は `credentials` の `query`・`headers` の各値と、テンプレートの全クエリ値（名前も）と、パスの各区画（`sk.` で始まる区画。percent-decode した後も見る）で、先頭の `Bearer `・`Token `・`Basic `（大文字小文字を問わない）と空白を剥がしてから `sk.` で始まるかを見る。クエリ値は percent-decode した後の値も見る（`%73k.` を通さない）。保存する前に止める
 - URL の userinfo（`user:pass@`）を含むテンプレートは登録で拒否する（`attribute-invalid`。判定は `new URL()` の `username`・`password` が空であること）。取り除くと照合が合わず、残すと id・テンプレート・`warnings` に出る
 - 明示の `id` は公開の値（`source()` の鍵・`sources()` の `id`・`warnings`）である。資格情報を入れないことを利用者との契約にする（任意の文字列から資格情報を見分ける規則は作れないので検査はしない）。形だけは検査する: 文字列・空でない・`\0` を含まない（`\0` は保存のキーの区切りに使う文字なので、公開の値から締め出しておく）。外れたら `attribute-invalid`
 
@@ -655,7 +655,7 @@ export interface SourceStats {
 
 - `WeiwudiSource.resources` も呼び出し時点の写しで、後の変化は `stats()` か `source()` で読み直す
 - 上の `class` の宣言のうち、各版の d.ts と文書には、その版で入るメンバだけを書く（m2 は `register`・`source`・`sources` と、`WeiwudiSource` の `id`・`url`・`resources`・`warnings`・`stats`・`update`・`clean`（範囲なし）・`remove`・`release`）
-- `warnings` の書式は `"<code>: <subject>"`（`subject` は `Resource.id` か、クエリを除いた URL）。m2 の `code` は `resource-conflict`（§5.6）と `template-shadowed`（同じ要求に当たる別の照合の形が先に評価され、その Resource が捕捉されない。その Source が参照する Resource のものだけを書く）
+- `warnings` の書式は `"<code>: <subject>"`（`subject` は `Resource.id`。利用者は知らない `code` を無視する）。m2 の `code` は `resource-conflict`（§5.6）と `template-shadowed`（同じ要求に当たる別の照合の形が先に評価され、その Resource が捕捉されない。その Source が参照する Resource のものだけを書く）
 - 登録を拒否するもの: `map:` から始まる `id`・空の `id`・`\0` を含む `id`（§5.1・§10。`attribute-invalid`）・userinfo を含むテンプレート（§10。`attribute-invalid`）・`weiwudi.example.com` のテンプレート（`unsupported-template`）・その版が扱わない `kind`（`unsupported-kind`。m2 では `style`・`asset`）・`sk.` の資格情報（`credential-rejected`）
 - 提供元別の使用量（#38）は `usage().byProvider`。鍵は `ResourceMeta.provider`、無ければ origin
 - `/v2/*` の要求の前に制御下かを確かめる（§4.1）

@@ -151,12 +151,22 @@ const parseCredentials = (v: unknown): Credentials | undefined => {
   return c;
 };
 
-const parseCredentialParams = (v: unknown): string[] => {
-  if (v === undefined) return [...DEFAULT_CREDENTIAL_PARAMS];
-  if (!Array.isArray(v) || v.some((p) => typeof p !== 'string' || p === '')) {
+/**
+ * 既定 ＋ 登録の credentialParams ＋ 明示の credentials.query の名前（M-1）。
+ * 明示の名前は、大文字小文字を問わずに既にある名前なら足さない（照合も除去も大文字小文字を問わないため）
+ */
+const parseCredentialParams = (v: unknown, explicitNames: readonly string[]): string[] => {
+  if (v !== undefined && (!Array.isArray(v) || v.some((p) => typeof p !== 'string' || p === ''))) {
     throw invalid('credentialParams', 'must be an array of non-empty strings');
   }
-  return [...DEFAULT_CREDENTIAL_PARAMS, ...(v as string[])].filter((p, i, xs) => xs.indexOf(p) === i);
+  const base = [...DEFAULT_CREDENTIAL_PARAMS, ...((v as string[] | undefined) ?? [])].filter((p, i, xs) => xs.indexOf(p) === i);
+  const have = new Set(base.map((p) => p.toLowerCase()));
+  for (const n of explicitNames) {
+    if (n === '' || have.has(n.toLowerCase())) continue;
+    have.add(n.toLowerCase());
+    base.push(n);
+  }
+  return base;
 };
 
 /** 1 つのテンプレートを検査し、正規化した形を返す */
@@ -172,6 +182,12 @@ const checkTemplate = (t: string, index: number, credentialParams: readonly stri
   }
   if (parsed.username !== '' || parsed.password !== '') {
     throw new WeiwudiError('attribute-invalid', `URL template #${index + 1} must not contain user info`, { attribute: 'url', index });
+  }
+  // パスの区画も見る（生の形と decode した形。L-2）。崩れた % は生の形だけで見る
+  for (const seg of parsed.pathname.split('/')) {
+    let decoded = seg;
+    try { decoded = decodeURIComponent(seg); } catch (_e) { /* 生の形だけ */ }
+    if (isSecretToken(seg) || isSecretToken(decoded)) throw rejectedCredential(`URL template #${index + 1}`);
   }
   for (const p of templateQueryPairs(t)) {
     // 値の無い項目（?sk.…）も名前で見る（I1）
@@ -223,7 +239,7 @@ const parseZoom = (v: unknown, attr: string): number | undefined => {
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-const parseExtent = (o: Record<string, unknown>, sourceId: string): TileExtent | undefined => {
+const parseExtent = (o: Record<string, unknown>, sourceId: string, scheme: 'xyz' | 'tms'): TileExtent | undefined => {
   const minZoomIn = parseZoom(own(o, 'minZoom'), 'minZoom');
   const maxZoomIn = parseZoom(own(o, 'maxZoom'), 'maxZoom');
   const bounds = own(o, 'bounds');
@@ -247,9 +263,12 @@ const parseExtent = (o: Record<string, unknown>, sourceId: string): TileExtent |
     const b = lngLatBoundsToTileBox({
       minLng: w, maxLng: e, minLat: clamp(s, -MERC_MAX_LAT, MERC_MAX_LAT), maxLat: clamp(n, -MERC_MAX_LAT, MERC_MAX_LAT),
     }, maxZoom);
-    extent.box = {
-      minX: clamp(b.minX, 0, last), maxX: clamp(b.maxX, 0, last), minY: clamp(b.minY, 0, last), maxY: clamp(b.maxY, 0, last),
-    };
+    const minY = clamp(b.minY, 0, last);
+    const maxY = clamp(b.maxY, 0, last);
+    // box は Source の scheme の座標（照合で得る y は URL の値そのまま）。bounds は XYZ で作るので tms なら反転する
+    extent.box = scheme === 'tms'
+      ? { minX: clamp(b.minX, 0, last), maxX: clamp(b.maxX, 0, last), minY: last - maxY, maxY: last - minY }
+      : { minX: clamp(b.minX, 0, last), maxX: clamp(b.maxX, 0, last), minY, maxY };
   } else if (boxIn !== undefined) {
     if (!isPlainObject(boxIn)) throw invalid('box');
     const [minX, maxX, minY, maxY] = ['minX', 'maxX', 'minY', 'maxY'].map((k) => own(boxIn, k));
@@ -275,8 +294,9 @@ export function normalizeSpec(input: unknown): NormalizedSpec {
   const kind = parseKind(own(input, 'kind'));
   const urlIn = own(input, 'url');
   const urls = parseUrls(urlIn);
-  const credentialParams = parseCredentialParams(own(input, 'credentialParams'));
   const explicit = parseCredentials(own(input, 'credentials'));
+  // 明示の credentials.query の名前も資格情報の項目として除く（テンプレートとページの要求に載っていても残さない）
+  const credentialParams = parseCredentialParams(own(input, 'credentialParams'), Object.keys(explicit?.query ?? {}));
 
   const normalized = urls.map((t, i) => checkTemplate(t, i, credentialParams));
   const templates = normalized.filter((t, i, xs) => xs.indexOf(t) === i);
@@ -332,7 +352,7 @@ export function normalizeSpec(input: unknown): NormalizedSpec {
     policy,
   };
   if (tileSize !== undefined) spec.tileSize = tileSize;
-  const extent = parseExtent(input, id);
+  const extent = parseExtent(input, id, spec.scheme);
   if (extent) spec.extent = extent;
   if (cacheMaxBytes !== undefined) spec.cacheMaxBytes = cacheMaxBytes;
 

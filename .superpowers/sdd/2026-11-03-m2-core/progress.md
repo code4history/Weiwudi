@@ -275,3 +275,9 @@ Ruling: 水準 2 の第 2 回（再確認）は Codex の結果を待たず Clau
 Ruling: 実装者の Ruling 1〜6 を採る（制御応答の CORS は不具合ではない（SW が合成した応答に CORS check は掛からない）／「別オリジンのページ」は疑似ホストと別オリジンのページ／controllerchange は同じスコープに別スクリプトを register して実ブラウザで起こす／計画の 14 本に申し送りの 2 本を足して 16 本（計画の受け入れ条件「14 件」は 16 件と読む）／端点の本体は 1×1 の PNG・/png/ と /__log を足す／疑似ホストは `**://weiwudi.example.com/**` で数える）— 水準 1 が 6 件とも妥当と判定 — 誤りなら m2 の区切りで直す
 - m2 の区切りへの申し送り: M1（/__log が溜まり続け空にできないので、CI の retries: 2 で再試行するとログを見る 4 本が必ず落ちる。座標を一意にするか空にする端点を足す）／M2（hook.spec.js:137 の type === 'basic' は Chromium だけの挙動。['basic','cors'] を許すか外す）／「navigate・script に触らない」は単体試験（isCandidate）だけで e2e には無い
 - m3 以降（WebKit・Firefox を測るとき・R14）: 別オリジンのページからの読み取りと controllerchange の e2e をそのまま流す
+
+## m2 区切りのレビューの直し（2026-11-04・m2-checkpoint-fix）
+
+- 直し: 全体レビュー M1（scheme: 'tms' と bounds の範囲の上下逆。spec.ts の parseExtent が tms なら box の y を maxZoom で反転。registry の extentOf の反転は変えずに正しくなることを試験で確認）・セキュリティ M-1（明示の credentials.query の名前を credentialParams の和へ大文字小文字を問わずに足す）・L-1（composeFor が Resource の templates を合成した credentialParams で normalizeTemplate し直す）・L-2（テンプレートのパスの区画が sk. で始まれば credential-rejected。decode した後も見る）
+- 試験: tests/unit/m2-checkpoint.test.ts（再現 3 件＋tms の範囲だけの合流 1 件・F1 の 2 件＋大文字小文字 1 件・F3 1 件・F2 と変形 4 件＋誤検出しない 1 件）。直しを外すと 10 件が落ちることを確かめた
+- 文書: docs/api の英日（opaque で古い Entry があるときの stale・upstream／2xx を 200 OK で返す／warnings の subject は資源の id だけ・keep は範囲を足さない・未知の code は無視／box は Source の scheme の座標／credentialParams に credentials.query の名前が入る）・仕様 §4.6（cachePrivate のときは同時の要求もまとめる）・§5.2 の TileExtent・§5.3 のクエリの正規化・§10 の sk.・§12 の warnings

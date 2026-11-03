@@ -254,7 +254,8 @@ Register a source. Calling it again with the same spec is idempotent.
 ```typescript
 type SourceSpec = CommonPolicy & (
   | { kind: 'raster' | 'vector'; id?: string; url: string | string[];
-      bounds?: [west: number, south: number, east: number, north: number]; box?: TileBox;
+      bounds?: [west: number, south: number, east: number, north: number];
+      box?: TileBox;  // tile coordinates at maxZoom in this source's scheme (y counts from the south for 'tms')
       minZoom?: number; maxZoom?: number; scheme?: 'xyz' | 'tms'; tileSize?: number;
       outOfRange?: { extent?: OutOfRange; zoom?: OutOfRange } }
   | { kind: 'style'; id?: string; url: string; fonts?: string[] }
@@ -266,7 +267,7 @@ interface CommonPolicy {
   cacheMaxBytes?: number;     // capacity of this source in bytes
   cachePrivate?: boolean;     // also cache authenticated requests (default false)
   credentials?: Credentials;  // added by the service worker; never stored outside the credentials store
-  credentialParams?: string[];// query names dropped from cache keys (added to the defaults)
+  credentialParams?: string[];// query names dropped from cache keys (added to the defaults and to the names in credentials.query)
 }
 type Credentials = { query?: Record<string, string>; headers?: Record<string, string> };
 type OutOfRange = 'transparent' | 'empty' | 'not-found';
@@ -353,12 +354,14 @@ interface SourceStats {
 ### `warnings`
 
 Each entry is `"<code>: <subject>"`. The subject is a resource id (credentials
-are already removed) or a URL without its query.
+are already removed).
 
 | code | Meaning |
 |---|---|
-| `resource-conflict` | The resource could not be merged with an existing one (different `type`, `scheme` or encoding, wider `credentialParams` while entries exist, or overlapping two resources). It keeps the existing policy; only the range of this source is added |
+| `resource-conflict` | The resource could not be merged with an existing one (different `type`, `scheme` or encoding, wider `credentialParams` while entries exist, or overlapping two resources). It keeps the existing policy; only the range of this source is added. When the source already belonged to that resource (registering the same `id` again), nothing is added either: the resource keeps the old policy and the old range of this source |
 | `template-shadowed` | Another registered template matches the same requests and is evaluated first, so this resource is not captured |
+
+Ignore any code you do not know: new codes may be added in a minor release.
 
 ### Before every call
 
@@ -393,8 +396,11 @@ from the page because `access-control-expose-headers` lists them.
 | `offline-miss` | Network failure with no cached entry (404) |
 
 `x-weiwudi-error` is one of `network`, `upstream`, `quota`, `storage`.
-Opaque responses (servers without CORS, requested from `<img>`) are passed on
-uncached and carry no header. New values may be added in a minor release.
+Opaque responses (servers without CORS, requested from `<img>`) are never
+cached. When no cached entry exists, the opaque response is passed on as is
+and carries no header. When an older cached entry exists, that entry is
+served instead with `x-weiwudi-status: stale` and `x-weiwudi-error: upstream`.
+New values may be added in a minor release.
 
 ---
 
@@ -495,7 +501,9 @@ always keep a `default` branch.
 ### Tile responses: `x-weiwudi-error`
 
 A tile served through `map.url` keeps its status and body, and carries the
-response header `x-weiwudi-error` when fetching or caching failed:
+response header `x-weiwudi-error` when fetching or caching failed. A
+successful upstream response (any 2xx) is served as `200 OK`, as the legacy
+API has always done; the body is unchanged:
 
 | Situation | Response | `x-weiwudi-error` |
 |---|---|---|

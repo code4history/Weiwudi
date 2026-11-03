@@ -9,7 +9,7 @@
 import type { OutOfRange, ResourceMeta, ResourcePolicy, SourceRecord, Store, TileExtent } from './store';
 import type { NormalizedSpec, StoredSpec } from './spec';
 import { WeiwudiError } from './errors';
-import { MAX_TILE_ZOOM, templatesOverlap } from './url_pattern';
+import { MAX_TILE_ZOOM, normalizeTemplate, templatesOverlap } from './url_pattern';
 
 /** 旧 API の Source と Resource の id の前置き（仕様 §5.1） */
 const LEGACY_PREFIX = 'map:';
@@ -244,9 +244,11 @@ const composeFor = (m: ResourceMeta, recs: Lookup): Pick<ResourceMeta, 'policy' 
     : { policy: m.policy, extents: [] };
   const oldKept = (m.extents ?? []).filter((e) => kept.indexOf(e.sourceId) >= 0).map((e) => ({ ...e }));
   const rangeOnly = composePolicy(m, [], recs(m.rangeOnlySourceIds)).extents ?? [];
-  const templates = kept.length === 0
+  // 合成した credentialParams で正規化し直す（宣言しなかった Source のテンプレートの資格情報を残さない。L-1）
+  const raw = kept.length === 0
     ? composeTemplates(m, active)
-    : unique([...m.templates, ...composeTemplates(m, active)]);
+    : [...m.templates, ...composeTemplates(m, active)];
+  const templates = unique(raw.map((t) => normalizeTemplate(t, own.policy.credentialParams)));
   return { policy: own.policy, extents: [...(own.extents ?? []), ...oldKept, ...rangeOnly], templates };
 };
 
