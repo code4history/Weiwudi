@@ -1,0 +1,2815 @@
+[
+  {
+    "step": 1,
+    "label": "ping",
+    "request": "/api/ping",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Implemented"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 2,
+    "label": "api でないパス",
+    "request": "/foo",
+    "response": {
+      "status": 404,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Not Found"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 3,
+    "label": "未知の API",
+    "request": "/api/nope",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: API nope not found"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 4,
+    "label": "info の mapID の欠け",
+    "request": "/api/info",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: Attribute \"mapID\" is missing"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 5,
+    "label": "add の mapID の欠け",
+    "request": "/api/add",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: Attribute \"mapID\" is missing"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 6,
+    "label": "add の type の欠け",
+    "request": "/api/add?mapID=m",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: Attribute \"type\" is missing"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 7,
+    "label": "add の url の欠け",
+    "request": "/api/add?mapID=m&type=xyz",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: Attribute \"url\" is missing"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 8,
+    "label": "add の未知の type",
+    "request": "/api/add?mapID=m&type=zzz&url=https%3A%2F%2Fok.example%2Fm%2F%7Bz%7D%2F%7Bx%7D%2F%7By%7D.png",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: Unknown \"type\" value"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 9,
+    "label": "add xyz の width の欠け",
+    "request": "/api/add?mapID=m&type=xyz&url=https%3A%2F%2Fok.example%2Fm%2F%7Bz%7D%2F%7Bx%7D%2F%7By%7D.png&height=500",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: Attribute \"width\" is missing"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 10,
+    "label": "stats の mapID の欠け",
+    "request": "/api/stats",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: Attribute \"mapID\" is missing"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 11,
+    "label": "clean の mapID の欠け",
+    "request": "/api/clean",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: Attribute \"mapID\" is missing"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 12,
+    "label": "delete の mapID の欠け",
+    "request": "/api/delete",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: Attribute \"mapID\" is missing"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 13,
+    "label": "cancel の mapID の欠け",
+    "request": "/api/cancel",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: There are no fetching process of undefined"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 14,
+    "label": "add xyz（cacheTtl 1000）",
+    "request": "/api/add?mapID=x1&type=xyz&url=https%3A%2F%2Fseq.example%2Fx1%2F%7Bz%7D%2F%7Bx%7D%2F%7By%7D.png&width=1024&height=1024&cacheTtl=1000",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "mapID": "x1",
+          "type": "xyz",
+          "url": "https://seq.example/x1/{z}/{x}/{y}.png",
+          "width": 1024,
+          "height": 1024,
+          "cacheTtl": 1000,
+          "tileSize": 256,
+          "maxZoom": 2,
+          "minZoom": 0,
+          "minX": 0,
+          "minY": 0,
+          "maxX": 3,
+          "maxY": 3,
+          "totalTile": 21
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 15,
+    "label": "info xyz",
+    "request": "/api/info?mapID=x1",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "mapID": "x1",
+          "type": "xyz",
+          "url": "https://seq.example/x1/{z}/{x}/{y}.png",
+          "width": 1024,
+          "height": 1024,
+          "cacheTtl": 1000,
+          "tileSize": 256,
+          "maxZoom": 2,
+          "minZoom": 0,
+          "minX": 0,
+          "minY": 0,
+          "maxX": 3,
+          "maxY": 3,
+          "totalTile": 21
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 16,
+    "label": "stats 空",
+    "request": "/api/stats?mapID=x1",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "count": 0,
+          "size": 0,
+          "total": 21,
+          "percent": 0
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 17,
+    "label": "cache miss",
+    "request": "/api/cache/x1/2/1/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png"
+      },
+      "body": {
+        "text": "body-1"
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://seq.example/x1/2/1/0.png",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 18,
+    "label": "cache hit",
+    "request": "/api/cache/x1/2/1/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png"
+      },
+      "body": {
+        "text": "body-1"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 19,
+    "label": "cache hit（ちょうど cacheTtl）",
+    "request": "/api/cache/x1/2/1/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png"
+      },
+      "body": {
+        "text": "body-1"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 20,
+    "label": "cache の TTL 切れで取り直し",
+    "request": "/api/cache/x1/2/1/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png"
+      },
+      "body": {
+        "text": "body-2"
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://seq.example/x1/2/1/0.png",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 21,
+    "label": "cache ズームの外（maxZoom より上）",
+    "request": "/api/cache/x1/3/0/0",
+    "response": {
+      "status": 404,
+      "statusText": "Not Found",
+      "headers": {},
+      "body": {
+        "text": ""
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 22,
+    "label": "cache 広がりの外",
+    "request": "/api/cache/x1/2/4/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png"
+      },
+      "body": {
+        "base64": "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAMAAABrrFhUAAAAB3RJTUUH3QgIBToaSbAjlwAAABd0RVh0U29mdHdhcmUAR0xEUE5HIHZlciAzLjRxhaThAAAACHRwTkdHTEQzAAAAAEqAKR8AAAAEZ0FNQQAAsY8L/GEFAAAAA1BMVEX///+nxBvIAAAAAXRSTlMAQObYZgAAAFRJREFUeNrtwQEBAAAAgJD+r+4ICgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABgBDwABHHIJwwAAAABJRU5ErkJggg=="
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 23,
+    "label": "cache 広がりの外（y）",
+    "request": "/api/cache/x1/1/0/2",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png"
+      },
+      "body": {
+        "base64": "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAMAAABrrFhUAAAAB3RJTUUH3QgIBToaSbAjlwAAABd0RVh0U29mdHdhcmUAR0xEUE5HIHZlciAzLjRxhaThAAAACHRwTkdHTEQzAAAAAEqAKR8AAAAEZ0FNQQAAsY8L/GEFAAAAA1BMVEX///+nxBvIAAAAAXRSTlMAQObYZgAAAFRJREFUeNrtwQEBAAAAgJD+r+4ICgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABgBDwABHHIJwwAAAABJRU5ErkJggg=="
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 24,
+    "label": "cache の座標の欠け",
+    "request": "/api/cache/x1/1/2",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: \"cache\" api needs mapID, zoom, x, y settings"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 25,
+    "label": "cache 未登録の地図",
+    "request": "/api/cache/zz/0/0/0",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: MapID \"zz\" not found"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 26,
+    "label": "stats 1 枚",
+    "request": "/api/stats?mapID=x1",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "count": 1,
+          "size": 6,
+          "total": 21,
+          "percent": 4
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 27,
+    "label": "add 同じ地図の登録し直し（cacheTtl を伸ばす）",
+    "request": "/api/add?mapID=x1&type=xyz&url=https%3A%2F%2Fseq.example%2Fx1%2F%7Bz%7D%2F%7Bx%7D%2F%7By%7D.png&width=1024&height=1024&cacheTtl=999999",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "mapID": "x1",
+          "type": "xyz",
+          "url": "https://seq.example/x1/{z}/{x}/{y}.png",
+          "width": 1024,
+          "height": 1024,
+          "cacheTtl": 999999,
+          "tileSize": 256,
+          "maxZoom": 2,
+          "minZoom": 0,
+          "minX": 0,
+          "minY": 0,
+          "maxX": 3,
+          "maxY": 3,
+          "totalTile": 21
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 28,
+    "label": "stats 登録し直しでもキャッシュは残る",
+    "request": "/api/stats?mapID=x1",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "count": 1,
+          "size": 6,
+          "total": 21,
+          "percent": 4
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 29,
+    "label": "cache 登録し直しの後の hit",
+    "request": "/api/cache/x1/2/1/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png"
+      },
+      "body": {
+        "text": "body-2"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 30,
+    "label": "add xyz（tileSize・minZoom）",
+    "request": "/api/add?mapID=t5&type=xyz&url=https%3A%2F%2Fok.example%2Ft5%2F%7Bz%7D%2F%7Bx%7D%2F%7By%7D.png&width=600&height=300&tileSize=512&minZoom=1",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "mapID": "t5",
+          "type": "xyz",
+          "url": "https://ok.example/t5/{z}/{x}/{y}.png",
+          "width": 600,
+          "height": 300,
+          "tileSize": 512,
+          "minZoom": 1,
+          "maxZoom": 1,
+          "minX": 0,
+          "minY": 0,
+          "maxX": 1,
+          "maxY": 0,
+          "totalTile": 2
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 31,
+    "label": "cache minZoom 未満",
+    "request": "/api/cache/t5/0/0/0",
+    "response": {
+      "status": 404,
+      "statusText": "Not Found",
+      "headers": {},
+      "body": {
+        "text": ""
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 32,
+    "label": "cache minZoom の miss",
+    "request": "/api/cache/t5/1/1/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png",
+        "x-tile": "/t5/1/1/0.png"
+      },
+      "body": {
+        "text": "ok:/t5/1/1/0.png"
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://ok.example/t5/1/1/0.png",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 33,
+    "label": "add wmts（範囲つき）",
+    "request": "/api/add?mapID=w1&type=wmts&url=https%3A%2F%2Fok.example%2Fw1%2F%7Bz%7D%2F%7Bx%7D%2F%7B-y%7D.png&minLng=139.7&maxLng=139.8&minLat=35.6&maxLat=35.7&minZoom=10&maxZoom=12",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "mapID": "w1",
+          "type": "wmts",
+          "url": "https://ok.example/w1/{z}/{x}/{-y}.png",
+          "minLng": 139.7,
+          "maxLng": 139.8,
+          "minLat": 35.6,
+          "maxLat": 35.7,
+          "minZoom": 10,
+          "maxZoom": 12,
+          "tileSize": 256,
+          "minX": 3637,
+          "maxX": 3638,
+          "minY": 1612,
+          "maxY": 1614,
+          "totalTile": 11
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 34,
+    "label": "cache wmts の miss（{-y}）",
+    "request": "/api/cache/w1/12/3637/1612",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png",
+        "x-tile": "/w1/12/3637/2483.png"
+      },
+      "body": {
+        "text": "ok:/w1/12/3637/2483.png"
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://ok.example/w1/12/3637/2483.png",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 35,
+    "label": "cache wmts の minZoom 未満",
+    "request": "/api/cache/w1/9/0/0",
+    "response": {
+      "status": 404,
+      "statusText": "Not Found",
+      "headers": {},
+      "body": {
+        "text": ""
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 36,
+    "label": "cache wmts の広がりの外",
+    "request": "/api/cache/w1/12/0/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png"
+      },
+      "body": {
+        "base64": "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAMAAABrrFhUAAAAB3RJTUUH3QgIBToaSbAjlwAAABd0RVh0U29mdHdhcmUAR0xEUE5HIHZlciAzLjRxhaThAAAACHRwTkdHTEQzAAAAAEqAKR8AAAAEZ0FNQQAAsY8L/GEFAAAAA1BMVEX///+nxBvIAAAAAXRSTlMAQObYZgAAAFRJREFUeNrtwQEBAAAAgJD+r+4ICgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABgBDwABHHIJwwAAAABJRU5ErkJggg=="
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 37,
+    "label": "cache wmts の低いズームの miss",
+    "request": "/api/cache/w1/10/909/403",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png",
+        "x-tile": "/w1/10/909/620.png"
+      },
+      "body": {
+        "text": "ok:/w1/10/909/620.png"
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://ok.example/w1/10/909/620.png",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 38,
+    "label": "stats wmts",
+    "request": "/api/stats?mapID=w1",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "count": 2,
+          "size": 44,
+          "total": 11,
+          "percent": 18
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 39,
+    "label": "add wmts（範囲なし）",
+    "request": "/api/add?mapID=w2&type=wmts&url=https%3A%2F%2Fok.example%2Fw2%2F%7Bz%7D%2F%7Bx%7D%2F%7By%7D.png&minZoom=3&maxZoom=5",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "mapID": "w2",
+          "type": "wmts",
+          "url": "https://ok.example/w2/{z}/{x}/{y}.png",
+          "minZoom": 3,
+          "maxZoom": 5,
+          "tileSize": 256
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 40,
+    "label": "cache 範囲なしのズームの外",
+    "request": "/api/cache/w2/2/0/0",
+    "response": {
+      "status": 404,
+      "statusText": "Not Found",
+      "headers": {},
+      "body": {
+        "text": ""
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 41,
+    "label": "cache 範囲なしの miss",
+    "request": "/api/cache/w2/4/100/100",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png",
+        "x-tile": "/w2/4/100/100.png"
+      },
+      "body": {
+        "text": "ok:/w2/4/100/100.png"
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://ok.example/w2/4/100/100.png",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 42,
+    "label": "stats 範囲なし（total なし）",
+    "request": "/api/stats?mapID=w2",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "count": 1,
+          "size": 20
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 43,
+    "label": "fetchAll 範囲なし",
+    "request": "/api/fetchAll?mapID=w2",
+    "client": true,
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: Map \"w2\" cannot fetch all tiles"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 44,
+    "label": "add cacheMaxBytes の誤り",
+    "request": "/api/add?mapID=mbad&type=xyz&url=https%3A%2F%2Fbin.example%2Fmbad%2F%7Bz%7D%2F%7Bx%7D%2F%7By%7D&width=256&height=256&cacheMaxBytes=1.5",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: Attribute \"cacheMaxBytes\" is not a valid non-negative integer"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 45,
+    "label": "info 誤りの地図は保存されない",
+    "request": "/api/info?mapID=mbad",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: MapID \"mbad\" not found"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 46,
+    "label": "add cacheMaxBytes 20",
+    "request": "/api/add?mapID=mb&type=xyz&url=https%3A%2F%2Fbin.example%2Fmb%2F%7Bz%7D%2F%7Bx%7D%2F%7By%7D&width=1024&height=1024&cacheMaxBytes=20",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "mapID": "mb",
+          "type": "xyz",
+          "url": "https://bin.example/mb/{z}/{x}/{y}",
+          "width": 1024,
+          "height": 1024,
+          "cacheMaxBytes": 20,
+          "tileSize": 256,
+          "maxZoom": 2,
+          "minZoom": 0,
+          "minX": 0,
+          "minY": 0,
+          "maxX": 3,
+          "maxY": 3,
+          "totalTile": 21
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 47,
+    "label": "cache 容量 1 枚目",
+    "request": "/api/cache/mb/2/0/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png"
+      },
+      "body": {
+        "base64": "AQEBAQEBAQEBAQ=="
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://bin.example/mb/2/0/0",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 48,
+    "label": "cache 容量 2 枚目",
+    "request": "/api/cache/mb/2/1/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png"
+      },
+      "body": {
+        "base64": "AQEBAQEBAQEBAQ=="
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://bin.example/mb/2/1/0",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 49,
+    "label": "cache 容量 1 枚目の hit（accessedAt を進める）",
+    "request": "/api/cache/mb/2/0/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png"
+      },
+      "body": {
+        "base64": "AQEBAQEBAQEBAQ=="
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 50,
+    "label": "cache 容量 3 枚目（最も古い 2/1/0 を退避）",
+    "request": "/api/cache/mb/2/2/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png"
+      },
+      "body": {
+        "base64": "AQEBAQEBAQEBAQ=="
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://bin.example/mb/2/2/0",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 51,
+    "label": "stats 容量",
+    "request": "/api/stats?mapID=mb",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "count": 2,
+          "size": 20,
+          "total": 21,
+          "percent": 9
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 52,
+    "label": "cache 退避した 2/1/0 の取り直し",
+    "request": "/api/cache/mb/2/1/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png"
+      },
+      "body": {
+        "base64": "AQEBAQEBAQEBAQ=="
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://bin.example/mb/2/1/0",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 53,
+    "label": "cache 2/2/0 は残っている",
+    "request": "/api/cache/mb/2/2/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png"
+      },
+      "body": {
+        "base64": "AQEBAQEBAQEBAQ=="
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 54,
+    "label": "cache 上限より大きい 21 バイト",
+    "request": "/api/cache/mb/2/3/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png"
+      },
+      "body": {
+        "base64": "AQEBAQEBAQEBAQEBAQEBAQEBAQEB"
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://bin.example/mb/2/3/0",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 55,
+    "label": "stats 大きい応答は保存しない",
+    "request": "/api/stats?mapID=mb",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "count": 2,
+          "size": 20,
+          "total": 21,
+          "percent": 9
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 56,
+    "label": "add cacheMaxBytes 0",
+    "request": "/api/add?mapID=mz&type=xyz&url=https%3A%2F%2Fbin.example%2Fmz%2F%7Bz%7D%2F%7Bx%7D%2F%7By%7D&width=256&height=256&cacheMaxBytes=0",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "mapID": "mz",
+          "type": "xyz",
+          "url": "https://bin.example/mz/{z}/{x}/{y}",
+          "width": 256,
+          "height": 256,
+          "cacheMaxBytes": 0,
+          "tileSize": 256,
+          "maxZoom": 0,
+          "minZoom": 0,
+          "minX": 0,
+          "minY": 0,
+          "maxX": 0,
+          "maxY": 0,
+          "totalTile": 1
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 57,
+    "label": "cache 上限 0 は配信だけ",
+    "request": "/api/cache/mz/0/0/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png"
+      },
+      "body": {
+        "base64": "AQEBAQEBAQEBAQ=="
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://bin.example/mz/0/0/0",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 58,
+    "label": "stats 上限 0",
+    "request": "/api/stats?mapID=mz",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "count": 0,
+          "size": 0,
+          "total": 1,
+          "percent": 0
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 59,
+    "label": "info 上限つき",
+    "request": "/api/info?mapID=mb",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "mapID": "mb",
+          "type": "xyz",
+          "url": "https://bin.example/mb/{z}/{x}/{y}",
+          "width": 1024,
+          "height": 1024,
+          "cacheMaxBytes": 20,
+          "tileSize": 256,
+          "maxZoom": 2,
+          "minZoom": 0,
+          "minX": 0,
+          "minY": 0,
+          "maxX": 3,
+          "maxY": 3,
+          "totalTile": 21
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 60,
+    "label": "add ミラー 3 つ",
+    "request": "/api/add?mapID=mir&type=xyz&url=https%3A%2F%2Fa.example%2F%7Bz%7D%2F%7Bx%7D%2F%7By%7D&url=https%3A%2F%2Fb.example%2F%7Bz%7D%2F%7Bx%7D%2F%7By%7D&url=https%3A%2F%2Fc.example%2F%7Bz%7D%2F%7Bx%7D%2F%7By%7D&width=1024&height=1024",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "mapID": "mir",
+          "type": "xyz",
+          "url": [
+            "https://a.example/{z}/{x}/{y}",
+            "https://b.example/{z}/{x}/{y}",
+            "https://c.example/{z}/{x}/{y}"
+          ],
+          "width": 1024,
+          "height": 1024,
+          "tileSize": 256,
+          "maxZoom": 2,
+          "minZoom": 0,
+          "minX": 0,
+          "minY": 0,
+          "maxX": 3,
+          "maxY": 3,
+          "totalTile": 21
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 61,
+    "label": "info ミラーは配列",
+    "request": "/api/info?mapID=mir",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "mapID": "mir",
+          "type": "xyz",
+          "url": [
+            "https://a.example/{z}/{x}/{y}",
+            "https://b.example/{z}/{x}/{y}",
+            "https://c.example/{z}/{x}/{y}"
+          ],
+          "width": 1024,
+          "height": 1024,
+          "tileSize": 256,
+          "maxZoom": 2,
+          "minZoom": 0,
+          "minX": 0,
+          "minY": 0,
+          "maxX": 3,
+          "maxY": 3,
+          "totalTile": 21
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 62,
+    "label": "cache ミラーの miss 0/0",
+    "request": "/api/cache/mir/2/0/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "body": {
+        "text": "mirror:a.example/2/0/0"
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://a.example/2/0/0",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 63,
+    "label": "cache ミラーの miss 1/0",
+    "request": "/api/cache/mir/2/1/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "body": {
+        "text": "mirror:c.example/2/1/0"
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://c.example/2/1/0",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 64,
+    "label": "cache ミラーの miss 2/0",
+    "request": "/api/cache/mir/2/2/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "body": {
+        "text": "mirror:b.example/2/2/0"
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://b.example/2/2/0",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 65,
+    "label": "cache ミラーの miss 3/0",
+    "request": "/api/cache/mir/2/3/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "body": {
+        "text": "mirror:b.example/2/3/0"
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://b.example/2/3/0",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 66,
+    "label": "cache ミラーの miss 0/1",
+    "request": "/api/cache/mir/2/0/1",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "body": {
+        "text": "mirror:c.example/2/0/1"
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://c.example/2/0/1",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 67,
+    "label": "cache ミラーの miss 1/1",
+    "request": "/api/cache/mir/2/1/1",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/jpeg"
+      },
+      "body": {
+        "text": "mirror:a.example/2/1/1"
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://a.example/2/1/1",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 68,
+    "label": "add 不安定な上流（cacheTtl 1000）",
+    "request": "/api/add?mapID=fl&type=xyz&url=https%3A%2F%2Fflaky.example%2Ffl%2F%7Bz%7D%2F%7Bx%7D%2F%7By%7D.png&width=512&height=512&cacheTtl=1000",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "mapID": "fl",
+          "type": "xyz",
+          "url": "https://flaky.example/fl/{z}/{x}/{y}.png",
+          "width": 512,
+          "height": 512,
+          "cacheTtl": 1000,
+          "tileSize": 256,
+          "maxZoom": 1,
+          "minZoom": 0,
+          "minX": 0,
+          "minY": 0,
+          "maxX": 1,
+          "maxY": 1,
+          "totalTile": 5
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 69,
+    "label": "cache 上流のヘッダを保つ miss",
+    "request": "/api/cache/fl/1/0/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "cache-control": "max-age=60",
+        "content-type": "image/png",
+        "x-custom": "yes"
+      },
+      "body": {
+        "text": "flaky:/fl/1/0/0.png:3"
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://flaky.example/fl/1/0/0.png",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 70,
+    "label": "cache 上流のヘッダを保つ hit",
+    "request": "/api/cache/fl/1/0/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "cache-control": "max-age=60",
+        "content-type": "image/png",
+        "x-custom": "yes"
+      },
+      "body": {
+        "text": "flaky:/fl/1/0/0.png:3"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 71,
+    "label": "cache 上流 500・Entry あり（古い本体）",
+    "request": "/api/cache/fl/1/0/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "cache-control": "max-age=60",
+        "content-type": "image/png",
+        "x-custom": "yes",
+        "x-weiwudi-error": "upstream"
+      },
+      "body": {
+        "text": "flaky:/fl/1/0/0.png:3"
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://flaky.example/fl/1/0/0.png",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 72,
+    "label": "cache 例外・Entry あり（古い本体）",
+    "request": "/api/cache/fl/1/0/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "cache-control": "max-age=60",
+        "content-type": "image/png",
+        "x-custom": "yes",
+        "x-weiwudi-error": "network"
+      },
+      "body": {
+        "text": "flaky:/fl/1/0/0.png:3"
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://flaky.example/fl/1/0/0.png",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 73,
+    "label": "cache 期限切れの取り直し",
+    "request": "/api/cache/fl/1/0/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "cache-control": "max-age=60",
+        "content-type": "image/png",
+        "x-custom": "yes"
+      },
+      "body": {
+        "text": "flaky:/fl/1/0/0.png:4"
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://flaky.example/fl/1/0/0.png",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 74,
+    "label": "cache 上流 500・Entry なし",
+    "request": "/api/cache/fl/1/1/0",
+    "response": {
+      "status": 500,
+      "statusText": "Internal Server Error",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8",
+        "retry-after": "5",
+        "x-upstream": "err",
+        "x-weiwudi-error": "upstream"
+      },
+      "body": {
+        "text": "boom"
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://flaky.example/fl/1/1/0.png",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 75,
+    "label": "cache 例外・Entry なし",
+    "request": "/api/cache/fl/1/1/1",
+    "response": {
+      "status": 404,
+      "statusText": "Not Found",
+      "headers": {
+        "x-weiwudi-error": "network"
+      },
+      "body": {
+        "text": ""
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://flaky.example/fl/1/1/1.png",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 76,
+    "label": "cache 上流 201 は 200 OK",
+    "request": "/api/cache/fl/1/0/1",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png"
+      },
+      "body": {
+        "text": "created:/fl/1/0/1.png"
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://flaky.example/fl/1/0/1.png",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 77,
+    "label": "cache 201 で保存したものの hit",
+    "request": "/api/cache/fl/1/0/1",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png"
+      },
+      "body": {
+        "text": "created:/fl/1/0/1.png"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 78,
+    "label": "stats 不安定な上流",
+    "request": "/api/stats?mapID=fl",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "count": 2,
+          "size": 42,
+          "total": 5,
+          "percent": 40
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 79,
+    "label": "clean",
+    "request": "/api/clean?mapID=fl",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Cleaned: fl"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 80,
+    "label": "stats clean の後",
+    "request": "/api/stats?mapID=fl",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "count": 0,
+          "size": 0,
+          "total": 5,
+          "percent": 0
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 81,
+    "label": "cache clean の後の例外",
+    "request": "/api/cache/fl/1/0/0",
+    "response": {
+      "status": 404,
+      "statusText": "Not Found",
+      "headers": {
+        "x-weiwudi-error": "network"
+      },
+      "body": {
+        "text": ""
+      }
+    },
+    "fetches": [
+      {
+        "url": "https://flaky.example/fl/1/0/0.png",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 82,
+    "label": "delete",
+    "request": "/api/delete?mapID=fl",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Deleted: fl"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 83,
+    "label": "info delete の後",
+    "request": "/api/info?mapID=fl",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: MapID \"fl\" not found"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 84,
+    "label": "stats delete の後",
+    "request": "/api/stats?mapID=fl",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: MapID \"fl\" not found"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 85,
+    "label": "cache delete の後",
+    "request": "/api/cache/fl/1/0/0",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: MapID \"fl\" not found"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 86,
+    "label": "delete 未登録",
+    "request": "/api/delete?mapID=never",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Deleted: never"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 87,
+    "label": "cancel 取得中でない",
+    "request": "/api/cancel?mapID=x1",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: There are no fetching process of x1"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 88,
+    "label": "stats 未登録",
+    "request": "/api/stats?mapID=never",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: MapID \"never\" not found"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 89,
+    "label": "info 未登録",
+    "request": "/api/info?mapID=never",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: MapID \"never\" not found"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 90,
+    "label": "fetchAll client なし",
+    "request": "/api/fetchAll?mapID=x1",
+    "response": {
+      "status": 404,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Not Found"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 91,
+    "label": "fetchAll 未登録",
+    "request": "/api/fetchAll?mapID=never",
+    "client": true,
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: MapID \"never\" not found"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 92,
+    "label": "fetchAll mapID の欠け",
+    "request": "/api/fetchAll",
+    "client": true,
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: Attribute \"mapID\" is missing"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 93,
+    "label": "add fetchAll 用",
+    "request": "/api/add?mapID=fa&type=xyz&url=https%3A%2F%2Fmix.example%2Ffa%2F%7Bz%7D%2F%7Bx%7D%2F%7By%7D.png&width=1024&height=1024",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "mapID": "fa",
+          "type": "xyz",
+          "url": "https://mix.example/fa/{z}/{x}/{y}.png",
+          "width": 1024,
+          "height": 1024,
+          "tileSize": 256,
+          "maxZoom": 2,
+          "minZoom": 0,
+          "minX": 0,
+          "minY": 0,
+          "maxX": 3,
+          "maxY": 3,
+          "totalTile": 21
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 94,
+    "label": "fetchAll 開始",
+    "request": "/api/fetchAll?mapID=fa",
+    "client": true,
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Fetching task start: fa"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 95,
+    "label": "fetchAll 完了まで",
+    "fetches": [
+      {
+        "url": "https://mix.example/fa/0/0/0.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/1/0/0.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/1/0/1.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/1/1/0.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/1/1/1.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/2/0/0.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/2/0/1.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/2/0/2.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/2/0/3.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/2/1/0.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/2/1/1.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/2/1/2.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/2/1/3.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/2/2/0.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/2/2/1.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/2/2/2.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/2/2/3.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/2/3/0.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/2/3/1.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/2/3/2.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/2/3/3.png",
+        "args": 1
+      }
+    ],
+    "messages": [
+      {
+        "type": "proceed",
+        "message": "Proceeding the tile fetching: fa 23% (5 / 21)",
+        "percent": 23,
+        "processed": 5,
+        "error": 0,
+        "errors": {
+          "network": 0,
+          "upstream": 0,
+          "quota": 0,
+          "storage": 0
+        },
+        "total": 21,
+        "mapID": "fa"
+      },
+      {
+        "type": "proceed",
+        "message": "Proceeding the tile fetching: fa 47% (10 / 21)",
+        "percent": 47,
+        "processed": 10,
+        "error": 0,
+        "errors": {
+          "network": 0,
+          "upstream": 0,
+          "quota": 0,
+          "storage": 0
+        },
+        "total": 21,
+        "mapID": "fa"
+      },
+      {
+        "type": "proceed",
+        "message": "Proceeding the tile fetching: fa 71% (15 / 21)",
+        "percent": 71,
+        "processed": 15,
+        "error": 1,
+        "errors": {
+          "network": 1,
+          "upstream": 0,
+          "quota": 0,
+          "storage": 0
+        },
+        "total": 21,
+        "mapID": "fa"
+      },
+      {
+        "type": "proceed",
+        "message": "Proceeding the tile fetching: fa 95% (20 / 21)",
+        "percent": 95,
+        "processed": 20,
+        "error": 2,
+        "errors": {
+          "network": 1,
+          "upstream": 1,
+          "quota": 0,
+          "storage": 0
+        },
+        "total": 21,
+        "mapID": "fa"
+      },
+      {
+        "type": "proceed",
+        "message": "Proceeding the tile fetching: fa 100% (21 / 21)",
+        "percent": 100,
+        "processed": 21,
+        "error": 2,
+        "errors": {
+          "network": 1,
+          "upstream": 1,
+          "quota": 0,
+          "storage": 0
+        },
+        "total": 21,
+        "mapID": "fa"
+      },
+      {
+        "type": "finish",
+        "message": "Fetched all tiles of fa with 2 error cases",
+        "total": 21,
+        "mapID": "fa",
+        "error": 2,
+        "errors": {
+          "network": 1,
+          "upstream": 1,
+          "quota": 0,
+          "storage": 0
+        }
+      }
+    ]
+  },
+  {
+    "step": 96,
+    "label": "stats fetchAll の後",
+    "request": "/api/stats?mapID=fa",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "count": 19,
+          "size": 76,
+          "total": 21,
+          "percent": 90
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 97,
+    "label": "fetchAll 2 回目（有るタイルは飛ばす）",
+    "request": "/api/fetchAll?mapID=fa",
+    "client": true,
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Fetching task start: fa"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 98,
+    "label": "fetchAll 2 回目の完了まで",
+    "fetches": [
+      {
+        "url": "https://mix.example/fa/2/1/1.png",
+        "args": 1
+      },
+      {
+        "url": "https://mix.example/fa/2/2/2.png",
+        "args": 1
+      }
+    ],
+    "messages": [
+      {
+        "type": "proceed",
+        "message": "Proceeding the tile fetching: fa 23% (5 / 21)",
+        "percent": 23,
+        "processed": 5,
+        "error": 0,
+        "errors": {
+          "network": 0,
+          "upstream": 0,
+          "quota": 0,
+          "storage": 0
+        },
+        "total": 21,
+        "mapID": "fa"
+      },
+      {
+        "type": "proceed",
+        "message": "Proceeding the tile fetching: fa 47% (10 / 21)",
+        "percent": 47,
+        "processed": 10,
+        "error": 0,
+        "errors": {
+          "network": 0,
+          "upstream": 0,
+          "quota": 0,
+          "storage": 0
+        },
+        "total": 21,
+        "mapID": "fa"
+      },
+      {
+        "type": "proceed",
+        "message": "Proceeding the tile fetching: fa 71% (15 / 21)",
+        "percent": 71,
+        "processed": 15,
+        "error": 1,
+        "errors": {
+          "network": 1,
+          "upstream": 0,
+          "quota": 0,
+          "storage": 0
+        },
+        "total": 21,
+        "mapID": "fa"
+      },
+      {
+        "type": "proceed",
+        "message": "Proceeding the tile fetching: fa 95% (20 / 21)",
+        "percent": 95,
+        "processed": 20,
+        "error": 2,
+        "errors": {
+          "network": 1,
+          "upstream": 1,
+          "quota": 0,
+          "storage": 0
+        },
+        "total": 21,
+        "mapID": "fa"
+      },
+      {
+        "type": "proceed",
+        "message": "Proceeding the tile fetching: fa 100% (21 / 21)",
+        "percent": 100,
+        "processed": 21,
+        "error": 2,
+        "errors": {
+          "network": 1,
+          "upstream": 1,
+          "quota": 0,
+          "storage": 0
+        },
+        "total": 21,
+        "mapID": "fa"
+      },
+      {
+        "type": "finish",
+        "message": "Fetched all tiles of fa with 2 error cases",
+        "total": 21,
+        "mapID": "fa",
+        "error": 2,
+        "errors": {
+          "network": 1,
+          "upstream": 1,
+          "quota": 0,
+          "storage": 0
+        }
+      }
+    ]
+  },
+  {
+    "step": 99,
+    "label": "cache fetchAll で取ったタイルの hit",
+    "request": "/api/cache/fa/2/0/0",
+    "response": {
+      "status": 200,
+      "statusText": "OK",
+      "headers": {
+        "content-type": "image/png"
+      },
+      "body": {
+        "base64": "AQEBAQ=="
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 100,
+    "label": "add 止めて待つ上流",
+    "request": "/api/add?mapID=g&type=xyz&url=https%3A%2F%2Fgate.example%2Fg%2F%7Bz%7D%2F%7Bx%7D%2F%7By%7D.png&width=1024&height=1024",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "mapID": "g",
+          "type": "xyz",
+          "url": "https://gate.example/g/{z}/{x}/{y}.png",
+          "width": 1024,
+          "height": 1024,
+          "tileSize": 256,
+          "maxZoom": 2,
+          "minZoom": 0,
+          "minX": 0,
+          "minY": 0,
+          "maxX": 3,
+          "maxY": 3,
+          "totalTile": 21
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 101,
+    "label": "fetchAll 止まる取得の開始",
+    "request": "/api/fetchAll?mapID=g",
+    "client": true,
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Fetching task start: g"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 102,
+    "label": "最初のバッチの 5 本が上流で止まる",
+    "fetches": [
+      {
+        "url": "https://gate.example/g/0/0/0.png",
+        "args": 1
+      },
+      {
+        "url": "https://gate.example/g/1/0/0.png",
+        "args": 1
+      },
+      {
+        "url": "https://gate.example/g/1/0/1.png",
+        "args": 1
+      },
+      {
+        "url": "https://gate.example/g/1/1/0.png",
+        "args": 1
+      },
+      {
+        "url": "https://gate.example/g/1/1/1.png",
+        "args": 1
+      }
+    ],
+    "messages": []
+  },
+  {
+    "step": 103,
+    "label": "fetchAll 取得中の別の地図",
+    "request": "/api/fetchAll?mapID=x1",
+    "client": true,
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: Another fetching process is running: \"g\" (0 / 21)"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 104,
+    "label": "clean 取得中",
+    "request": "/api/clean?mapID=g",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: g is under fetching process. Please cancel it first"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 105,
+    "label": "delete 取得中",
+    "request": "/api/delete?mapID=g",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: g is under fetching process. Please cancel it first"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 106,
+    "label": "clean 取得中でない別の地図",
+    "request": "/api/clean?mapID=mz",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Cleaned: mz"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 107,
+    "label": "stats 取得中",
+    "request": "/api/stats?mapID=g",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "count": 0,
+          "size": 0,
+          "total": 21,
+          "percent": 0
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 108,
+    "label": "cancel 取得中",
+    "request": "/api/cancel?mapID=g",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Fetching process of g is canceled"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 109,
+    "label": "cancel が効くまで",
+    "fetches": [],
+    "messages": [
+      {
+        "type": "proceed",
+        "message": "Proceeding the tile fetching: g 23% (5 / 21)",
+        "percent": 23,
+        "processed": 5,
+        "error": 0,
+        "errors": {
+          "network": 0,
+          "upstream": 0,
+          "quota": 0,
+          "storage": 0
+        },
+        "total": 21,
+        "mapID": "g"
+      },
+      {
+        "type": "canceled",
+        "message": "Fetching tile of g is canceled",
+        "mapID": "g"
+      }
+    ]
+  },
+  {
+    "step": 110,
+    "label": "cancel の後の cancel",
+    "request": "/api/cancel?mapID=g",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Error: There are no fetching process of g"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 111,
+    "label": "stats cancel の後",
+    "request": "/api/stats?mapID=g",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "count": 5,
+          "size": 15,
+          "total": 21,
+          "percent": 23
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 112,
+    "label": "fetchAll cancel の後の再開",
+    "request": "/api/fetchAll?mapID=g",
+    "client": true,
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Fetching task start: g"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 113,
+    "label": "再開の完了まで",
+    "fetches": [
+      {
+        "url": "https://gate.example/g/2/0/0.png",
+        "args": 1
+      },
+      {
+        "url": "https://gate.example/g/2/0/1.png",
+        "args": 1
+      },
+      {
+        "url": "https://gate.example/g/2/0/2.png",
+        "args": 1
+      },
+      {
+        "url": "https://gate.example/g/2/0/3.png",
+        "args": 1
+      },
+      {
+        "url": "https://gate.example/g/2/1/0.png",
+        "args": 1
+      },
+      {
+        "url": "https://gate.example/g/2/1/1.png",
+        "args": 1
+      },
+      {
+        "url": "https://gate.example/g/2/1/2.png",
+        "args": 1
+      },
+      {
+        "url": "https://gate.example/g/2/1/3.png",
+        "args": 1
+      },
+      {
+        "url": "https://gate.example/g/2/2/0.png",
+        "args": 1
+      },
+      {
+        "url": "https://gate.example/g/2/2/1.png",
+        "args": 1
+      },
+      {
+        "url": "https://gate.example/g/2/2/2.png",
+        "args": 1
+      },
+      {
+        "url": "https://gate.example/g/2/2/3.png",
+        "args": 1
+      },
+      {
+        "url": "https://gate.example/g/2/3/0.png",
+        "args": 1
+      },
+      {
+        "url": "https://gate.example/g/2/3/1.png",
+        "args": 1
+      },
+      {
+        "url": "https://gate.example/g/2/3/2.png",
+        "args": 1
+      },
+      {
+        "url": "https://gate.example/g/2/3/3.png",
+        "args": 1
+      }
+    ],
+    "messages": [
+      {
+        "type": "proceed",
+        "message": "Proceeding the tile fetching: g 23% (5 / 21)",
+        "percent": 23,
+        "processed": 5,
+        "error": 0,
+        "errors": {
+          "network": 0,
+          "upstream": 0,
+          "quota": 0,
+          "storage": 0
+        },
+        "total": 21,
+        "mapID": "g"
+      },
+      {
+        "type": "proceed",
+        "message": "Proceeding the tile fetching: g 47% (10 / 21)",
+        "percent": 47,
+        "processed": 10,
+        "error": 0,
+        "errors": {
+          "network": 0,
+          "upstream": 0,
+          "quota": 0,
+          "storage": 0
+        },
+        "total": 21,
+        "mapID": "g"
+      },
+      {
+        "type": "proceed",
+        "message": "Proceeding the tile fetching: g 71% (15 / 21)",
+        "percent": 71,
+        "processed": 15,
+        "error": 0,
+        "errors": {
+          "network": 0,
+          "upstream": 0,
+          "quota": 0,
+          "storage": 0
+        },
+        "total": 21,
+        "mapID": "g"
+      },
+      {
+        "type": "proceed",
+        "message": "Proceeding the tile fetching: g 95% (20 / 21)",
+        "percent": 95,
+        "processed": 20,
+        "error": 0,
+        "errors": {
+          "network": 0,
+          "upstream": 0,
+          "quota": 0,
+          "storage": 0
+        },
+        "total": 21,
+        "mapID": "g"
+      },
+      {
+        "type": "proceed",
+        "message": "Proceeding the tile fetching: g 100% (21 / 21)",
+        "percent": 100,
+        "processed": 21,
+        "error": 0,
+        "errors": {
+          "network": 0,
+          "upstream": 0,
+          "quota": 0,
+          "storage": 0
+        },
+        "total": 21,
+        "mapID": "g"
+      },
+      {
+        "type": "finish",
+        "message": "Fetched all tiles of g",
+        "total": 21,
+        "mapID": "g",
+        "error": 0,
+        "errors": {
+          "network": 0,
+          "upstream": 0,
+          "quota": 0,
+          "storage": 0
+        }
+      }
+    ]
+  },
+  {
+    "step": 114,
+    "label": "stats 再開の後",
+    "request": "/api/stats?mapID=g",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "count": 21,
+          "size": 63,
+          "total": 21,
+          "percent": 100
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 115,
+    "label": "delete 取得の後",
+    "request": "/api/delete?mapID=g",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "text/plain;charset=UTF-8"
+      },
+      "body": {
+        "text": "Deleted: g"
+      }
+    },
+    "fetches": [],
+    "messages": []
+  },
+  {
+    "step": 116,
+    "label": "stats 全体の最後",
+    "request": "/api/stats?mapID=x1",
+    "response": {
+      "status": 200,
+      "statusText": "",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": {
+        "json": {
+          "count": 1,
+          "size": 6,
+          "total": 21,
+          "percent": 4
+        }
+      }
+    },
+    "fetches": [],
+    "messages": []
+  }
+]
