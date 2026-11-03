@@ -116,6 +116,28 @@ importScripts("https://cdn.jsdelivr.net/npm/workbox-routing@7.4.0/build/workbox-
 importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.1.1/dist/weiwudi-sw.umd.js");
 ```
 
+### Service worker plugins
+
+`@c4h/weiwudi/sw` exports `addPlugin` to hook into how tiles are fetched and
+cached (hook names follow Workbox plugins). Call it at the top of your service
+worker script; with the UMD build use `self.Weiwudi_SW.addPlugin`.
+
+```js
+// sw.js (ES module service worker)
+import { addPlugin } from '@c4h/weiwudi/sw';
+
+addPlugin({
+  async requestWillFetch({ request }) {
+    return new Request(request, { headers: { 'x-api-key': 'public-key' } });
+  },
+  async cacheWillUpdate({ response }) {
+    return response.headers.get('content-type')?.startsWith('image/') ? response : null; // null: do not cache
+  },
+});
+```
+
+Details: [Service worker API](docs/api/sw.md).
+
 ### API reference
 
 - **API signatures** (release-dependent): see [`docs/api/`](docs/api/)
