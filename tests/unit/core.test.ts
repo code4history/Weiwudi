@@ -761,3 +761,34 @@ describe('レビューの指摘（PR #75）', () => {
     expect(closed).toEqual(['x']);
   });
 });
+
+describe('認証付きの要求と保存済みの Entry（仕様 §4.6・PR #75 追加）', () => {
+  it('storable が偽なら新鮮な Entry があっても上流へ出し、上流の本体を返す（hit にしない・touch しない）', async () => {
+    await seed('1_0_0', { fetchedAt: T - 10, accessedAt: T - 10 });
+    const touch = vi.spyOn(store, 'touch');
+    const upstream = vi.fn<Up>(async () => ok(10, {}, 4));
+    const res = await run({ storable: false, upstream });
+    expect(upstream).toHaveBeenCalledTimes(1);
+    expect(upstream.mock.calls[0][1].hasEntry).toBe(true);
+    expect(res.headers.get('x-weiwudi-status')).toBe('miss');
+    expect(await bytesOf(res)).toEqual(bodyOf(10, 4));
+    expect(touch).not.toHaveBeenCalled();
+    // 保存済みの Entry は書き換えない
+    expect((await store.getEntry(k('1_0_0')))?.meta.size).toBe(5);
+  });
+
+  it('storable が偽で上流が HTTP の失敗なら、Entry の古い本体（stale・upstream）', async () => {
+    await seed('1_0_0', { fetchedAt: T - 10 });
+    const res = await run({ storable: false, upstream: async () => ({ kind: 'response', response: new Response('', { status: 401 }) }) });
+    expect(res.headers.get('x-weiwudi-status')).toBe('stale');
+    expect(res.headers.get('x-weiwudi-error')).toBe('upstream');
+    expect(await bytesOf(res)).toEqual(bodyOf(5, 9));
+  });
+
+  it('storable が偽でネットワーク失敗なら、Entry の古い本体（stale・network）', async () => {
+    await seed('1_0_0', { fetchedAt: T - 10 });
+    const res = await run({ storable: false, upstream: async () => ({ kind: 'network', error: new TypeError('x') }) });
+    expect(res.headers.get('x-weiwudi-status')).toBe('stale');
+    expect(res.headers.get('x-weiwudi-error')).toBe('network');
+  });
+});

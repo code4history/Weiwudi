@@ -125,6 +125,9 @@ Notes:
 - Concurrent anonymous requests for the same tile are merged into one. The hooks
   run once, with the plugins registered when the first request started.
   Authenticated requests are never merged.
+- An authenticated request (one Weiwudi does not cache) always goes upstream,
+  even when a fresh cached copy exists. The cached copy is used only when
+  upstream fails (HTTP error or network failure), as a stale response.
 
 ## `ResourceInfo`
 

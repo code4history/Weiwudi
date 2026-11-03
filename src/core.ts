@@ -349,8 +349,8 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
     return r === cached ? parts : partsOf(r);
   };
 
-  // 2 新しい Entry
-  if (resource && entry && t - entry.meta.fetchedAt <= resource.policy.cacheTtl) {
+  // 2 新しい Entry。認証付き（storable が偽）は hit を飛ばして必ず上流へ出し、上流の失敗のときだけ表の 4 以降で Entry を使う（§4.6。Ruling）
+  if (resource && entry && input.storable && t - entry.meta.fetchedAt <= resource.policy.cacheTtl) {
     // touch は返す前に呼ぶ（tx はその場で同期に作られる）。完了は待たない（R8）
     store.touch(input.key, t).catch(() => undefined);
     const parts = await useCached(entry);
@@ -395,7 +395,8 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
   }
 
   // 3 上流が成功。2xx は 200 OK として配信・保存する（旧 API の miss と同じ。hit の再生とも揃う。Ruling）
-  const status: ServeStatus = entry ? 'refresh' : 'miss';
+  // 保存しない要求は Entry を更新しないので refresh にしない
+  const status: ServeStatus = entry && input.storable ? 'refresh' : 'miss';
   let failure: TileFailure | undefined;
   if (resource && input.storable) {
     failure = await save(store, resource, input, hooks!, up, savedPinned, t);
