@@ -55,8 +55,9 @@ describe('dispatch の選び方（Workbox の Router と同じ）', () => {
   it('別オリジンの URL は RegExp が先頭から当たったときだけ（RegExpRoute の決まり）', async () => {
     const h = createSwHarness();
     h.registerRoute(/a\.example\/x/, ok('partial'), 'GET');
-    expect(await h.dispatch('https://a.example/x')).toBeUndefined();
+    // 両方を門番（m2-t7。microtask で Weiwudi_Internal が足す）より前に登録する
     h.registerRoute(new RegExp(`^${SW_SELF_ORIGIN}/same`), ok('same'), 'GET');
+    expect(await h.dispatch('https://a.example/x')).toBeUndefined();
     expect(await (await h.dispatch(`${SW_SELF_ORIGIN}/same`))!.text()).toBe('same');
   });
 
@@ -77,7 +78,8 @@ describe('dispatch の選び方（Workbox の Router と同じ）', () => {
     h.registerRoute(/^https:\/\/m\.example\/x$/, ok('lower'), 'get');
     // Request は標準の method を大文字にするので、'get' で登録したルートには当たらない（実物と同じ）
     expect(await h.dispatch('https://m.example/x')).toBeUndefined();
-    expect(h.routes.at(-1)!.method).toBe('get');
+    // 門番（m2-t7）が microtask で後ろに足されるので、登録したルートを捕捉の値で引く
+    expect(h.routes.find((r) => String(r.capture) === String(/^https:\/\/m\.example\/x$/))!.method).toBe('get');
   });
 
   it('handler は { url, request, event, params } を受け、{ handle } の形の handler も呼べる', async () => {
@@ -104,6 +106,8 @@ describe('dispatch の選び方（Workbox の Router と同じ）', () => {
 describe('flushRoutes', () => {
   it('microtask で後から登録されるルートが、flushRoutes の後に見える', async () => {
     const h = createSwHarness();
+    // Weiwudi_Internal 自身の microtask のルート（m2-t7 の門番）を先に済ませる
+    await h.flushRoutes();
     const before = h.routes.length;
     Promise.resolve().then(() => Promise.resolve()).then(() => {
       h.registerRoute(/^https:\/\/late\.example\//, ok('late'), 'GET');
@@ -111,6 +115,8 @@ describe('flushRoutes', () => {
     expect(h.routes.length).toBe(before);
     await h.flushRoutes();
     expect(h.routes.length).toBe(before + 1);
+    // 門番は表を読み込むまで候補を受けるので、先に 1 回通して表を読み込ませる（以後の門番は何も受けない）
+    await h.dispatch('https://warm.example/');
     expect(await (await h.dispatch('https://late.example/a'))!.text()).toBe('late');
   });
 });

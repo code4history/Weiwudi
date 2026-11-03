@@ -277,7 +277,7 @@ export async function evictScopesFor(store: Store, resource: ResourceMeta): Prom
  */
 export function serve(ctx: Context, input: ServeInput, now: () => number): Promise<Response> {
   // Range つきは素通し（仕様 §11。206 を全体として保存すると壊れる）
-  if (input.request.headers.has('range')) return passThrough(input);
+  if (input.request.headers.has('range')) return passServeInput(input);
   const plugins = getPlugins();
   // 認証付き（保存しない）要求はまとめない。匿名の要求と応答を共有しない（PR #75 L1 M1）
   if (!input.storable) return serveOnce(ctx, input, now(), plugins);
@@ -292,19 +292,26 @@ export function serve(ctx: Context, input: ServeInput, now: () => number): Promi
   return p.then((r) => r.clone());
 }
 
-/** Range つきの要求の素通し。ネットワーク失敗だけは表の 7 の形で返す */
-const passThrough = async (input: ServeInput): Promise<Response> => {
-  let result: UpstreamResult;
+/**
+ * 素通し（Range つきの要求。仕様 §11）の唯一の実装。新旧どちらの経路もこれを使う（hook・legacy・serve の守り）。
+ * 上流の応答をそのまま返し、保存・まとめ・差し込み口を使わない。ネットワーク失敗（fetcher の reject）だけは
+ * 表の 7 の形（404・offline-miss・x-weiwudi-error: network・access-control-expose-headers）で返す
+ */
+export const passThrough = async (fetcher: () => Promise<Response>): Promise<Response> => {
   try {
-    result = await input.upstream(input.request, { hasEntry: false, requestChanged: false });
-  } catch (error) {
-    result = { kind: 'network', error };
-  }
-  if (result.kind === 'network') {
+    return await fetcher();
+  } catch (_e) {
     return synthesize({ body: null, status: 404, statusText: 'Not Found', headers: {} }, 'offline-miss', 'network');
   }
-  return result.response;
 };
+
+/** serve に入ってきた Range つきの要求の守り（呼び出し側が入れないのが契約） */
+const passServeInput = (input: ServeInput): Promise<Response> =>
+  passThrough(async () => {
+    const result = await input.upstream(input.request, { hasEntry: false, requestChanged: false });
+    if (result.kind === 'network') throw result.error;
+    return result.response;
+  });
 
 interface LiveEntry {
   meta: EntryMeta;

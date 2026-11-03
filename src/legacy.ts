@@ -14,7 +14,7 @@
 //   現行の getImage の読み出し（設定と Entry）の失敗と同じ経路・同じ形（m2-t5 の Ruling）
 import type { RouteHandlerCallbackOptions } from 'workbox-core';
 import type { Context, JobState } from './context';
-import { runJob, serve } from './core';
+import { passThrough, runJob, serve } from './core';
 import type { MapSetting, ResourceMeta, Store, TileExtent } from './store';
 import {
   lngLatBoundsToTileBox, countTiles, enumerateTiles, maxZoomForPixelSize, pixelSizeToTileBox,
@@ -121,14 +121,12 @@ const serveTile = (ctx: Context, s: MapSetting, z: number, x: number, y: number)
   }, () => Date.now());
 };
 
-/** Range つきの要求の素通し（serve に入れない。保存しない）。ネットワーク失敗は 404 */
-const passRange = async (s: MapSetting, z: number, x: number, y: number, range: string): Promise<Response> => {
-  try {
-    return await fetch(requestOf(tileUrl(s, z, x, y), { headers: { range } }));
-  } catch (_e) {
-    return new Response(null, { status: 404, statusText: 'Not Found' });
-  }
-};
+/**
+ * Range つきの要求の素通し（serve に入れない。保存しない）。core.passThrough を使うので、ネットワーク失敗は
+ * 新 API と同じ 404・offline-miss・x-weiwudi-error: network（m2-t7。素通しを 1 か所にまとめた）
+ */
+const passRange = (s: MapSetting, z: number, x: number, y: number, range: string): Promise<Response> =>
+  passThrough(() => fetch(requestOf(tileUrl(s, z, x, y), { headers: { range } })));
 
 const getImage = async (ctx: Context, mapID: string, z: number, x: number, y: number, range: string | null) => {
   const store = await ctx.store();
