@@ -331,3 +331,33 @@ describe('MatchTable（仕様 §4.2）', () => {
     expect(calls).toBeGreaterThan(0);
   });
 });
+
+describe('m2-t3 水準 1 の指摘', () => {
+  it('M3: entryKey は大文字・percent-encode した名前の資格情報も除く', () => {
+    const t = 'https://a.example/{z}/{x}/{y}.png';
+    const url = new URL('https://a.example/3/1/2.png?ACCESS_TOKEN=x&Key=y&%61pi_key=z&SKU=s&v=1');
+    const m = matchUrl(compileTemplate(t), url)!;
+    expect(entryKey('R', 'tile', m, url, CP)).toBe('R\x003_1_2?v=1');
+  });
+
+  it('M5: 固定値の項目が要求に 2 つ以上あれば照合しない（?v=1 のテンプレートに ?v=1&v=2）', () => {
+    const c = compileTemplate('https://a.example/{z}/{x}/{y}.png?v=1');
+    expect(matchUrl(c, new URL('https://a.example/1/0/0.png?v=1'))).not.toBeNull();
+    expect(matchUrl(c, new URL('https://a.example/1/0/0.png?v=1&v=2'))).toBeNull();
+    expect(matchUrl(c, new URL('https://a.example/1/0/0.png?v=2&v=1'))).toBeNull();
+    expect(matchUrl(c, new URL('https://a.example/1/0/0.png?v=1&v=1'))).toBeNull();
+  });
+
+  it('M5: テンプレート自身が同じ名前を 2 つ持つときは、同じ値の組だけを照合する', () => {
+    const c = compileTemplate('https://a.example/{z}/{x}/{y}.png?b=2&b=1');
+    expect(matchUrl(c, new URL('https://a.example/1/0/0.png?b=1&b=2'))).not.toBeNull();
+    expect(matchUrl(c, new URL('https://a.example/1/0/0.png?b=1'))).toBeNull();
+    expect(matchUrl(c, new URL('https://a.example/1/0/0.png?b=1&b=2&b=3'))).toBeNull();
+  });
+
+  it('M5: 座標の項目が要求に 2 つ以上あれば照合しない', () => {
+    const c = compileTemplate('https://w.example/wmts?TileMatrix={z}&TileCol={x}&TileRow={y}');
+    expect(matchUrl(c, new URL('https://w.example/wmts?TileMatrix=1&TileCol=0&TileRow=1'))).not.toBeNull();
+    expect(matchUrl(c, new URL('https://w.example/wmts?TileMatrix=1&TileCol=0&TileCol=1&TileRow=1'))).toBeNull();
+  });
+});

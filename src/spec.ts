@@ -92,17 +92,18 @@ const isSecretToken = (v: string): boolean => /^sk\./i.test(v.replace(/^\s*(?:(?
 /** クエリ値を percent-decode する。崩れた % でも投げない（URLSearchParams で取る。第 4 回 O-3） */
 const decodeQueryValue = (raw: string): string => new URLSearchParams(`v=${raw.replace(/&/g, '%26')}`).get('v') ?? raw;
 
-/** テンプレートのクエリの (名前, 値) の組。値は percent-decode しない生の形と、した形 */
-const templateQueryPairs = (t: string): { name: string; raw: string; decoded: string }[] => {
+/**
+ * テンプレートのクエリの (名前, 値) の組。名前と値は percent-decode しない生の形と、した形。
+ * `#` を含むテンプレートは checkTemplate が先に拒否するので、最初の `?` から末尾までがクエリ（M1）
+ */
+const templateQueryPairs = (t: string): { rawName: string; name: string; raw: string; decoded: string }[] => {
   const q = t.indexOf('?');
   if (q < 0) return [];
-  const hash = t.indexOf('#', q);
-  const query = t.slice(q + 1, hash < 0 ? undefined : hash);
-  return query.split('&').filter((p) => p !== '').map((p) => {
+  return t.slice(q + 1).split('&').filter((p) => p !== '').map((p) => {
     const eq = p.indexOf('=');
     const rawName = eq < 0 ? p : p.slice(0, eq);
     const raw = eq < 0 ? '' : p.slice(eq + 1);
-    return { name: decodeQueryValue(rawName), raw, decoded: decodeQueryValue(raw) };
+    return { rawName, name: decodeQueryValue(rawName), raw, decoded: decodeQueryValue(raw) };
   });
 };
 
@@ -140,6 +141,9 @@ const parseCredentials = (v: unknown): Credentials | undefined => {
   const query = parseStringRecord(own(v, 'query'), 'credentials.query');
   const headers = parseStringRecord(own(v, 'headers'), 'credentials.headers');
   for (const val of Object.values(query ?? {})) if (isSecretToken(val)) throw rejectedCredential('credentials.query');
+  // クエリの名前は大文字小文字を問わずに除く・合わせるので、小文字で同じ名前が 2 つあると勝ち負けが決まらない（M2）
+  const lower = Object.keys(query ?? {}).map((k) => k.toLowerCase());
+  if (lower.some((k, i) => lower.indexOf(k) !== i)) throw invalid('credentials.query', 'must not repeat a name in a different case');
   for (const val of Object.values(headers ?? {})) if (isSecretToken(val)) throw rejectedCredential('credentials.headers');
   const c: Credentials = {};
   if (query) c.query = query;
@@ -158,6 +162,8 @@ const parseCredentialParams = (v: unknown): string[] => {
 /** 1 つのテンプレートを検査し、正規化した形を返す */
 const checkTemplate = (t: string, index: number, credentialParams: readonly string[]): string => {
   if (/[\u0000-\u001f\u007f]/.test(t)) throw unsupportedTemplate(index, 'contains a control character');
+  // フラグメントは上流へ届かず、クエリの検査と除去の外に資格情報を残す（M1）
+  if (t.indexOf('#') >= 0) throw unsupportedTemplate(index, 'must not contain a fragment (#)');
   let parsed: URL;
   try {
     parsed = new URL(t.replace(/\{[^{}]*\}/g, '0'));
@@ -168,7 +174,10 @@ const checkTemplate = (t: string, index: number, credentialParams: readonly stri
     throw new WeiwudiError('attribute-invalid', `URL template #${index + 1} must not contain user info`, { attribute: 'url', index });
   }
   for (const p of templateQueryPairs(t)) {
-    if (isSecretToken(p.raw) || isSecretToken(p.decoded)) throw rejectedCredential(`URL template #${index + 1}`);
+    // 値の無い項目（?sk.…）も名前で見る（I1）
+    if (isSecretToken(p.raw) || isSecretToken(p.decoded) || isSecretToken(p.rawName) || isSecretToken(p.name)) {
+      throw rejectedCredential(`URL template #${index + 1}`);
+    }
   }
   let normalized: string;
   let compiled: ReturnType<typeof compileTemplate>;
@@ -273,20 +282,23 @@ export function normalizeSpec(input: unknown): NormalizedSpec {
   const templates = normalized.filter((t, i, xs) => xs.indexOf(t) === i);
   const id = parseId(own(input, 'id'), templates[0]);
 
-  // テンプレートに載っていた資格情報の項目（字句を含む値は除く）。先のミラーが勝ち、明示の credentials がさらに勝つ
+  // テンプレートに載っていた資格情報の項目（字句を含む値は除く）。名前は小文字で 1 つにまとめ（M2）、
+  // 先のミラー・先の出現が勝ち、明示の credentials がさらに勝つ。出力の名前は勝った側の綴り
   const drop = new Set(credentialParams.map((p) => p.toLowerCase()));
-  const fromUrl: Record<string, string> = {};
+  const merged = new Map<string, [name: string, value: string]>();
   for (const t of urls) {
     for (const p of templateQueryPairs(t)) {
-      if (!drop.has(p.name.toLowerCase()) || /\{[^{}]*\}/.test(p.decoded)) continue;
-      if (!Object.prototype.hasOwnProperty.call(fromUrl, p.name)) fromUrl[p.name] = p.decoded;
+      const lower = p.name.toLowerCase();
+      if (!drop.has(lower) || /\{[^{}]*\}/.test(p.decoded)) continue;
+      if (!merged.has(lower)) merged.set(lower, [p.name, p.decoded]);
     }
   }
+  for (const [name, value] of Object.entries(explicit?.query ?? {})) merged.set(name.toLowerCase(), [name, value]);
   let credentials: Credentials | undefined;
-  if (explicit || Object.keys(fromUrl).length > 0) {
+  if (explicit || merged.size > 0) {
     credentials = { ...(explicit ?? {}) };
-    const query = { ...fromUrl, ...(explicit?.query ?? {}) };
-    if (Object.keys(query).length > 0) credentials.query = query;
+    delete credentials.query;
+    if (merged.size > 0) credentials.query = Object.fromEntries([...merged.values()]);
   }
 
   const cacheTtl = own(input, 'cacheTtl');

@@ -299,3 +299,48 @@ describe('範囲（bounds は tile_math で extent にする）', () => {
     expect(codeOf({ kind: 'raster', url: T, ...over })).toBe('attribute-invalid');
   });
 });
+
+describe('m2-t3 水準 1 の指摘', () => {
+  it.each([
+    ['# の後ろに ?key=', `${T}#frag?key=SECRET`],
+    ['# の後ろに access_token=sk.', `${T}#access_token=sk.SECRET`],
+    ['# だけ', `${T}#`],
+  ])('M1: # を含むテンプレート（%s）は unsupported-template で、文面に値を出さない', (_l, url) => {
+    expect(codeOf({ kind: 'raster', url })).toBe('unsupported-template');
+    expectNotLeaked({ kind: 'raster', url }, 'SECRET');
+  });
+
+  it('M2: テンプレートの ?KEY= と明示の key は小文字で 1 つにし、明示が勝つ', () => {
+    const n = normalizeSpec({ kind: 'raster', url: `${T}?KEY=FROMURL`, credentials: { query: { key: 'EXPL' } } });
+    expect(n.credentials).toEqual({ query: { key: 'EXPL' } });
+  });
+
+  it('M2: 明示の側が大文字（KEY）でテンプレートが小文字（?key=）でも 1 つにし、明示の綴りと値が勝つ', () => {
+    const n = normalizeSpec({ kind: 'raster', url: `${T}?key=FROMURL`, credentials: { query: { KEY: 'EXPL' } } });
+    expect(n.credentials).toEqual({ query: { KEY: 'EXPL' } });
+  });
+
+  it('M2: テンプレートの ?key=A&KEY=B は先の 1 つだけ', () => {
+    const n = normalizeSpec({ kind: 'raster', url: `${T}?key=A&KEY=B` });
+    expect(n.credentials).toEqual({ query: { key: 'A' } });
+  });
+
+  it('M2: 明示の credentials.query に小文字で同じ名前が 2 つあれば attribute-invalid', () => {
+    expect(codeOf({ kind: 'raster', url: T, credentials: { query: { key: 'a', KEY: 'b' } } })).toBe('attribute-invalid');
+  });
+
+  it('M3: ?ACCESS_TOKEN=x は credentials.query へ移り、spec に残らない', () => {
+    const n = normalizeSpec({ kind: 'raster', url: `${T}?ACCESS_TOKEN=pk.upper&v=1` });
+    expect(n.credentials).toEqual({ query: { ACCESS_TOKEN: 'pk.upper' } });
+    expect(JSON.stringify(n.spec)).not.toContain('pk.upper');
+  });
+
+  it.each([
+    ['値の無い項目', `${T}?sk.SECRET`],
+    ['名前が sk.', `${T}?sk.SECRET=1`],
+    ['percent-encode した名前', `${T}?%73k.SECRET`],
+  ])('I1: クエリ項目の名前の sk.（%s）も credential-rejected', (_l, url) => {
+    expect(codeOf({ kind: 'raster', url })).toBe('credential-rejected');
+    expectNotLeaked({ kind: 'raster', url }, 'SECRET');
+  });
+});

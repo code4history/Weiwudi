@@ -319,15 +319,20 @@ export function matchUrl(c: CompiledTemplate, url: URL): MatchResult | null {
   if (!pm) return null;
   const values: [TokenName, string][] = c.pathTokens.map((t, i) => [t, pm[i + 1] ?? '']);
   const params = url.searchParams;
+  // 同じ名前の項目が要求に余分にあると、キーから除いた値の違いで別の応答が同じキーになる（M5）。
+  // 座標の項目はちょうど 1 つ、固定値の項目は値の組（並びは問わない）がテンプレートと同じであることを求める
   for (const q of c.queryTokens) {
-    const v = params.get(q.name);
-    if (v === null) return null;
-    const qm = q.re.exec(v);
+    const vs = params.getAll(q.name);
+    if (vs.length !== 1) return null;
+    const qm = q.re.exec(vs[0]);
     if (!qm) return null;
     values.push([q.token, qm[1] ?? '']);
   }
-  for (const f of c.queryFixed) {
-    if (params.getAll(f.name).indexOf(f.value) < 0) return null;
+  const fixedNames = c.queryFixed.map((f) => f.name).filter((n, i, xs) => xs.indexOf(n) === i);
+  for (const name of fixedNames) {
+    const want = c.queryFixed.filter((f) => f.name === name).map((f) => f.value).sort();
+    const got = params.getAll(name).sort();
+    if (want.length !== got.length || want.some((v, i) => v !== got[i])) return null;
   }
   const d = derive(values);
   if (!d) return null;
