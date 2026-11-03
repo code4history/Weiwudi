@@ -136,6 +136,8 @@ const server = createServer((req, res) => {
     }
     if (serveHookTile(req, pathname, res)) return;
     if (pathname === '/__log') {
+        // ?reset=1 で空にする（再試行で前の試行の記録が残らないように）
+        if (new URL(req.url, 'http://localhost').searchParams.has('reset')) log.length = 0;
         res.writeHead(200, { ...CORS, 'content-type': 'application/json' });
         res.end(JSON.stringify(log));
         return;
