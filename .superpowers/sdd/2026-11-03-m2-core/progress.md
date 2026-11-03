@@ -265,3 +265,13 @@ Ruling: 水準 2 の第 2 回（再確認）は Codex の結果を待たず Clau
 - t9 への申し送り: 制御の POST が SW に届きネットワークへ出ない（hits 0 件）ことを実ブラウザで測る／別オリジンのページから /v2/ping と POST の応答が読めること（制御応答の CORS。Codex の推奨）／実ブラウザの controllerchange の後に確かめ直すことを 1 本
 - m3 への申し送り: WeiwudiError.from が未知の code を internal に作り直す（新しい SW の code が消える）／style・asset の登録を足すときは control.ts の infoOf・statsOf・refreshTable の絞り込みを広げる
 - m4 への申し送り: stats の count と percent を「その Source の範囲の中の Entry」で数える（今は共有で 100 を超え得る）／control の IndexedDB の失敗を storage に分類／register の途中で store が失敗したときも照合表を作り直す／照合表の読み込みが終わらないと変更の op が待ち続ける（門番と同じ上限を検討）／容量判定の読み出しの失敗を storage で配信を続ける形に（§9 に記録済み）／範囲つきの clean・regions の削除・persist()／ジョブのイベントは WeiwudiSource の message の受け口を使う／直列の待ち行列は 1 つの SW の中だけ
+
+## m2-t9 実 URL の e2e（2026-11-04）
+
+- 実装: f79baf6（tests/e2e/hook.spec.js 新規 16 本・fixtures/hook-page.html・hook-sw.js 新規・tile-server.mjs に /nocors・/sparse・/auth・/html・/png/・/__log）。src は不変。PR #81 を merge commit 6a60a0e で vector-cache へ合流。CI は Node 22・24 とも緑
+- 実測: 進行役が手元で build・e2e 34 passed（既存 18・新規 16・Chromium だけ）・`weiwudi-e2e-*` は前後とも 0 個。実装者の報告で test:unit 966 passed・typecheck・eslint exit 0・依存の追加なし・127.0.0.1 と weiwudi.example.com 以外の https:// は 0 件
+- 水準 1（新しい Claude）: 合格・Critical 0・Major 0・Minor 2・Info 5。hits 計数の陽性対照（制御下に無いページ・新 API を持たない SW の下での POST が数えられる）を作業ツリーの外で走らせ、「hits 0 件」が偽の緑でないことを確かめた。src の変異（制御の POST ルート・controller ごとの確認・門番の登録の時点・no-cors の 401 の取り直し・実績の判定）で新しい e2e が落ちることは実装者が確かめた
+
+Ruling: 実装者の Ruling 1〜6 を採る（制御応答の CORS は不具合ではない（SW が合成した応答に CORS check は掛からない）／「別オリジンのページ」は疑似ホストと別オリジンのページ／controllerchange は同じスコープに別スクリプトを register して実ブラウザで起こす／計画の 14 本に申し送りの 2 本を足して 16 本（計画の受け入れ条件「14 件」は 16 件と読む）／端点の本体は 1×1 の PNG・/png/ と /__log を足す／疑似ホストは `**://weiwudi.example.com/**` で数える）— 水準 1 が 6 件とも妥当と判定 — 誤りなら m2 の区切りで直す
+- m2 の区切りへの申し送り: M1（/__log が溜まり続け空にできないので、CI の retries: 2 で再試行するとログを見る 4 本が必ず落ちる。座標を一意にするか空にする端点を足す）／M2（hook.spec.js:137 の type === 'basic' は Chromium だけの挙動。['basic','cors'] を許すか外す）／「navigate・script に触らない」は単体試験（isCandidate）だけで e2e には無い
+- m3 以降（WebKit・Firefox を測るとき・R14）: 別オリジンのページからの読み取りと controllerchange の e2e をそのまま流す
