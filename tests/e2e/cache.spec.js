@@ -172,27 +172,25 @@ test.describe.serial('Weiwudi Cache Operations', () => {
             await fetchTile(1, 0); // 合計 1000 bytes
             await fetchTile(0, 1); // 1500 > 1000 → 最古 (1_0_0) を退避
             const stats = await map.stats();
-            // IndexedDB の tileCache key を直接確認
-            const keys = await new Promise((resolve, reject) => {
-                const req = indexedDB.open('Weiwudi_capacity_map');
-                req.onsuccess = () => {
-                    const db = req.result;
-                    const tx = db.transaction('tileCache', 'readonly');
-                    const store = tx.objectStore('tileCache');
-                    const keysReq = store.getAllKeys();
-                    keysReq.onsuccess = () => resolve(keysReq.result);
-                    keysReq.onerror = () => reject(keysReq.error);
-                };
-                req.onerror = () => reject(req.error);
-            });
-            return { count: stats.count, size: stats.size, keys: keys };
+            // 残ったタイルを公開の応答ヘッダ x-weiwudi-status で確かめる（内部の保存の形は公開の約束ではない。仕様 §13）。
+            // hit は accessedAt を進めるだけで退避しない。退避された 1_0_0 は最後に見る（取り直しで別のタイルが退避される）
+            const statusOf = async (x, y) => {
+                const u = map.url.replace('{z}', '1').replace('{x}', String(x)).replace('{y}', String(y));
+                const res = await fetch(u);
+                await res.arrayBuffer();
+                return res.headers.get('x-weiwudi-status');
+            };
+            const kept10 = await statusOf(1, 0);
+            const kept01 = await statusOf(0, 1);
+            const evicted00 = await statusOf(0, 0);
+            return { count: stats.count, size: stats.size, kept10, kept01, evicted00 };
         });
 
         expect(result.count).toBe(2);
         expect(result.size).toBeLessThanOrEqual(1000);
-        expect(result.keys).toContain('1_1_0');
-        expect(result.keys).toContain('1_0_1');
-        expect(result.keys).not.toContain('1_0_0');
+        expect(result.kept10).toBe('hit');
+        expect(result.kept01).toBe('hit');
+        expect(result.evicted00).toBe('miss');
     });
 
     test('should deliver oversized tile without caching', async ({ page, context }) => {

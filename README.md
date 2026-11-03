@@ -123,9 +123,6 @@ cached. It is Weiwudi's own API that borrows the hook names of Workbox plugins.
 Call it at the top of your service worker script; with the UMD build use
 `self.Weiwudi_SW.addPlugin`.
 
-> **Development branch:** the hooks are not yet connected to tile serving. They
-> take effect once the legacy API is moved onto the new core (m2-t5).
-
 ```js
 // sw.js (ES module service worker)
 import { addPlugin } from '@c4h/weiwudi/sw';

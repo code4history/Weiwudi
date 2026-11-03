@@ -2,11 +2,6 @@
 
 [日本語](sw.ja.md)
 
-> **Status on the development branch:** the hooks are not yet connected to tile
-> serving. `addPlugin` is exported and registers plugins, but until the legacy
-> API is moved onto the new core (m2-t5), no hook is called for real requests.
-> This note is removed in m2-t5.
-
 The service worker entry registers Weiwudi's routes when it is imported. A
 side-effect import keeps working as before:
 
@@ -121,7 +116,9 @@ Notes:
   same as the legacy API.
 - With the legacy API (`Weiwudi.registerMap`), Weiwudi fetches upstream with the
   URL string. When `requestWillFetch` returns a different `Request`, it fetches
-  that `Request` instead.
+  that `Request` instead. The `request` the hooks receive is for the upstream
+  tile URL (one mirror picked at random, a relative URL resolved against the
+  service worker's location), never the `weiwudi.example.com` URL.
 - Concurrent anonymous requests for the same tile are merged into one. The hooks
   run once, with the plugins registered when the first request started.
   Authenticated requests are never merged.
