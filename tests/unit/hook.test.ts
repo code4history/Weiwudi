@@ -255,7 +255,9 @@ describe('2 つの SW（同じ factory。第 1 回 S1 の対照）', () => {
     b.bus.disable();
     const a = otherSw();
     await register(a, { url: TPL });
-    await b.flushRoutes();
+    // 母線が届けば b の表の作り直しが終わるだけの時間を待ってから見る（待たずに見ると、届いても古い表のまま偽の緑。m2-t7 Minor 1）
+    await new Promise((r) => setTimeout(r, 100));
+    expect(b.bus.delivered).toBe(0);
     for (let i = 0; i < 5; i++) expect(await b.dispatch(TILE)).toBeUndefined();
     // 処理した SW 自身の表は即時に作り直されている
     expect(a.table.current!.table.match(new URL(TILE))).not.toBeNull();
