@@ -237,3 +237,17 @@ Ruling: Ruling 14 を採る。keep がいる間はテンプレートを縮めず
 - t7 への申し送り: `{y}` と `{-y}`・`{z}/{x}` と `{x}/{z}` のように同じ要求に当たる別の照合の形を、照合表の作成時に見つけて warnings に出す（後の登録が影になり黙って捕捉されない）／`putCredentials(id, {})` の後の getCredentials は `{}` を返すので、空を資格情報なしと数えて credentialSourceFor の withCredentials を作る／照合表は `map:` を除いた Resource から作り、registry の書き換えを作り直しの契機に含める／照合表の規則の順を決める
 - t8 への申し送り: register・update・remove を 1 本の直列の待ち行列に通す（apply が複数の tx で、同時の register で createResource が 2 回走り得る）／sources()・source() から `map:` を外す／clean は isExclusiveTo、remove は applyRemove、register は applyRegister（衝突は warnings）、update は applyUpdate（衝突は resource-conflict の例外）／context の corslessStreak を消す／keep の判定は warnings の文字列 `resource-conflict: <id>` に頼るので、書式を作る関数を 1 つにまとめる（m3 の下位資源でも同じ）
 - 文書への申し送り: 計画の「applyRemove は isExclusiveTo だけで決める」を仕様 §5.6 に合わせる／§10「warnings に URL を入れるときはクエリを落とす」と §5.6「warnings に Resource.id を書く」の食い違いを揃える
+
+## m2-t7 照合ルート・門番・上流の取得（2026-11-04・仕様 §4.3〜§4.6）
+
+- 実装: 9a84d10（hook.ts・upstream.ts 新規・Range の素通しを core.passThrough 1 つにまとめる・旧 API の Range のネットワーク失敗にも x-weiwudi-* が付く）。PR #79 を merge commit 63152ca で vector-cache へ合流。CI は Node 22・24 とも緑
+- 実測: test:unit 910 passed・typecheck exit 0（進行役と水準 1 が手元で確認）。実装者の報告で build・eslint exit 0・e2e 18 passed・`weiwudi-e2e-*` は前後とも 0 個・変異 29 件をすべて試験が落とす（初回に残った 2 件は試験を足した）
+- 水準 1（新しい Claude・資格情報と CORS を重点）: 合格・Critical 0・Major 0・Minor 6・Info 7。I2 は塞がった・資格情報はキーと IndexedDB に残らない・§4.5 の手順は仕様どおりで読み・直し・書きの競合も無い
+
+Ruling: 実装者の Ruling 1〜10 を採る（Range の素通しは範囲外の判定より前／表の読み込みは最初の候補の要求で始める／規則の順は固定値のクエリ項目の多い順 → 座標のクエリ項目の多い順 → order → id → テンプレート／影の warnings は `template-shadowed: <id>` で保存しない／I2 は要求のオリジンをテンプレートに持つ Source だけを候補にして credentialSourceFor で選び、空の `{}` は資格情報なし／credentialSourceFor は配線から注入（§3 の依存の表）／認証付きの要求には登録の資格情報を足さず hasEntry も見ない／corslessUntil を書いたら連続数を 0 に／sw-harness.test.ts の 3 件は門番に合わせて並べ直し／照合しなかった要求の素通しは fetch(request) のまま）— 水準 1 が 10 件とも妥当と判定 — 誤りなら t8・m3 で直す
+Ruling: 水準 1 の Minor 6 件は合流を止めずに申し送る。Minor 1（偽の緑の試験）は t8 の前段で直す — 動くもの最優先。差し込み口が URL を別ホストへ書き換える場合（Minor 2）は SW の作者のコードで、m3 の applyCredentials と同じ所で直すのが安い — 誤りなら該当の申し送り先で拾う
+- t8 の前段の直し: hook.test.ts:251-262 の bus.disable の対照試験が偽の緑（母線が届く前に見ている）。待ってから見るか `bus.delivered === 0` を確かめる形にする
+- t8 への申し送り: register・update・remove の後に tableChanged(ctx) を呼ぶ／tableChanged が reject したとき（表の作り直しの失敗で古い表のまま固まる）にやり直すか warnings にするか決める／register の warnings はその登録に関わる Resource の影に絞る（今は表全体の影を毎回返す）／template-shadowed を保存するか公開の文書に書くか決める／update で ctx.corslessStreak.delete(resourceId)／README に「@c4h/weiwudi/sw の import を先に書く」（§4.3）／§9 に旧 API の Range のネットワーク失敗に x-weiwudi-* が付くことを足す／§4.3 の「起動時に読み込む」を「最初の候補の要求で読み込む」に揃える
+- m3 への申し送り: 資格情報は差し込み口を通した後の要求のオリジンが元と同じときだけ足す（requestChanged が今は使われていない）／1 つの Source の中のミラーごとに資格情報が違う場合（spec.ts が先のミラーの値 1 つにまとめる。I2 の残り）／style・tilejson で isStyleLike を立てる／リダイレクトの先にヘッダの資格情報が付くことを文書に書く
+- m4 への申し送り: serve が reject すると（save の evictScopesFor の読み出しの失敗）上流へ 2 回出る／opaque イベントと jobOpaqueStreak／IndexedDB の open が永久に終わらないと門番が毎回 3 秒待つ（実害の実績なし）
+- Info（記録だけ）: 同時の要求をまとめると cors の要求に opaque が渡り得る（まれ）／作り直した要求に signal・cache・integrity・priority が写らない／失敗の直後は 1 秒空けてからやり直す（仕様は「次の要求で」）
