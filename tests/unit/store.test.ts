@@ -445,6 +445,25 @@ describe('退避（putItemWithEviction と同じ規則）', () => {
     expect(await s.getResource('r')).toMatchObject({ count: 0, bytes: 0 });
   });
 
+  it('maxBytes が 0 の上限では大きさ 0 の応答も保存しない（m2-t2 水準 1 Minor 3）', async () => {
+    const s = await open();
+    await s.createResource(resource('r'));
+    expect(await put(s, entry('r', 'z', 0, 1), [{ resourceIds: ['r'], maxBytes: 0 }])).toEqual({ saved: false });
+    expect(await s.hasEntries([key('r', 'z')])).toEqual([false]);
+    expect(await s.getResource('r')).toMatchObject({ count: 0, bytes: 0 });
+  });
+
+  it('別の Resource に同じ accessedAt の Entry があり 1 つの要素にまとめたとき、キー昇順で消す（m2-t2 水準 1 Minor 2）', async () => {
+    const s = await open();
+    for (const id of ['A', 'B']) await s.createResource(resource(id));
+    await put(s, entry('B', 'x', 10, 5));
+    await put(s, entry('A', 'x', 10, 5));
+    // resourceIds の順は B → A。併合の順のままなら B\0x が先に消える。キー昇順なら A\0x が先
+    expect(await put(s, entry('B', 'n', 10, 9), [{ resourceIds: ['B', 'A'], maxBytes: 20 }])).toEqual({ saved: true });
+    expect(await s.hasEntries(['A\0x', 'B\0x', 'B\0n'])).toEqual([false, true, true]);
+    await expectCountsConsistent(s);
+  });
+
   it('上限 2 つ（第 1 回 S4）: 1 つの Resource を 2 つの Source が上限つきで参照するとき、両方の上限を満たすまで消える', async () => {
     const s = await open();
     // 共有 R を、S1（R と A・上限 30）と S2（R と B・上限 25）が参照する
@@ -495,6 +514,37 @@ describe('消された Resource（第 1 回 O-7）', () => {
     const s = await open();
     expect(await put(s, entry('none', 'a', 1, 1))).toEqual({ saved: false });
     expect(await rawAll('entries')).toEqual([]);
+  });
+});
+
+describe('putEntry のキーの守り（m2-t2 水準 1 Info 1）', () => {
+  it.each([
+    ['別の Resource の前置き', 'other\0a'],
+    ['区切りが無い', 'ra'],
+    ['前置きだけが一致し区切りが違う', 'r\x01a'],
+    ['id の途中まで一致', 'r'],
+  ])('key が resourceId + \\0 で始まらない（%s）と DataError の DOMException で reject し、何も書かない', async (_label, badKey) => {
+    const s = await open();
+    await s.createResource(resource('r'));
+    const meta = { ...entry('r', 'a', 3, 1), key: badKey };
+    const err = await s.putEntry(meta, body(meta), []).catch((x: unknown) => x);
+    expect(err).toBeInstanceOf(DOMException);
+    expect((err as DOMException).name).toBe('DataError');
+    expect(err).not.toBeInstanceOf(Event);
+    expect(await rawAll('entries')).toEqual([]);
+    expect(await rawAll('bodies')).toEqual([]);
+    expect(await s.getResource('r')).toMatchObject({ count: 0, bytes: 0 });
+  });
+
+  it('本体の key がメタの key と違うと DataError で reject し、何も書かない', async () => {
+    const s = await open();
+    await s.createResource(resource('r'));
+    const meta = entry('r', 'a', 3, 1);
+    const err = await s.putEntry(meta, { ...body(meta), key: key('r', 'b') }, []).catch((x: unknown) => x);
+    expect(err).toBeInstanceOf(DOMException);
+    expect((err as DOMException).name).toBe('DataError');
+    expect(await rawAll('entries')).toEqual([]);
+    expect(await rawAll('bodies')).toEqual([]);
   });
 });
 

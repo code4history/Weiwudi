@@ -273,6 +273,21 @@ const entryRange = (resourceId: string): IDBKeyRange =>
   IDBKeyRange.bound(`${resourceId}\0`, `${resourceId}\x01`, false, true);
 
 /**
+ * putEntry のキーの形の守り（m2-t2 水準 1 Info 1）。key が `resourceId + '\0'` で始まらない Entry は
+ * deleteResource・clearEntries のキーの範囲から外れて数が合わなくなるので、tx を作る前に止める（何も書かない）。
+ * 本体の key がメタの key と違うときも同じ。問題が無ければ undefined
+ */
+const entryKeyError = (meta: EntryMeta, body: EntryBody): Promise<never> | undefined => {
+  if (!meta.key.startsWith(`${meta.resourceId}\0`)) {
+    return Promise.reject(new DOMException(`Entry key does not start with the id of resource "${meta.resourceId}"`, 'DataError'));
+  }
+  if (body.key !== meta.key) {
+    return Promise.reject(new DOMException('Entry body key does not match the entry key', 'DataError'));
+  }
+  return undefined;
+};
+
+/**
  * tx を作り、fn を同期に呼ぶ。fn の値は tx の complete の後に返す。
  * fn が投げたら（要求の失敗を含む）tx を abort して、その例外で reject する。
  * tx.error がある abort（容量超過の QuotaExceededError・要求の失敗）は tx.error で reject する
@@ -453,7 +468,7 @@ export const openStore = async (): Promise<Store> => {
       const meta = (await req2p(s.get(key))) as EntryMeta | undefined;
       if (meta) s.put({ ...meta, accessedAt });
     }),
-    putEntry: (meta, body, evict) => tx([S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t) => {
+    putEntry: (meta, body, evict) => entryKeyError(meta, body) ?? tx([S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t) => {
       const resources = t.objectStore(S_RESOURCES);
       const entries = t.objectStore(S_ENTRIES);
       const bodies = t.objectStore(S_BODIES);
