@@ -209,3 +209,16 @@ Ruling: 実装者の判断を採る（Range つきの要求は core でも素通
 - t5 への申し送り: Range つきの要求を serve へ入れない／容量の判定の読み出しの失敗が reject になったので旧 API での文面を決める／旧 API の `${z}_${x}_${y}` を tileKeySuffix に替える／MapSetting の二重定義を消す／noOutput の空読み／plugins へは上流 URL の Request を渡す／配線が済んだら文書の「m2-t5 まで効かない」の注記を外す
 - t7 への申し送り: 門番で Range を serve の前に分ける（passThrough のネットワーク失敗は 404・offline-miss を合成している）／認証付きの要求のとき upstream が hasEntry を見ないことを試験で押さえる／ミラーごとの資格情報（I2）
 - 推奨（文書か t5〜t7）: fetchDidSucceed の backup clone は戻り値が無いか bodyUsed のときだけ戻す形に最適化できる／getReader() だけ取って読まないプラグインは次の clone で TypeError（文書に注記）／opaque の後にプラグインが opaque でない Response に差し替えたときの扱いを一行書く
+
+## m2-t5 旧 API を新コアへ載せ替える（2026-11-04・仕様 §13）
+
+- 実装: ff2329c（golden を旧実装で書き出す・116 手・src は不変）・f7c1d55（載せ替え。src/legacy.ts 新規・weiwudi_gw_logic.ts は配線だけの 32 行）・95f0cea（文書の「m2-t5 まで効かない」の注記を外す）。PR #76 を merge commit 040a9a7 で vector-cache へ合流。CI は Node 22・24 とも緑
+- 実測: test:unit 783 passed・typecheck exit 0（進行役と水準 1 が手元で確認）。実装者の報告で build・eslint exit 0・e2e 18 passed（offline・quota・cache.spec を含む）・golden は 3 回とも通過。依存の追加なし・:228・:239 は差分なし
+- 水準 1（新しい Claude）: 合格・Critical 0・Major 0・Minor 4・Info 5。機械判定の受け入れ条件はすべて満たす。対象ファイル外は文書 4 件（t4 の申し送りによる）と context.ts（Ruling 3）だけ
+
+Ruling: 実装者の Ruling 1〜9 を採る（serve の reject は包括の `Error: ${e}`／Range つきの /api/cache は serve に入れず上流へ素通し・保存しない／ジョブは context.ts／fetchAll の失敗はジョブ自身の応答で数える／ジョブの記録は同期で作る／数でない cacheTtl は Infinity／ミラーは hit でも選ぶ／Request を作れない URL は差し込み口へ about:blank／件数の食い違いの console.log は落とす）— 水準 1 が 9 件とも妥当と判定 — 誤りなら t7・t8 で直す
+Ruling: 水準 1 の Minor 4 件は合流を止めずに申し送る — 動くもの最優先。どれも実害が小さい（Range は地図ライブラリのタイル要求に付かない・IndexedDB の読み出しの失敗はまれ・mapID の `\0` は現実に使われない） — 誤りなら該当の申し送り先で拾う
+- t7 への申し送り: legacy の passRange のネットワーク失敗に x-weiwudi-status・access-control-expose-headers が付かない（core の passThrough は offline-miss・network を合成）。揃えるか素通しを 1 か所にまとめる／Range の素通しを範囲外の判定の前に置くか後に置くかを決める／素通しでは差し込み口が呼ばれない
+- t8 への申し送り: §9 の既知の変化に 2 行足す（fetchAll の error・errors はジョブの要求の失敗だけを数える／旧 API の Range つきの要求は上流へ素通しし 206 をそのまま返す）／容量の判定の読み出しの失敗でタイルを返さなくなる点を、storage として配信を続ける形にするか §9 に書くか決める／/v2/ の 404 を control へ差し替える
+- t6・t8 への申し送り: `map:` の id の Source（kind:'legacy'・spec:{}）を新 API の合流と sources() から外す
+- m4 への申し送り: 旧 DB（Weiwudi・Weiwudi_<mapID>）の移行と削除／QuotaExceededError の再試行（R15）／旧 API の mapID に `\0` が入るとキーの範囲が他の地図にかぶる（add で拒否か id の符号化を決め §9 に記録）
