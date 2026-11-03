@@ -138,7 +138,7 @@
 
 候補の条件: `GET` かつ `mode !== 'navigate'` かつ `destination` が `''` か `'image'`。スクリプト・CSS・文書には触らない。**この条件は照合ルートにも当てる**（1 つの関数）。登録したテンプレートがページや script の URL に重なっても、それらを捕捉しない。
 
-- 表の読み込みは SW の起動時に始める。読み込み後は門番は何も受けない
+- 表の読み込みは最初の候補の要求で始める（`Weiwudi_Internal` の呼び出しでは IndexedDB を開かない。m2-t7 の Ruling）。読み込み後は門番は何も受けない
 - 利用者のルートは SW スクリプトの評価中に同期で登録する前提である（Workbox の通常の書き方）。評価の後で登録したルートは門番より後ろになる
 - 利用者のルートが門番より先に評価されるので、プリキャッシュは表が空の間も奪われない（§2 の 9）。利用者が `/.*/` のような全捕捉ルートを持つ場合は、`@c4h/weiwudi/sw` の import より後に登録すればこの窓の間だけ負け、前に登録すれば常に負ける。README に「import を先に書く」と書く
 - 表の更新は登録を処理した SW のメモリに即時反映し、同じオリジンの別スコープの SW へは `BroadcastChannel('weiwudi')` で再読込を伝える
@@ -521,6 +521,9 @@ export class WeiwudiError extends Error {
   - 合成した応答に `x-weiwudi-status` と `access-control-expose-headers` が付く（§6 の公開の契約）
   - 上流の HTTP 失敗で Entry が無いときの合成応答（§6 の 5）から `content-encoding`・`content-length`・`transfer-encoding`・`set-cookie` が落ちる。本体は復号済みなので、写すと矛盾する
   - `blocked` の文面の DB 名は `Weiwudi` から `WeiwudiStore` に変わる。旧 DB が `blocked` でも `delete` は失敗せず成功する（§14.2。旧 DB の削除は次の起動へ回す）
+  - `fetchAll` の `proceed`・`finish` の `error`・`errors` は、そのジョブの要求の失敗だけを数える（現行は動いている間の他のタイルの要求の失敗も数えていた。m2-t5 の Ruling）
+  - `Range` ヘッダつきの `/api/cache` の要求は、保存も範囲外の判定もせず上流のタイルの URL へ素通しし、206 をそのまま返す（§11）。素通しのネットワーク失敗は §6 の 7 の形（404・`x-weiwudi-status: offline-miss`・`x-weiwudi-error: network`・`access-control-expose-headers`）で返す
+  - 保存の前の容量の判定（`cacheMaxBytes` の退避の範囲を決める IndexedDB の読み出し）が失敗すると、タイルではなく包括の `Error: ${e}` の本文を返す（現行は保存の失敗として取得したタイルを返していた）。読み出しの失敗はまれなので m2 では直さず、m4 の保存の再試行（§7.1）と一緒に「`storage` で配信を続ける」形にする
 
 文字列の reject は次の major で `WeiwudiError` へ変える。非推奨の予告は §13 の時期に合わせる。
 
@@ -559,7 +562,7 @@ type Credentials = { query?: Record<string, string>; headers?: Record<string, st
 - `templates` は登録時に資格情報の項目を除いて保存する。TileJSON の `tiles` に載っているものも同様
 - **`bodies` のスタイル・TileJSON の本体**: `credentials` を登録した `Source` では、保存の前に本体内の URL から `credentialParams` を除く（SW が上流で足せるので失うものが無い）。`credentials` の登録が無いときは本体を変えない。除くと地図ライブラリの要求にトークンが載らず、上流が拒否する。その場合のトークンは配信元がページへ渡したもので、ページの JS からもともと見える
 - 上流へ出す直前に、要求に資格情報が無ければ `applyCredentials` で足す。これで `source.url`（資格情報なし）をページに渡せる
-- エラー文面と `warnings` に URL を入れるときは、クエリを落とす
+- エラー文面と `warnings` に URL を入れるときは、クエリを落とす。`Resource.id`（§5.1 の正規化で資格情報を除いた形）は URL ではなく id としてそのまま書く（§5.6・§12。クエリを落とすと `layer=a` と `layer=b` の Resource を区別できない）
 - `credentials` を IndexedDB に置くのは、ページが閉じた後の再開と SW 再起動のため。同じオリジンのスクリプトからは読めるが、そのトークンはもともとページの JS が持っている
 
 **MapLibre で `mapbox://` を使う流れ**: `register({ kind: 'style', url: 'mapbox://styles/u/s', credentials })` → SW が解決して取得し、`rewriteStyle` で `https` に直して保存 → `source.url`（`https://api.mapbox.com/styles/v1/u/s`）を MapLibre に渡す。
@@ -652,7 +655,7 @@ export interface SourceStats {
 
 - `WeiwudiSource.resources` も呼び出し時点の写しで、後の変化は `stats()` か `source()` で読み直す
 - 上の `class` の宣言のうち、各版の d.ts と文書には、その版で入るメンバだけを書く（m2 は `register`・`source`・`sources` と、`WeiwudiSource` の `id`・`url`・`resources`・`warnings`・`stats`・`update`・`clean`（範囲なし）・`remove`・`release`）
-- `warnings` の書式は `"<code>: <subject>"`（`subject` は `Resource.id` か、クエリを除いた URL）
+- `warnings` の書式は `"<code>: <subject>"`（`subject` は `Resource.id` か、クエリを除いた URL）。m2 の `code` は `resource-conflict`（§5.6）と `template-shadowed`（同じ要求に当たる別の照合の形が先に評価され、その Resource が捕捉されない。その Source が参照する Resource のものだけを書く）
 - 登録を拒否するもの: `map:` から始まる `id`・空の `id`・`\0` を含む `id`（§5.1・§10。`attribute-invalid`）・userinfo を含むテンプレート（§10。`attribute-invalid`）・`weiwudi.example.com` のテンプレート（`unsupported-template`）・その版が扱わない `kind`（`unsupported-kind`。m2 では `style`・`asset`）・`sk.` の資格情報（`credential-rejected`）
 - 提供元別の使用量（#38）は `usage().byProvider`。鍵は `ResourceMeta.provider`、無ければ origin
 - `/v2/*` の要求の前に制御下かを確かめる（§4.1）
