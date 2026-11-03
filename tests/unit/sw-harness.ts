@@ -18,7 +18,19 @@ import { Weiwudi_Internal } from '../../src/weiwudi_gw_logic';
 // 差し込み口の登録表（t4 で入る src/plugins.ts）。無いあいだは何もしない。
 // 行き先を変数にして、ファイルが無いときに型検査とバンドラの解決で落ちないようにする
 const PLUGINS_MODULE = '../../src/plugins';
-const pluginsModule = (await import(/* @vite-ignore */ PLUGINS_MODULE).catch(() => undefined)) as
+// 握るのは「plugins そのものが見つからない」ときだけ。plugins.ts の中の例外（構文・初期化の誤り、
+// plugins.ts が読む別のモジュールが無い）は投げ直す。vitest 5 の実測: code が ERR_MODULE_NOT_FOUND で、
+// 文面が `Cannot find module '/src/plugins' imported from …`（見つからない側の名前が引用符の中）
+export const isPluginsNotFound = (e: unknown): boolean => {
+  const err = e as { code?: unknown; message?: unknown } | null;
+  if (err?.code !== 'ERR_MODULE_NOT_FOUND') return false;
+  const message = typeof err.message === 'string' ? err.message : '';
+  return /Cannot find module '[^']*src\/plugins(\.ts)?'/.test(message);
+};
+const pluginsModule = (await import(/* @vite-ignore */ PLUGINS_MODULE).catch((e: unknown) => {
+  if (isPluginsNotFound(e)) return undefined;
+  throw e;
+})) as
   | { _resetPluginsForTest?: () => void }
   | undefined;
 
@@ -184,9 +196,9 @@ const makeBroadcastChannel = (bus: BusState) =>
 
 const toMatch = (capture: unknown): MatchCallback => {
   if (capture instanceof RegExp) {
-    // workbox-routing の RegExpRoute と同じ: 別オリジンの URL は先頭から当たったときだけ
+    // workbox-routing 7.4.1 の RegExpRoute と同じ: 別オリジンの URL は先頭から当たったときだけ。
+    // 実物は lastIndex を戻さないので、ここも戻さない（g・y の正規表現は実物と同じく前回の位置から探す）
     return ({ url }) => {
-      capture.lastIndex = 0;
       const result = capture.exec(url.href);
       if (!result) return undefined;
       if (url.origin !== SW_SELF_ORIGIN && result.index !== 0) return undefined;
@@ -268,7 +280,8 @@ export const createSwHarness = (opts: { factory?: IDBFactory } = {}): SwHarness 
     routes.push({
       capture,
       handler: rawHandler,
-      method: (rawMethod ?? 'GET').toUpperCase(),
+      // workbox-routing 7.4.1 の Route と同じ: 省略（undefined）のときだけ既定の 'GET'。大文字にはしない
+      method: rawMethod === undefined ? 'GET' : rawMethod,
       match: toMatch(capture),
       handle: toHandle(rawHandler),
     });
@@ -303,8 +316,9 @@ export const createSwHarness = (opts: { factory?: IDBFactory } = {}): SwHarness 
     const event = dopts.event ?? new FakeFetchEvent(req);
     if (dopts.client !== undefined) fakeSelf.clients.get.mockResolvedValueOnce(dopts.client as never);
     const sameOrigin = url.origin === SW_SELF_ORIGIN;
+    // workbox-routing 7.4.1 の Router と同じ: 登録された method の文字列のまま request.method で引く
     for (const route of routes) {
-      if (route.method !== req.method.toUpperCase()) continue;
+      if (route.method !== req.method) continue;
       const result = route.match({ url, request: req, event, sameOrigin });
       if (!result) continue;
       return (await route.handle({ url, request: req, event, params: normalizeParams(result) })) as Response | undefined;

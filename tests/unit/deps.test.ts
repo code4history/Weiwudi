@@ -2,7 +2,7 @@
 // 正本は docs/superpowers/specs/2026-11-02-new-interface-spec.md §3 の表。ここはその全行を写したデータ。
 // 後のタスクはこのファイルを触らない（表の全行を t1 で持つ）。
 //
-// 数えるもの: `import … from`・`export … from`・`import '…'`（複数行も）。
+// 数えるもの: `import … from`・`export … from`・`import '…'`（複数行も）・動的な `import('…')`。
 // 数えないもの: `import type`・`export type`・型だけの指定子（`import { type A }`）だけの import・相対でない行き先。
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, posix, relative, sep } from 'node:path';
@@ -77,6 +77,16 @@ const valueImports = (code: string, fileName = 'x.ts'): string[] => {
       out.push((st.moduleSpecifier as ts.StringLiteral).text);
     }
   }
+  // 動的な import('…')（CallExpression の ImportKeyword）も値の依存。どの深さにあっても拾う。
+  // 行き先が文字列の literal でないもの（変数など）は静的に決まらないので数えない
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+      const [arg] = node.arguments;
+      if (arg && (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg))) out.push(arg.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sf);
   return out;
 };
 
@@ -104,6 +114,15 @@ describe('依存の読み取り（自己確認）', () => {
       "import ext from 'workbox-core';",
     ].join('\n');
     expect(valueImports(code)).toEqual(['./one', './mixed', './two', './star', './side', 'workbox-core']);
+  });
+
+  it('動的な import(…) も、関数の中でも拾う（行き先が literal のものだけ）', () => {
+    const code = [
+      "export const lazy = () => import('./errors');",
+      "async function f(p: string) { await import(`./tpl`); return import(p); }",
+      "type T = typeof import('./typeonly');",
+    ].join('\n');
+    expect(valueImports(code)).toEqual(['./errors', './tpl']);
   });
 });
 

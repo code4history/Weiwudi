@@ -1,7 +1,7 @@
 // tests/unit/sw-harness.ts の試験（m2-t1）。ハーネス自体が Workbox の Router と同じに振る舞うことを確かめる。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
-import { createSwHarness, opaqueResponse, SW_ORIGIN, SW_SELF_ORIGIN } from './sw-harness';
+import { createSwHarness, isPluginsNotFound, opaqueResponse, SW_ORIGIN, SW_SELF_ORIGIN } from './sw-harness';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -58,6 +58,26 @@ describe('dispatch の選び方（Workbox の Router と同じ）', () => {
     expect(await h.dispatch('https://a.example/x')).toBeUndefined();
     h.registerRoute(new RegExp(`^${SW_SELF_ORIGIN}/same`), ok('same'), 'GET');
     expect(await (await h.dispatch(`${SW_SELF_ORIGIN}/same`))!.text()).toBe('same');
+  });
+
+  it('g の正規表現は lastIndex を戻さない（workbox-routing 7.4.1 の RegExpRoute と同じ）', async () => {
+    const h = createSwHarness();
+    const re = /^https:\/\/g\.example\/x/g;
+    h.registerRoute(re, ok('g'), 'GET');
+    expect(await (await h.dispatch('https://g.example/x'))!.text()).toBe('g');
+    // 1 回目の exec で lastIndex が進み、2 回目は同じ URL でも当たらない（実物の挙動）
+    expect(re.lastIndex).toBeGreaterThan(0);
+    expect(await h.dispatch('https://g.example/x')).toBeUndefined();
+    expect(re.lastIndex).toBe(0);
+    expect(await (await h.dispatch('https://g.example/x'))!.text()).toBe('g');
+  });
+
+  it('method は登録された文字列のまま request.method で引く（大文字にしない）', async () => {
+    const h = createSwHarness();
+    h.registerRoute(/^https:\/\/m\.example\/x$/, ok('lower'), 'get');
+    // Request は標準の method を大文字にするので、'get' で登録したルートには当たらない（実物と同じ）
+    expect(await h.dispatch('https://m.example/x')).toBeUndefined();
+    expect(h.routes.at(-1)!.method).toBe('get');
   });
 
   it('handler は { url, request, event, params } を受け、{ handle } の形の handler も呼べる', async () => {
@@ -158,6 +178,22 @@ describe('同じ factory の 2 つのハーネス', () => {
     self.postMessage('x');
     await h.flushRoutes();
     expect(got).toEqual([]);
+  });
+});
+
+describe('plugins の読み込みで握る例外', () => {
+  const notFound = (message: string, code = 'ERR_MODULE_NOT_FOUND') => Object.assign(new Error(message), { code });
+
+  it('plugins そのものが見つからないときだけ握る', () => {
+    expect(isPluginsNotFound(notFound("Cannot find module '/src/plugins' imported from /x/tests/unit/sw-harness.ts"))).toBe(true);
+    expect(isPluginsNotFound(notFound("Cannot find module '/repo/src/plugins.ts' imported from /x"))).toBe(true);
+  });
+
+  it('plugins.ts の中の誤り・plugins.ts が読む別のモジュールの欠落・code の無い例外は握らない', () => {
+    expect(isPluginsNotFound(notFound("Cannot find module './gone' imported from /repo/src/plugins.ts"))).toBe(false);
+    expect(isPluginsNotFound(new SyntaxError("Unexpected token in /repo/src/plugins.ts"))).toBe(false);
+    expect(isPluginsNotFound(new Error("Cannot find module '/src/plugins'"))).toBe(false);
+    expect(isPluginsNotFound(undefined)).toBe(false);
   });
 });
 
