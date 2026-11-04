@@ -51,9 +51,9 @@
     {
       "id": "m3",
       "title": "ベクタ資源（スタイル・タイル・フォント・スプライト。#39・#40・#38）",
-      "status": "pending",
-      "plan": null,
-      "ledger": null,
+      "status": "in_progress",
+      "plan": "docs/superpowers/plans/2026-11-04-m3-vector.md",
+      "ledger": ".superpowers/sdd/2026-11-04-m3-vector/progress.md",
       "security_review": "pending",
       "carried_from_precheck": "m1 の事前点検の第 6 回から: O-4 asset の衝突で範囲が制限なしになる・O-7 スタイルの update() で新しく現れた下位資源の衝突（出どころは m2 の計画 887caee 版の「事前点検で見てほしい範囲」の表）",
       "carried_from_implementation": [
@@ -95,5 +95,5 @@
     "docs/superpowers/reports/2026-11-02-onboard-summary.md",
     "docs/superpowers/specs/2026-11-02-new-interface-spec.md"
   ],
-  "next_action": "実行するのはこのサイクルのセッション（進行役）。m1（2026-11-03）・m2（2026-11-04）は完了。m2 は PR #72〜#83 で vector-cache へ合流（まとめは reports/2026-11-04-m2-core-summary.md）。次は m3（ベクタ資源: スタイル・タイル・フォント・スプライト。#39・#40・#38）の計画を作り、事前点検を通してから実装する。m3 の計画は carried_from_precheck と carried_from_implementation を拾うこと。水準 2（Codex）は見る範囲と時間を必ず指定し、同じ確認を Claude にも並べて出す。人間の判断 2 件（mapbox:// の標準搭載・旧 API の非推奨時期）は推奨案で進めてよく、m3・m4 までに要る。PMTiles・COG の区画キャッシュは Issue #78（m4 の後）。"
+  "next_action": "実行するのはこのサイクルのセッション（進行役）。m1（2026-11-03）・m2（2026-11-04）は完了。m2 は PR #72〜#83 で vector-cache へ合流（まとめは reports/2026-11-04-m2-core-summary.md）。m3（ベクタ資源。#39・#40・#38）の計画は事前点検を 2 回で合格（2de426a）。次は m3-t1（定数の一本化）。順は t1 → t2 → t3∥t4 → t5 → t6 → t7 → t8 → t9 → t10。水準 2 は t3・t5・t7・t8 と区切り。水準 2（Codex）は見る範囲と時間を必ず指定し、同じ確認を Claude にも並べて出す。人間の判断 2 件（mapbox:// の標準搭載・旧 API の非推奨時期）は推奨案で進めてよく、m3・m4 までに要る。PMTiles・COG の区画キャッシュは Issue #78（m4 の後）。"
 }
