@@ -1,5 +1,5 @@
 // 上流の取得と CORS・認証付きの要求（仕様 §4.5・§4.6・§10。m2-t7）。core.serve に渡す upstream を作る。
-// 値の依存は context・store・url_pattern・errors だけ（仕様 §3。使っているのは型だけ）。
+// 値の依存は context・store・url_pattern・constants・errors だけ（仕様 §3。値で使っているのは constants だけ）。
 //
 // 決まり:
 // - 匿名の要求は mode: 'cors'・credentials: 'same-origin' に組み替える。認証付きの要求は元の Request のまま
@@ -12,11 +12,12 @@
 import type { Context } from './context';
 import type { ServeInput, UpstreamResult } from './core';
 import type { Credentials, ResourceMeta, ResourcePolicy } from './store';
+import { DAY_MS } from './constants';
 
 /** CORS 非対応と見なすまでの opaque の連続数（仕様 §4.5-3） */
 export const CORSLESS_STREAK_LIMIT = 3;
 /** corslessUntil の長さ（仕様 §4.5-3） */
-export const CORSLESS_PERIOD_MS = 24 * 60 * 60 * 1000;
+export const CORSLESS_PERIOD_MS = DAY_MS;
 
 /** 上流へ出さないヘッダ（条件付き要求。preflight を誘発する。仕様 §4.5 末尾） */
 const CONDITIONAL_HEADERS: readonly string[] = ['if-none-match', 'if-modified-since', 'if-match', 'if-unmodified-since', 'if-range'];

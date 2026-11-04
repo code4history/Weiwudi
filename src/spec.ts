@@ -1,5 +1,5 @@
 // 登録内容（SourceSpec）の検査と正規化（仕様 §5.1・§10・§12。m2-t3・第 1 回 O-18）。SW 側で register と update が使う。
-// 値の依存は url_pattern・tile_math・errors だけ（仕様 §3）。保存の型は store.ts から import type で使う。
+// 値の依存は url_pattern・tile_math・constants・errors だけ（仕様 §3）。保存の型は store.ts から import type で使う。
 //
 // 決まり:
 // - 出力は入力を写さず、検査した項目だけで組み立てる（未知の項目や credentials が spec へ紛れ込まない）
@@ -8,6 +8,7 @@
 import type { Credentials, OutOfRange, ResourcePolicy, TileExtent } from './store';
 import type { TileBox } from './tile_math';
 import { WeiwudiError } from './errors';
+import { DAY_MS, LEGACY_PREFIX, PSEUDO_HOST } from './constants';
 import { lngLatBoundsToTileBox } from './tile_math';
 import {
   DEFAULT_CREDENTIAL_PARAMS, MAX_TILE_ZOOM, TILE_TOKENS, compileTemplate, normalizeTemplate, stripTemplateParams,
@@ -62,9 +63,6 @@ export interface NormalizedSpec {
   credentials?: Credentials;
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-/** 疑似ホスト（仕様 §4.1）。実 URL のテンプレートに使えない */
-const PSEUDO_HOST = 'weiwudi.example.com';
 /** Web メルカトルの緯度の限界 */
 const MERC_MAX_LAT = 85.0511287798066;
 
@@ -216,7 +214,7 @@ const parseId = (v: unknown, fallback: string): string => {
   if (v === undefined) return fallback;
   if (typeof v !== 'string' || v === '') throw invalid('id', 'must be a non-empty string');
   if (v.indexOf('\0') >= 0) throw invalid('id', 'must not contain \\0');
-  if (v.startsWith('map:')) throw invalid('id', 'must not start with "map:"');
+  if (v.startsWith(LEGACY_PREFIX)) throw invalid('id', `must not start with "${LEGACY_PREFIX}"`);
   return v;
 };
 

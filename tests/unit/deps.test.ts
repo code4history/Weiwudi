@@ -1,6 +1,6 @@
 // src/ の値の依存が、仕様 §3 の表の許可先だけであることを確かめる（m2-t1・第 1 回 O-2）。
 // 正本は docs/superpowers/specs/2026-11-02-new-interface-spec.md §3 の表。ここはその全行を写したデータ。
-// 後のタスクはこのファイルを触らない（表の全行を t1 で持つ）。
+// 後のタスクはこのファイルを触らない（表の全行を t1 で持つ。m2-t1・m3-t1）。
 //
 // 数えるもの: `import … from`・`export … from`・`import '…'`（複数行も）・動的な `import('…')`。
 // 数えないもの: `import type`・`export type`・型だけの指定子（`import { type A }`）だけの import・相対でない行き先。
@@ -12,33 +12,37 @@ import { describe, expect, it } from 'vitest';
 
 const SRC = fileURLToPath(new URL('../../src', import.meta.url));
 
-// 表の 1 行 = 1 モジュール。`plugins.ts・providers/` は同じ行（providers/ の下の全ファイルが providers）
+// 表の 1 行 = 1 モジュール。providers/ の下の全ファイルが providers の行（m3-t1 で plugins と行を分けた）。
+// constants は全ファイルが import してよい（表の注。constants 自身は何も import しない）
 const ABOVE_ALL = [
-  'tile_math', 'errors', 'url_pattern', 'spec', 'plugins', 'providers', 'store', 'context',
-  'registry', 'upstream', 'core', 'hook', 'control', 'legacy', 'migrate',
+  'constants', 'tile_math', 'errors', 'url_pattern', 'spec', 'style_body', 'plugins', 'providers', 'store', 'context',
+  'registry', 'upstream', 'core', 'hook', 'style', 'control', 'legacy', 'migrate',
 ];
 const DEPS_TABLE: Record<string, readonly string[]> = {
+  constants: [],
   tile_math: [],
   errors: [],
-  url_pattern: ['tile_math', 'errors'],
-  spec: ['url_pattern', 'tile_math', 'errors'],
-  plugins: ['errors'],
-  providers: ['errors'],
-  store: ['errors'],
-  context: ['store', 'errors'],
-  registry: ['store', 'spec', 'url_pattern', 'tile_math', 'errors'],
-  upstream: ['context', 'store', 'url_pattern', 'errors'],
-  core: ['context', 'store', 'plugins', 'url_pattern', 'tile_math', 'errors'],
-  hook: ['core', 'upstream', 'context', 'store', 'url_pattern', 'errors'],
-  control: ['hook', 'core', 'registry', 'spec', 'context', 'store', 'tile_math', 'errors'],
+  url_pattern: ['tile_math', 'constants', 'errors'],
+  spec: ['url_pattern', 'tile_math', 'constants', 'errors'],
+  style_body: ['url_pattern', 'constants', 'errors'],
+  plugins: ['constants', 'errors'],
+  providers: ['errors', 'constants'],
+  store: ['constants', 'errors'],
+  context: ['store', 'constants', 'errors'],
+  registry: ['store', 'spec', 'url_pattern', 'tile_math', 'constants', 'errors'],
+  upstream: ['context', 'store', 'url_pattern', 'constants', 'errors'],
+  core: ['context', 'store', 'plugins', 'url_pattern', 'tile_math', 'constants', 'errors'],
+  hook: ['core', 'upstream', 'context', 'store', 'url_pattern', 'style_body', 'constants', 'errors'],
+  style: ['hook', 'core', 'registry', 'spec', 'style_body', 'url_pattern', 'context', 'store', 'constants', 'errors'],
+  control: ['hook', 'core', 'registry', 'spec', 'style', 'context', 'store', 'tile_math', 'constants', 'errors'],
   // m4 で migrate を足す（表の「（m4 で migrate）」）
-  legacy: ['core', 'context', 'store', 'tile_math', 'errors', 'migrate'],
-  migrate: ['store', 'errors'],
+  legacy: ['core', 'context', 'store', 'tile_math', 'constants', 'errors', 'migrate'],
+  migrate: ['store', 'constants', 'errors'],
   // 「上の全部」
   weiwudi_gw_logic: ABOVE_ALL,
-  weiwudi_gw: ['weiwudi_gw_logic', 'plugins'],
-  weiwudi_sw: ['weiwudi_gw_logic', 'plugins'],
-  weiwudi: ['errors', 'url_pattern'],
+  weiwudi_gw: ['weiwudi_gw_logic', 'plugins', 'constants'],
+  weiwudi_sw: ['weiwudi_gw_logic', 'plugins', 'constants'],
+  weiwudi: ['errors', 'url_pattern', 'constants'],
 };
 
 /** src/ の中の .ts（*.d.ts を除く）を、src からの相対の posix パスで返す */

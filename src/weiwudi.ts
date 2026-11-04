@@ -1,6 +1,7 @@
 "use strict";
 import { WeiwudiError, legacyMessage, type WeiwudiErrorCode } from './errors';
 import { absolutizeTemplate } from './url_pattern';
+import { PSEUDO_HOST, V2_PREFIX } from './constants';
 import type { Credentials, OutOfRange, ResourceInfo, ResourceType } from './store';
 import type { CommonPolicy, SourceSpec } from './spec';
 import type { TileBox } from './tile_math';
@@ -33,14 +34,14 @@ export interface SourceStats {
     byResource: Record<string, { count: number; bytes: number }>;
 }
 
-const BASEURL = 'https://weiwudi.example.com/api/';
+const BASEURL = `https://${PSEUDO_HOST}/api/`;
 let swChecking: Promise<boolean> | undefined;
 let swChecked: boolean | undefined;
 
 // ---- 新 API の確認（ensureV2。仕様 §4.1。swCheck と別の関数で、旧 API の結果に触らない。第 1 回 C2） ----
 // モジュール変数に置く理由: ページの 1 つの module 実例を使うのは 1 つのページだけ（module-state.test.ts の除外の理由と同じ）
 
-const V2URL = 'https://weiwudi.example.com/v2/';
+const V2URL = `https://${PSEUDO_HOST}${V2_PREFIX}`;
 /** HTTP キャッシュの 200 を成功と取り違えず、リダイレクトで本文を別オリジンへ移さない（PR #80） */
 const V2_FETCH: Readonly<RequestInit> = Object.freeze({ cache: 'no-store', redirect: 'error' });
 /** ping が成功した controller の実体（controllerchange で捨てる。第 2 回 D2） */

@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 // 照合表とルート（仕様 §4.2・§4.3。m2-t7）。実 URL の要求を照合ルートと門番で受け、core.serve へ渡す。
-// 値の依存は core・upstream・context・store・url_pattern・errors だけ（仕様 §3）。registry は import できないので、
+// 値の依存は core・upstream・context・store・url_pattern・constants・errors だけ（仕様 §3）。registry は import できないので、
 // 資格情報の Source の選び方（registry.credentialSourceFor）は配線（weiwudi_gw_logic.ts）が installHook に渡す。
 //
 // 決まり:
@@ -16,8 +16,9 @@ import type { RouteHandlerCallback, RouteHandlerCallbackOptions, RouteMatchCallb
 import type { Context, CredentialSourcePicker, LoadedTable, TableState } from './context';
 import { passThrough, serve } from './core';
 import { createUpstream, hasCredentials, isAuthenticated, isStorable } from './upstream';
-import type { Credentials, ResourceMeta, ResourceType, SourceRecord } from './store';
-import type { StoredSpec } from './spec';
+import type { Credentials, ResourceMeta, ResourceType } from './store';
+import { isLegacyRecord, templatesOf } from './store';
+import { LEGACY_PREFIX, PSEUDO_HOST } from './constants';
 import { MatchTable, compileTemplate, entryKey, type CompiledTemplate, type MatchResult, type MatchRule } from './url_pattern';
 
 /** 表の更新を伝える BroadcastChannel の名前と通知（仕様 §4.3） */
@@ -28,9 +29,6 @@ export const GATE_WAIT_MS = 3000;
 /** 読み込みのやり直しの間隔（1 秒から倍々に 30 秒まで） */
 export const RETRY_MIN_MS = 1000;
 export const RETRY_MAX_MS = 30000;
-
-const LEGACY_PREFIX = 'map:';
-const PSEUDO_HOST = 'weiwudi.example.com';
 
 /** 照合の結果（照合ルートの params） */
 export interface TableHit {
@@ -57,10 +55,6 @@ const originOf = (template: string): string | undefined => {
     return undefined;
   }
 };
-
-/** 新 API の Source のテンプレート（旧 API の Source は空） */
-const templatesOf = (rec: SourceRecord): readonly string[] =>
-  rec.kind !== 'legacy' && 'templates' in rec.spec ? (rec.spec as StoredSpec).templates : [];
 
 /** 規則の順（Ruling）。具体的な形を先に、同じ具体さなら早く登録されたものを先に */
 const compareRules = (a: RankedRule, b: RankedRule): number =>
@@ -101,7 +95,7 @@ const shadowWarnings = (rules: readonly RankedRule[]): string[] => {
 const buildTable = async (ctx: Context): Promise<LoadedTable> => {
   const store = await ctx.store();
   const [resources, sources] = await Promise.all([store.listResources(), store.listSources()]);
-  const live = sources.filter((s) => s.kind !== 'legacy' && !s.id.startsWith(LEGACY_PREFIX));
+  const live = sources.filter((s) => !isLegacyRecord(s));
   const creds = await Promise.all(live.map((s) => store.getCredentials(s.id)));
   const withCredentials = live.filter((_s, i) => hasCredentials(creds[i])).map((s) => s.id);
   const orderOf = new Map(live.map((s) => [s.id, s.order]));

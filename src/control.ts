@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 // 制御（https://weiwudi.example.com/v2/*。仕様 §4.1・§5.6・§12。m2-t8）。ページ側の Weiwudi.register などの相手。
-// 値の依存は hook・registry・spec・context・store・tile_math・errors だけ（仕様 §3 の許可は core も含む）。
+// 値の依存は hook・registry・spec・context・store・tile_math・constants・errors だけ（仕様 §3 の許可は core も含む）。
 //
 // 決まり:
 // - POST の本文は text/plain;charset=UTF-8 の JSON 文字列（第 1 回 C1）。応答は HTTP 200 の
@@ -16,9 +16,10 @@ import type { Context } from './context';
 import { tableChanged } from './hook';
 import { applyRegister, applyRemove, applyUpdate, isExclusiveTo } from './registry';
 import { normalizeSpec, type NormalizedSpec, type StoredSpec } from './spec';
-import { toResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
+import { isLegacyRecord, toResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
 import { countTiles } from './tile_math';
 import { WeiwudiError } from './errors';
+import { V2_PREFIX } from './constants';
 import type { SourceInfo, SourceStats } from './weiwudi';
 
 /** package.json の版（vite の define と vitest の define で埋める。第 1 回 S13） */
@@ -26,8 +27,6 @@ declare const __WEIWUDI_VERSION__: string;
 
 /** /v2/ping の api の値（仕様 §4.1） */
 export const CONTROL_API = 2;
-
-const PREFIX = '/v2/';
 
 const json = (value: unknown): Response =>
   new Response(JSON.stringify(value), { headers: { 'content-type': 'application/json' } });
@@ -42,8 +41,6 @@ const failure = (e: unknown): Response => {
 
 const notFound = (id: string): WeiwudiError =>
   new WeiwudiError('source-not-found', `Source "${id}" not found`, { sourceId: id });
-
-const isLegacyRecord = (rec: SourceRecord): boolean => rec.kind === 'legacy' || rec.id.startsWith('map:');
 
 /** 新 API の Source。無い・旧 API の記録なら source-not-found */
 const getOwn = async (store: Store, id: string): Promise<SourceRecord> => {
@@ -225,12 +222,12 @@ export function createControl(ctx: Context): Control {
 
   return {
     get: async ({ url }) => {
-      if (url.pathname === `${PREFIX}ping`) return json({ api: CONTROL_API, version: __WEIWUDI_VERSION__ });
+      if (url.pathname === `${V2_PREFIX}ping`) return json({ api: CONTROL_API, version: __WEIWUDI_VERSION__ });
       return new Response('Not Found', { status: 404 });
     },
     post: async ({ url, request }) => {
       try {
-        const op = url.pathname.slice(PREFIX.length);
+        const op = url.pathname.slice(V2_PREFIX.length);
         let body: unknown;
         try {
           const text = await request.text();

@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 // 旧 API（https://weiwudi.example.com/api/*）の翻訳（仕様 §13）。現行の apiFunc の分岐と検査の順をそのまま移し、
 // 保存と取得を store・core に置き換えた。キャッシュの処理（範囲外・鮮度・上流・保存・退避）は core.serve() だけが持つ。
-// 値の依存は core・context・store・tile_math・errors だけ（仕様 §3。m4 で migrate）。
+// 値の依存は core・context・store・tile_math・constants・errors だけ（仕様 §3。m4 で migrate）。
 //
 // 決まり:
 // - Source と Resource の id はどちらも map:<mapID>（第 1 回 S6）。Source.legacy に現行の設定（query）をそのまま持つ
@@ -16,6 +16,8 @@ import type { RouteHandlerCallbackOptions } from 'workbox-core';
 import type { Context, JobState } from './context';
 import { passThrough, runJob, serve } from './core';
 import type { MapSetting, ResourceMeta, Store, TileExtent } from './store';
+import { nextOrder } from './store';
+import { DAY_MS, LEGACY_PREFIX } from './constants';
 import {
   lngLatBoundsToTileBox, countTiles, enumerateTiles, maxZoomForPixelSize, pixelSizeToTileBox,
   expandTileTemplate, tileKeySuffix, type TileBox,
@@ -32,9 +34,9 @@ interface DBCountResult {
 }
 
 /** 既定の鮮度（24 時間。#2） */
-const DEFAULT_TTL = 86400000;
+const DEFAULT_TTL = DAY_MS;
 
-const sourceIdOf = (mapID: unknown): string => `map:${mapID}`;
+const sourceIdOf = (mapID: unknown): string => `${LEGACY_PREFIX}${mapID}`;
 const keyOf = (id: string, z: number, x: number, y: number): string => `${id}\0${tileKeySuffix(z, x, y)}`;
 const emptyFailures = (): Record<TileFailure, number> => ({ network: 0, upstream: 0, quota: 0, storage: 0 });
 const json = (value: unknown): Response =>
@@ -85,7 +87,7 @@ const registerMap = async (store: Store, s: MapSetting, t: number): Promise<void
   const meta = resourceOf(s);
   if (await store.getResource(id)) await store.replaceResource(meta);
   else await store.createResource(meta);
-  const order = existing ? existing.order : (await store.listSources()).reduce((n, r) => Math.max(n, r.order), 0) + 1;
+  const order = existing ? existing.order : await nextOrder(store);
   await store.putSource({ id, kind: 'legacy', spec: {}, order, warnings: [], createdAt: existing?.createdAt ?? t, legacy: s });
 };
 

@@ -7,6 +7,7 @@
 // - Entry の増減と同じ tx で Resource の count・bytes・pinnedBytes を直す
 import type { TileBox } from './tile_math';
 import type { StoredSpec } from './spec';
+import { LEGACY_PREFIX } from './constants';
 
 export const STORE_DB_NAME = 'WeiwudiStore';
 export const STORE_DB_VERSION = 1;
@@ -156,6 +157,22 @@ export interface SourceRecord {
   /** 旧 API の MapSetting（kind === 'legacy'） */
   legacy?: MapSetting;
 }
+
+// ---- SourceRecord を読む補助（唯一の置き場。m3-t1・I5・R27） ----
+
+/** 旧 API の記録（kind: 'legacy' か id が map: で始まる） */
+export const isLegacyRecord = (rec: SourceRecord): boolean => rec.kind === 'legacy' || rec.id.startsWith(LEGACY_PREFIX);
+
+/** 新 API の Source の登録内容。旧 API（kind: 'legacy'・spec: {}）は undefined */
+export const storedSpecOf = (rec: SourceRecord): StoredSpec | undefined =>
+  rec.kind !== 'legacy' && 'templates' in rec.spec ? (rec.spec as StoredSpec) : undefined;
+
+/** 新 API の Source のテンプレート（旧 API の Source は空） */
+export const templatesOf = (rec: SourceRecord): readonly string[] => storedSpecOf(rec)?.templates ?? [];
+
+/** 新しく登録する Source の order（登録済みの最大 + 1。無ければ 1） */
+export const nextOrder = async (store: Pick<Store, 'listSources'>): Promise<number> =>
+  (await store.listSources()).reduce((n, r) => Math.max(n, r.order), 0) + 1;
 
 /** Resource の射影。rangeOnly は sourceId を渡し、それが rangeOnlySourceIds にあるときだけ出す */
 export const toResourceInfo = (meta: ResourceMeta, now: number, sourceId?: string): ResourceInfo => {

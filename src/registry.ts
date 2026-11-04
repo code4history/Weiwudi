@@ -1,5 +1,5 @@
 // 合流と実効方針（仕様 §5.1・§5.6。m2-t6）。register・update・remove の Resource と Source の書き換えはここだけで行う。
-// 値の依存は url_pattern・errors だけ（仕様 §3 の許可は store・spec・url_pattern・tile_math・errors）。
+// 値の依存は store・url_pattern・constants・errors だけ（仕様 §3 の許可は store・spec・url_pattern・tile_math・constants・errors）。
 //
 // 決まり:
 // - planRegister・composePolicy・isExclusiveTo・credentialSourceFor は純粋関数（IndexedDB を使わない）
@@ -9,10 +9,9 @@
 import type { OutOfRange, ResourceMeta, ResourcePolicy, SourceRecord, Store, TileExtent } from './store';
 import type { NormalizedSpec, StoredSpec } from './spec';
 import { WeiwudiError } from './errors';
+import { nextOrder, storedSpecOf } from './store';
+import { LEGACY_PREFIX } from './constants';
 import { MAX_TILE_ZOOM, normalizeTemplate, templatesOverlap } from './url_pattern';
-
-/** 旧 API の Source と Resource の id の前置き（仕様 §5.1） */
-const LEGACY_PREFIX = 'map:';
 
 const isLegacy = (r: ResourceMeta): boolean => r.id.startsWith(LEGACY_PREFIX);
 
@@ -40,10 +39,6 @@ const unionParams = (...lists: (readonly string[])[]): string[] => {
   }
   return out;
 };
-
-/** 新 API の Source の登録内容。旧 API（kind: 'legacy'・spec: {}）は undefined */
-const storedSpecOf = (rec: SourceRecord): StoredSpec | undefined =>
-  rec.kind !== 'legacy' && 'templates' in rec.spec ? (rec.spec as StoredSpec) : undefined;
 
 const byOrder = (a: SourceRecord, b: SourceRecord): number => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
@@ -310,7 +305,7 @@ const apply = async (
       { resourceIds: plan.conflicts.slice() });
   }
 
-  const order = existing ? existing.order : (await store.listSources()).reduce((n, r) => Math.max(n, r.order), 0) + 1;
+  const order = existing ? existing.order : await nextOrder(store);
   const record: SourceRecord = {
     id, kind: s.kind, spec: s, order, warnings: plan.warnings.slice(), createdAt: existing?.createdAt ?? Date.now(),
   };
