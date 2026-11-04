@@ -93,7 +93,7 @@
 | `weiwudi_gw.ts`・`weiwudi_sw.ts` | SW の入口（ES・UMD） | `weiwudi_gw_logic`・`plugins`・`constants` |
 | `weiwudi.ts` | ページ側 API | `errors`・`url_pattern`・`constants` |
 
-注: `constants` は全ファイルが import してよい（`constants.ts` 自身は何も import しない）。
+注: `constants` は `tile_math`・`errors` を除く全ファイルが import してよい（`constants.ts` 自身は何も import しない）。
 
 **依存の決まりはこの表 1 つだけ**（m2 計画は表を写さずここを指す）。値の依存は、`import … from` と `export … from` のどちらも、表の許可先だけにする（複数行の文も同じ）。`core` は `legacy` を知らない。型だけの `import type` は制限しない（`store.ts` が `TileBox` を、`weiwudi.ts` が `ResourceInfo` を使う）。`/v2/` の GET（`ping`）の振り分けは配線の `weiwudi_gw_logic.ts` で行う（`legacy` から `control` を呼ばない）。配布の `weiwudi.d.ts` に型が届くよう、m2 で `vite.config.lib.js` の `dts` の `include` を直す。
 
