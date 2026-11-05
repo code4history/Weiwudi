@@ -145,7 +145,7 @@ describe('L-1: 合流でテンプレートの和を合成した credentialParams
   });
 });
 
-describe('L-2: パスの区画の sk. は credential-rejected', () => {
+describe('L-2: パスの区画の sk.eyJ は credential-rejected（m3-t3 I9 で sk.eyJ に絞った）', () => {
   const codeOf = (url: string): string | undefined => {
     try {
       normalizeSpec({ kind: 'raster', url });
@@ -155,14 +155,17 @@ describe('L-2: パスの区画の sk. は credential-rejected', () => {
     }
   };
   it.each([
-    ['生の形', 'https://t.example/sk.abcdef/{z}/{x}/{y}.png'],
-    ['大文字', 'https://t.example/SK.abcdef/{z}/{x}/{y}.png'],
-    ['decode した形', 'https://t.example/%73k.abcdef/{z}/{x}/{y}.png'],
-    ['末尾の区画', 'https://t.example/{z}/{x}/{y}/sk.abc'],
+    ['生の形', 'https://t.example/sk.eyJabc/{z}/{x}/{y}.png'],
+    ['大文字', 'https://t.example/SK.eyJabc/{z}/{x}/{y}.png'],
+    ['decode した形', 'https://t.example/%73k.eyJabc/{z}/{x}/{y}.png'],
+    ['末尾の区画', 'https://t.example/{z}/{x}/{y}/sk.eyJabc'],
   ])('%s', (_l, url) => {
     expect(codeOf(url)).toBe('credential-rejected');
   });
   it('区画の途中の sk. は拒否しない（disk.png など）', () => {
     expect(codeOf('https://t.example/disk.tiles/{z}/{x}/{y}.png')).toBeUndefined();
+  });
+  it('sk. で始まっても eyJ が続かない区画は拒否しない（sk.abcdef）', () => {
+    expect(codeOf('https://t.example/sk.abcdef/{z}/{x}/{y}.png')).toBeUndefined();
   });
 });

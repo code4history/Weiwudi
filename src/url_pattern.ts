@@ -379,11 +379,17 @@ export function stripParams(url: URL, params: readonly string[]): URL {
   return out;
 }
 
-/** 照合に使った項目と資格情報を除いた残りのクエリを、名前順（同名は値の順）に並べた `?…`。無ければ空 */
+/** 名前か値が sk. で始まる（大文字小文字を問わない）。URLSearchParams で decode した後の形で見る（I9・X4） */
+const isSecretPair = (n: string, v: string): boolean => /^sk\./i.test(n) || /^sk\./i.test(v);
+
+/**
+ * 照合に使った項目と資格情報を除いた残りのクエリを、名前順（同名は値の順）に並べた `?…`。無ければ空。
+ * 名前か値が sk. で始まる項目も除く（秘密トークンをキーに残さない。I9・X4）
+ */
 const restQuery = (url: URL, used: readonly string[], credentialParams: readonly string[]): string => {
   const drop = lowerSet(credentialParams);
   const rest = [...url.searchParams]
-    .filter(([n]) => used.indexOf(n) < 0 && !drop.has(n.toLowerCase()))
+    .filter(([n, v]) => used.indexOf(n) < 0 && !drop.has(n.toLowerCase()) && !isSecretPair(n, v))
     .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0));
   return rest.length === 0 ? '' : `?${new URLSearchParams(rest).toString()}`;
 };

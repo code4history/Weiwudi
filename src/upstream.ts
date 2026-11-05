@@ -7,7 +7,9 @@
 //   書き換えの関数の中でも実績の有無を見直す（別の SW が同じ DB に書くため）
 // - corslessStreak は context のメモリだけ（保存しない）
 // - 条件付き要求（If-None-Match など）を出さない
-// - 登録の資格情報は要求に無いときだけ足す（R5）。足す相手のオリジンは呼び出し側（hook）が選ぶ（I2）
+// - 登録の資格情報は要求に無いときだけ足す（R5）。足す相手のオリジンは呼び出し側（hook）が選ぶ（I2）。
+//   差し込み口の後の要求のオリジンがページの要求と違えば足さない（I1・R21）。ヘッダを足した要求は redirect: 'error'
+//   （no-cors の要求を除く。ヘッダが送られないため）
 // - 範囲取得側の規則（jobOpaqueStreak ほか）と opaque イベントは m4
 import type { Context } from './context';
 import type { ServeInput, UpstreamResult } from './core';
@@ -41,10 +43,11 @@ export function hasCredentials(c: Credentials | undefined): c is Credentials {
  * 上流へ出す URL とヘッダを作る。条件付きのヘッダを落とし、登録の資格情報を要求に無いときだけ足す。
  * クエリは文字列で末尾に足す（既存の項目の符号化を変えない。署名つきの URL を壊さない）
  */
-const outgoing = (request: Request, credentials: Credentials | undefined): { url: string; headers: Headers } => {
+const outgoing = (request: Request, credentials: Credentials | undefined): { url: string; headers: Headers; addedHeader: boolean } => {
   const headers = new Headers(request.headers);
   for (const h of CONDITIONAL_HEADERS) headers.delete(h);
   const url = new URL(request.url);
+  let addedHeader = false;
   if (credentials) {
     const have = new Set([...url.searchParams.keys()].map((n) => n.toLowerCase()));
     let search = url.search;
@@ -54,21 +57,29 @@ const outgoing = (request: Request, credentials: Credentials | undefined): { url
     }
     url.search = search;
     for (const [name, value] of Object.entries(credentials.headers ?? {})) {
-      if (!headers.has(name)) headers.set(name, value);
+      if (headers.has(name)) continue;
+      headers.set(name, value);
+      addedHeader = true;
     }
   }
-  return { url: url.href, headers };
+  return { url: url.href, headers, addedHeader };
 };
 
-/** 要求を mode・credentials を指定して作り直す（referrer・redirect などは元のまま） */
+/**
+ * 要求を mode・credentials を指定して作り直す（referrer などは元のまま）。
+ * ヘッダの資格情報を足したときは redirect: 'error'（別オリジンへのリダイレクトにヘッダを持って行かせない。I1・R21）。
+ * no-cors の要求は除く: safelist に無いヘッダは捨てられて送られず、follow 以外の redirect は Fetch の main fetch で
+ * network error になる（L1 M-1）。それ以外は元の redirect のまま
+ */
 const rebuild = (request: Request, credentials: Credentials | undefined, mode: RequestMode, cred: RequestCredentials): Request => {
-  const { url, headers } = outgoing(request, credentials);
+  const { url, headers, addedHeader } = outgoing(request, credentials);
+  const redirect: RequestInit = addedHeader && mode !== 'no-cors' ? { redirect: 'error' } : { redirect: request.redirect };
   return new Request(url, {
     method: request.method,
     headers,
     mode,
     credentials: cred,
-    redirect: request.redirect,
+    ...redirect,
     referrer: request.referrer,
     referrerPolicy: request.referrerPolicy,
   });
@@ -142,14 +153,17 @@ const readResource = async (ctx: Context, id: string): Promise<ResourceMeta | un
  * 匿名の要求ではこれを組み替える（mode・credentials・条件付きのヘッダ・資格情報）
  */
 export function createUpstream(ctx: Context, o: UpstreamOptions): ServeInput['upstream'] {
-  return async (request, { hasEntry }) => {
+  return async (request, { hasEntry, requestChanged }) => {
     // §4.6 認証付き: 元の Request のまま。組み替えず、2〜4 も通らない（hasEntry も見ない）
     if (isAuthenticated(o.original)) return attempt(request);
+
+    // 差し込み口が別オリジンへ替えた要求には登録の資格情報を足さない（I1・R21）
+    const credentials = requestChanged && new URL(request.url).origin !== new URL(o.original.url).origin ? undefined : o.credentials;
 
     const t = o.now();
     const read = await readResource(ctx, o.resourceId);
     const noCors = request.mode === 'no-cors';
-    const retry = () => attempt(rebuild(request, o.credentials, request.mode, request.credentials));
+    const retry = () => attempt(rebuild(request, credentials, request.mode, request.credentials));
 
     // §4.5-3 corslessUntil の間は 1 を省いて元の要求を出す（元が cors の要求は 1 で取る）
     if (noCors && read?.corslessUntil !== undefined && read.corslessUntil > t) return retry();
@@ -157,7 +171,7 @@ export function createUpstream(ctx: Context, o: UpstreamOptions): ServeInput['up
     // 1 組み替えた形で取る
     let first: Response;
     try {
-      first = await fetch(rebuild(request, o.credentials, 'cors', 'same-origin'));
+      first = await fetch(rebuild(request, credentials, 'cors', 'same-origin'));
     } catch (error) {
       // 4 元の要求が cors なら取り直さない
       if (!noCors) return { kind: 'network', error };

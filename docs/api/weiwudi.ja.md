@@ -283,11 +283,21 @@ interface TileBox { minX: number; maxX: number; minY: number; maxY: number }
 **戻り値:** `Promise<WeiwudiSource>`
 
 **`WeiwudiError` で reject するとき:**
-- `attribute-invalid`: 項目の形の誤り・`map:` で始まる／空の／`\0` を含む `id`・userinfo（`user:pass@`）を含むテンプレート
+- `attribute-invalid`: 項目の形の誤り・`map:` で始まる／空の／`\0` を含む `id`・userinfo（`user:pass@`）を含むテンプレート・同じ資格情報の項目（名前の大文字小文字を問わない）に違う値を持つミラー（ミラーごとに Source を分けてください。明示の `credentials.query` にある名前は除きます）
 - `unsupported-template`: 未対応の字句・解決できないか `http:`・`https:` でない URL（相対 URL は先にページの場所で絶対化する）・`weiwudi.example.com` のテンプレート
 - `unsupported-kind`: `style`・`asset`（この版では扱わない）
-- `credential-rejected`: `credentials` かテンプレートの秘密トークン（`sk.`）
+- `credential-rejected`: `credentials`・テンプレートのクエリの秘密トークン（`sk.`）、または `sk.eyJ` で始まるパスの区画（`sk.osm` のような区画名は通します）
 - `sw-not-controlling`・`sw-outdated`: [呼び出しの前の確認](#呼び出しの前の確認) を参照
+
+**資格情報の扱い:**
+- サービスワーカーが資格情報を足すのは、差し込み口を通した後の要求がページの要求と同じオリジンのときだけです。
+  ヘッダの資格情報を足した要求は `redirect: 'error'` で出すので（no-cors の要求を除く。ヘッダが送られないため）、リダイレクトはネットワークの失敗として扱われます
+  （クエリの資格情報だけなら元の `redirect` のまま）。クエリの資格情報だけを足した要求はリダイレクトを辿ります。
+  リダイレクト先の URL は上流が `Location` で決めるもので、元の要求のクエリは引き継がれません
+  （上流自身が書き込む場合を除き、上流は信頼する前提です）
+- 名前か値が `sk.` で始まるクエリ項目は、キャッシュのキーに入れません
+- **Resource の id は書き換えない**。`credentialParams` を宣言しない Source が先に作った Resource の id には、その項目が残る。資格情報のクエリ項目は先に登録する Source で宣言する
+- 明示の `credentials.query` を持つ Source を、Entry のある Resource へ後から登録すると `resource-conflict` になる（キーの形が変わるため）
 
 既存の資源と合流できない資源があっても `register()` は**失敗しません**。Source を保存し、`warnings` に
 `resource-conflict: <資源の id>` を書きます。

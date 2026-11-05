@@ -213,6 +213,8 @@
 - **正規化**（`url_pattern.normalizeTemplate`。id の唯一の作り方）: 絶対化・`credentialParams` に当たるクエリ項目を除く・残りのクエリを名前順に並べる・スキームとホストを小文字にする、の 4 つだけ。**資格情報を除いた後から id を作る**ので、`?access_token=` は id にも IndexedDB にも公開の値にも残らない。重なりの判定（`templatesOverlap`）も正規化した形で比べる
 - 新 API: 先頭のテンプレートの正規化を `Resource.id` にする。URL 配列（ミラー）は 1 つの `Resource` にまとめ、既存の `Resource` のテンプレートと 1 つでも重なれば合流する。合流したときは既存の id を変えない（ミラーの順を入れ替えて登録し直しても id は同じ）。**タイルのキーに URL を使わず座標を使う**ので、`a.tile…`・`b.tile…` のどれで取っても同じ Entry になる（試作の URL キーでは 3 重に保存される）
 - 旧 API: Source の id も Resource の id も `map:<mapID>`。新 API で `map:` から始まる id は拒否する（同じ `sources` ストアで旧 API の記録と衝突させないため）。**新 API の合流の候補に旧 API の Resource を入れない**（同じ URL でも別の Resource になる。合流すると旧 API の Resource は照合表に入らないので捕捉されなくなる）。新 API の `source()`・`sources()` は旧 API の記録を見せない（`source-not-found`）。旧 API の地図は互いに共有しない。旧 API では同じ URL の 2 地図は別のキャッシュで、`clean` も片方だけに効く。この挙動を変えない
+- **Resource の id は書き換えない**。`credentialParams` を宣言しない Source が先に作った Resource の id には、その項目が残る。資格情報のクエリ項目は先に登録する Source で宣言する（m3-t3 I8）
+- 明示の `credentials.query` を持つ Source を、Entry のある Resource へ後から登録すると `resource-conflict` になる（キーの形が変わるため。m3-t3 I8）
 
 ### 5.2 型（#37）
 
@@ -553,7 +555,7 @@ export interface WeiwudiProvider {
 
 - 標準で `providers/mapbox.ts` を持つ。形は 4 つ（スタイル・タイルセット・スプライト・フォント）
 - `@c4h/beatbox` には依存しない。SW 側で必要な変換が小さい表で済み、これのために実行時依存（現在 0 件）を増やさない。BeatBox 0.1.1 の変換表は m3 で突き合わせて写す
-- `sk.` で始まる秘密トークンは `credential-rejected` で拒否する（試作の決定を継承）。この検査は提供元に依らない文字列の検査として、汎用の資格情報と同じ m2 に入れる。対象は `credentials` の `query`・`headers` の各値と、テンプレートの全クエリ値（名前も）と、パスの各区画（`sk.` で始まる区画。percent-decode した後も見る）で、先頭の `Bearer `・`Token `・`Basic `（大文字小文字を問わない）と空白を剥がしてから `sk.` で始まるかを見る。クエリ値は percent-decode した後の値も見る（`%73k.` を通さない）。保存する前に止める
+- `sk.` で始まる秘密トークンは `credential-rejected` で拒否する（試作の決定を継承）。この検査は提供元に依らない文字列の検査として、汎用の資格情報と同じ m2 に入れる。対象は `credentials` の `query`・`headers` の各値と、テンプレートの全クエリ値（名前も）と、パスの各区画（`sk.eyJ` で始まる区画。大文字小文字を問わず、percent-decode した後も見る。`sk.osm` のような区画名は通す。m3-t3 I9）で、先頭の `Bearer `・`Token `・`Basic `（大文字小文字を問わない）と空白を剥がしてから `sk.` で始まるかを見る。クエリ値は percent-decode した後の値も見る（`%73k.` を通さない）。保存する前に止める
 - URL の userinfo（`user:pass@`）を含むテンプレートは登録で拒否する（`attribute-invalid`。判定は `new URL()` の `username`・`password` が空であること）。取り除くと照合が合わず、残すと id・テンプレート・`warnings` に出る
 - 明示の `id` は公開の値（`source()` の鍵・`sources()` の `id`・`warnings`）である。資格情報を入れないことを利用者との契約にする（任意の文字列から資格情報を見分ける規則は作れないので検査はしない）。形だけは検査する: 文字列・空でない・`\0` を含まない（`\0` は保存のキーの区切りに使う文字なので、公開の値から締め出しておく）。外れたら `attribute-invalid`
 
@@ -568,6 +570,9 @@ type Credentials = { query?: Record<string, string>; headers?: Record<string, st
 - `templates` は登録時に資格情報の項目を除いて保存する。TileJSON の `tiles` に載っているものも同様
 - **`bodies` のスタイル・TileJSON の本体**: `credentials` を登録した `Source` では、保存の前に本体内の URL から `credentialParams` を除く（SW が上流で足せるので失うものが無い）。`credentials` の登録が無いときは本体を変えない。除くと地図ライブラリの要求にトークンが載らず、上流が拒否する。その場合のトークンは配信元がページへ渡したもので、ページの JS からもともと見える
 - 上流へ出す直前に、要求に資格情報が無ければ `applyCredentials` で足す。これで `source.url`（資格情報なし）をページに渡せる
+- 足すのは、差し込み口を通した後の要求の URL のオリジンが、ページから届いた要求のオリジンと同じときだけ（違えば足さない。m3-t3 I1）。ヘッダの資格情報を足した要求は `redirect: 'error'` で出す（別オリジンへのリダイレクトに `Authorization` 以外のヘッダが付いて行くのを止める。no-cors の要求を除く（ヘッダが送られないため。follow 以外の `redirect` は no-cors では network error になる））。リダイレクトはネットワークの失敗として §6 の 6・7 になる。クエリの資格情報だけを足した要求は元の `redirect` のまま。クエリの資格情報だけを足した要求はリダイレクトを辿る。リダイレクト先の URL は上流が `Location` で決めるもので、元の要求のクエリは引き継がれない（上流自身が書き込む場合を除き、上流は信頼する前提）
+- テンプレートのクエリから資格情報を移すとき、同じ名前（大文字小文字を問わない）に違う値がミラーの間にあれば `attribute-invalid`（`URL templates carry different values for credential "<名前>"; register each mirror as its own source`。値は文面に入れない）。明示の `credentials.query` にある名前はテンプレートの値を見ない（明示が勝つ。m3-t3 I2）
+- Entry のキーの残りのクエリ（§5.3）からは、名前か値が `sk.` で始まる項目も除く（decode した後の形で見る。m3-t3 I9）
 - エラー文面と `warnings` に URL を入れるときは、クエリを落とす。`Resource.id`（§5.1 の正規化で資格情報を除いた形）は URL ではなく id としてそのまま書く（§5.6・§12。クエリを落とすと `layer=a` と `layer=b` の Resource を区別できない）
 - `credentials` を IndexedDB に置くのは、ページが閉じた後の再開と SW 再起動のため。同じオリジンのスクリプトからは読めるが、そのトークンはもともとページの JS が持っている
 

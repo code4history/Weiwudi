@@ -169,6 +169,11 @@ console.log(source.warnings, await source.stats());
   rejected with `unsupported-kind`.
 - An explicit `id` is a public value (it appears in `sources()` and `warnings`).
   Do not put credentials in it; pass them as `credentials` instead.
+- The service worker adds `credentials` only to requests on the page request's
+  origin, and sends requests with credential headers with `redirect: 'error'`.
+  Secret tokens (`sk.` in queries, `sk.eyJ…` path segments) are rejected, and
+  mirrors with different values for the same credential parameter are
+  rejected with `attribute-invalid`.
 - Failures reject with `WeiwudiError` (`sw-not-controlling`, `sw-outdated`,
   `source-not-found`, …). A resource that cannot be merged with an existing one
   does not fail `register()`; it is reported in `source.warnings`.
