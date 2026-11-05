@@ -11,8 +11,11 @@
 //   差し込み口の後の要求のオリジンがページの要求と違えば足さない（I1・R21）。ヘッダを足した要求は redirect: 'error'
 //   （no-cors の要求を除く。ヘッダが送られないため）
 // - 範囲取得側の規則（jobOpaqueStreak ほか）と opaque イベントは m4
+// - 提供元の Resource（provider が登録表にあるもの）は、クエリの資格情報を provider.applyCredentials で足す（m3-t5）。
+//   オリジンの規則（I1）と redirect の規則はそのまま当たる。applyCredentials がオリジンを替えた結果は使わない
 import type { Context } from './context';
 import type { ServeInput, UpstreamResult } from './core';
+import type { WeiwudiProvider } from './plugins';
 import type { Credentials, ResourceMeta, ResourcePolicy } from './store';
 import { DAY_MS } from './constants';
 
@@ -40,22 +43,48 @@ export function hasCredentials(c: Credentials | undefined): c is Credentials {
 }
 
 /**
- * 上流へ出す URL とヘッダを作る。条件付きのヘッダを落とし、登録の資格情報を要求に無いときだけ足す。
- * クエリは文字列で末尾に足す（既存の項目の符号化を変えない。署名つきの URL を壊さない）
+ * クエリの資格情報を、要求に無い名前（大文字小文字を問わない）だけ url の末尾に文字列で足す
+ * （既存の項目の符号化を変えない。署名つきの URL を壊さない）。提供元の applyCredentials もこれを使う（m3-t5）
  */
-const outgoing = (request: Request, credentials: Credentials | undefined): { url: string; headers: Headers; addedHeader: boolean } => {
+export function appendQueryCredentials(url: URL, query: Record<string, string>): void {
+  const have = new Set([...url.searchParams.keys()].map((n) => n.toLowerCase()));
+  let search = url.search;
+  for (const [name, value] of Object.entries(query)) {
+    if (have.has(name.toLowerCase())) continue;
+    search += `${search === '' ? '?' : '&'}${encodeURIComponent(name)}=${encodeURIComponent(value)}`;
+  }
+  url.search = search;
+}
+
+/**
+ * 提供元の applyCredentials でクエリを足す。投げたとき・オリジンを替えたときは足さない（元の url のまま）
+ */
+const applyProvider = (url: URL, provider: WeiwudiProvider, credentials: Credentials): URL => {
+  const next = new URL(url.href);
+  try {
+    provider.applyCredentials(next, { ...credentials });
+  } catch (e) {
+    // 文面に資格情報が入り得るので、提供元の id と例外の名前だけを残す
+    console.error(`weiwudi: applyCredentials of provider "${provider.id}" threw ${e instanceof Error ? e.name : typeof e}`);
+    return url;
+  }
+  return next.origin === url.origin ? next : url;
+};
+
+/**
+ * 上流へ出す URL とヘッダを作る。条件付きのヘッダを落とし、登録の資格情報を要求に無いときだけ足す。
+ * クエリは汎用なら appendQueryCredentials、提供元の Resource なら provider.applyCredentials。ヘッダはどちらも汎用
+ */
+const outgoing = (
+  request: Request, credentials: Credentials | undefined, provider: WeiwudiProvider | undefined,
+): { url: string; headers: Headers; addedHeader: boolean } => {
   const headers = new Headers(request.headers);
   for (const h of CONDITIONAL_HEADERS) headers.delete(h);
-  const url = new URL(request.url);
+  let url = new URL(request.url);
   let addedHeader = false;
   if (credentials) {
-    const have = new Set([...url.searchParams.keys()].map((n) => n.toLowerCase()));
-    let search = url.search;
-    for (const [name, value] of Object.entries(credentials.query ?? {})) {
-      if (have.has(name.toLowerCase())) continue;
-      search += `${search === '' ? '?' : '&'}${encodeURIComponent(name)}=${encodeURIComponent(value)}`;
-    }
-    url.search = search;
+    if (provider) url = applyProvider(url, provider, credentials);
+    else appendQueryCredentials(url, credentials.query ?? {});
     for (const [name, value] of Object.entries(credentials.headers ?? {})) {
       if (headers.has(name)) continue;
       headers.set(name, value);
@@ -71,8 +100,11 @@ const outgoing = (request: Request, credentials: Credentials | undefined): { url
  * no-cors の要求は除く: safelist に無いヘッダは捨てられて送られず、follow 以外の redirect は Fetch の main fetch で
  * network error になる（L1 M-1）。それ以外は元の redirect のまま
  */
-const rebuild = (request: Request, credentials: Credentials | undefined, mode: RequestMode, cred: RequestCredentials): Request => {
-  const { url, headers, addedHeader } = outgoing(request, credentials);
+const rebuild = (
+  request: Request, credentials: Credentials | undefined, provider: WeiwudiProvider | undefined,
+  mode: RequestMode, cred: RequestCredentials,
+): Request => {
+  const { url, headers, addedHeader } = outgoing(request, credentials, provider);
   const redirect: RequestInit = addedHeader && mode !== 'no-cors' ? { redirect: 'error' } : { redirect: request.redirect };
   return new Request(url, {
     method: request.method,
@@ -103,6 +135,8 @@ export interface UpstreamOptions {
   original: Request;
   /** 足す資格情報（hook がオリジンで選んだもの。認証付きの要求には足さない） */
   credentials?: Credentials;
+  /** Resource の provider の提供元（登録表にあるときだけ。hook が ctx.providers() から引く。m3-t5） */
+  provider?: WeiwudiProvider;
   now: () => number;
 }
 
@@ -163,7 +197,7 @@ export function createUpstream(ctx: Context, o: UpstreamOptions): ServeInput['up
     const t = o.now();
     const read = await readResource(ctx, o.resourceId);
     const noCors = request.mode === 'no-cors';
-    const retry = () => attempt(rebuild(request, credentials, request.mode, request.credentials));
+    const retry = () => attempt(rebuild(request, credentials, o.provider, request.mode, request.credentials));
 
     // §4.5-3 corslessUntil の間は 1 を省いて元の要求を出す（元が cors の要求は 1 で取る）
     if (noCors && read?.corslessUntil !== undefined && read.corslessUntil > t) return retry();
@@ -171,7 +205,7 @@ export function createUpstream(ctx: Context, o: UpstreamOptions): ServeInput['up
     // 1 組み替えた形で取る
     let first: Response;
     try {
-      first = await fetch(rebuild(request, credentials, 'cors', 'same-origin'));
+      first = await fetch(rebuild(request, credentials, o.provider, 'cors', 'same-origin'));
     } catch (error) {
       // 4 元の要求が cors なら取り直さない
       if (!noCors) return { kind: 'network', error };

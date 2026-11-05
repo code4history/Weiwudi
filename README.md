@@ -174,6 +174,14 @@ console.log(source.warnings, await source.stats());
   Secret tokens (`sk.` in queries, `sk.eyJ…` path segments) are rejected, and
   mirrors with different values for the same credential parameter are
   rejected with `attribute-invalid`.
+- `mapbox://` URLs are resolved to `https://api.mapbox.com/…` by default (pass the
+  access token as `credentials: { query: { access_token } }`). Checking the
+  provider's terms of service, including whether offline storage is allowed, is
+  your responsibility. `mapbox://` inside a third-party style is not resolved:
+  only styles you register with a `mapbox://` URL or a Mapbox `https` URL are,
+  so your Mapbox token is never used for someone else's style. Other providers
+  can be added in the service worker with `addProvider`
+  ([Service worker API](docs/api/sw.md#addproviderprovider-weiwudiprovider-void)).
 - Failures reject with `WeiwudiError` (`sw-not-controlling`, `sw-outdated`,
   `source-not-found`, …). A resource that cannot be merged with an existing one
   does not fail `register()`; it is reported in `source.warnings`.

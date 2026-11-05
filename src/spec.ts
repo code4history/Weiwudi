@@ -5,8 +5,11 @@
 // - 出力は入力を写さず、検査した項目だけで組み立てる（未知の項目や credentials が spec へ紛れ込まない）
 // - 資格情報は NormalizedSpec.credentials に分けて持ち、spec（SourceRecord.spec に入る）へは入れない
 // - 拒否の文面に入力の値（URL・資格情報・id）を入れない。項目の名前と番号だけを書く
+// - 提供元（m3-t5）: providers を渡されたときだけ使う。URL が matches に当たれば resolve してから検査し、
+//   validateCredentials を呼び、credentialParams を和に入れ、spec.provider に id を入れる
 import type { Credentials, OutOfRange, ResourcePolicy, ResourceType, TileExtent } from './store';
 import type { TileBox } from './tile_math';
+import type { WeiwudiProvider } from './plugins';
 import { WeiwudiError } from './errors';
 import { DAY_MS, LEGACY_PREFIX, PSEUDO_HOST } from './constants';
 import { lngLatBoundsToTileBox } from './tile_math';
@@ -203,11 +206,12 @@ const parseCredentials = (v: unknown): Credentials | undefined => {
  * 既定 ＋ 登録の credentialParams ＋ 明示の credentials.query の名前（M-1）。
  * 明示の名前は、大文字小文字を問わずに既にある名前なら足さない（照合も除去も大文字小文字を問わないため）
  */
-const parseCredentialParams = (v: unknown, explicitNames: readonly string[]): string[] => {
+const parseCredentialParams = (v: unknown, explicitNames: readonly string[], fromProvider: readonly string[] = []): string[] => {
   if (v !== undefined && (!Array.isArray(v) || v.some((p) => typeof p !== 'string' || p === ''))) {
     throw invalid('credentialParams', 'must be an array of non-empty strings');
   }
-  const base = [...DEFAULT_CREDENTIAL_PARAMS, ...((v as string[] | undefined) ?? [])].filter((p, i, xs) => xs.indexOf(p) === i);
+  const base = [...DEFAULT_CREDENTIAL_PARAMS, ...((v as string[] | undefined) ?? []), ...fromProvider]
+    .filter((p, i, xs) => xs.indexOf(p) === i);
   const have = new Set(base.map((p) => p.toLowerCase()));
   for (const n of explicitNames) {
     if (n === '' || have.has(n.toLowerCase())) continue;
@@ -271,6 +275,40 @@ const checkTemplate = (t: string, index: number, credentialParams: readonly stri
   if (new URL(compiled.origin).hostname === PSEUDO_HOST) throw unsupportedTemplate(index, `${PSEUDO_HOST} is reserved`);
   checkTokens(type, compiled, index);
   return normalized;
+};
+
+/** 提供元の matches（投げたら当たらないものとする） */
+const safeMatches = (p: WeiwudiProvider, url: string): boolean => {
+  try {
+    return p.matches(url) === true;
+  } catch (_e) {
+    return false;
+  }
+};
+
+/**
+ * 提供元の解決（m3-t5）。各 URL に最初に当たる提供元で resolve する。当たる提供元がミラーの間で違う
+ * （オブジェクトの同一性で比べる。当たるものと当たらないものが混ざるのも含む）なら attribute-invalid。
+ * resolve の失敗は、例外の種類を問わず固定の文面の unsupported-template（番号つき。利用者の提供元の文面を外へ出さない）
+ */
+const resolveProviders = (urls: string[], providers: readonly WeiwudiProvider[] | undefined): { urls: string[]; provider?: WeiwudiProvider } => {
+  if (!providers || providers.length === 0) return { urls };
+  const hits = urls.map((u) => providers.find((p) => safeMatches(p, u)));
+  const provider = hits[0];
+  if (hits.some((h) => h !== provider)) throw invalid('url', 'must not mix URLs of different providers');
+  if (!provider) return { urls };
+  const cannot = (i: number) => unsupportedTemplate(i, `cannot be resolved by the provider "${provider.id}"`);
+  const resolved = urls.map((u, i) => {
+    let out: unknown;
+    try {
+      out = provider.resolve(u);
+    } catch (_e) {
+      throw cannot(i);
+    }
+    if (typeof out !== 'string' || out === '') throw cannot(i);
+    return out;
+  });
+  return { urls: resolved, provider };
 };
 
 const parseId = (v: unknown, fallback: string): string => {
@@ -369,10 +407,16 @@ export interface MemberOptions {
  * テンプレートに載っていた資格情報の項目は credentials.query へ移す（明示の credentials が勝つ）。
  * 範囲・scheme・tileSize・outOfRange は tile だけが読む（tile でない指定は範囲を持たない。P1）
  */
-export function normalizeMember(type: ResourceType, urls: string[], common: CommonPolicyInput, opts: MemberOptions): NormalizedSpec {
+export function normalizeMember(
+  type: ResourceType, inputUrls: string[], common: CommonPolicyInput, opts: MemberOptions,
+  providers?: readonly WeiwudiProvider[],
+): NormalizedSpec {
+  // 提供元の URL は resolve してから検査する（以後の urls は解決した https の URL。m3-t5）
+  const { urls, provider } = resolveProviders(inputUrls, providers);
   const explicit = parseCredentials(own(common, 'credentials'));
+  const providerParams = (provider?.credentialParams ?? []).filter((p) => typeof p === 'string' && p !== '');
   // 明示の credentials.query の名前も資格情報の項目として除く（テンプレートとページの要求に載っていても残さない）
-  const credentialParams = parseCredentialParams(own(common, 'credentialParams'), Object.keys(explicit?.query ?? {}));
+  const credentialParams = parseCredentialParams(own(common, 'credentialParams'), Object.keys(explicit?.query ?? {}), providerParams);
 
   const normalized = urls.map((t, i) => checkTemplate(t, i, credentialParams, type));
   const templates = normalized.filter((t, i, xs) => xs.indexOf(t) === i);
@@ -404,6 +448,15 @@ export function normalizeMember(type: ResourceType, urls: string[], common: Comm
     credentials = { ...(explicit ?? {}) };
     delete credentials.query;
     if (merged.size > 0) credentials.query = Object.fromEntries([...merged.values()]);
+  }
+  // 提供元としての資格情報の検査（汎用の検査と重なってもよい。不正なら credential-rejected）
+  // 例外は種類を問わず固定の文面の credential-rejected へ包む（利用者の提供元の文面を外へ出さない）
+  if (provider?.validateCredentials) {
+    try {
+      provider.validateCredentials(credentials ? { ...credentials } : {});
+    } catch (_e) {
+      throw new WeiwudiError('credential-rejected', `Credentials are rejected by the provider "${provider.id}"`, { where: 'credentials' });
+    }
   }
 
   const cacheTtl = own(common, 'cacheTtl');
@@ -451,18 +504,19 @@ export function normalizeMember(type: ResourceType, urls: string[], common: Comm
   }
   if (opts.logicalName !== undefined) spec.logicalName = opts.logicalName;
   if (cacheMaxBytes !== undefined) spec.cacheMaxBytes = cacheMaxBytes;
+  if (provider) spec.provider = provider.id;
 
   return credentials ? { spec, credentials } : { spec };
 }
 
 /**
  * 利用者の登録内容を検査して正規化する（仕様 §5.1・§10・§12）。kind: style・asset は m3-t7 まで unsupported-kind（R18）、
- * それ以外の未知の値は attribute-invalid。残りの検査は normalizeMember('tile', …)
+ * それ以外の未知の値は attribute-invalid。残りの検査は normalizeMember('tile', …)。providers は提供元の評価の順（m3-t5。無ければ使わない）
  */
-export function normalizeSpec(input: unknown): NormalizedSpec {
+export function normalizeSpec(input: unknown, providers?: readonly WeiwudiProvider[]): NormalizedSpec {
   if (!isPlainObject(input)) throw invalid('spec', 'must be an object');
   const kind = parseKind(own(input, 'kind'));
   const urlIn = own(input, 'url');
   const urls = parseUrls(urlIn);
-  return normalizeMember('tile', urls, input, { kind, id: own(input, 'id'), single: typeof urlIn === 'string' });
+  return normalizeMember('tile', urls, input, { kind, id: own(input, 'id'), single: typeof urlIn === 'string' }, providers);
 }

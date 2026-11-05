@@ -197,6 +197,8 @@ const conflictOf = (r: ResourceMeta, s: StoredSpec): string | undefined => {
     if ((r.encoding ?? encoding) !== encoding) return 'encoding';
     if ((r.scheme ?? 'xyz') !== (s.scheme ?? 'xyz')) return 'scheme';
   }
+  // 提供元が違えば合流しない（資格情報の足し方が Resource ごとに 1 つに決まらない。未指定どうしは一致。m3-t5）
+  if (r.provider !== s.provider) return 'provider';
   if (r.count > 0) {
     const have = new Set(r.policy.credentialParams.map((p) => p.toLowerCase()));
     if (s.policy.credentialParams.some((p) => !have.has(p.toLowerCase()))) return 'credentialParams';
@@ -399,6 +401,8 @@ export const apply = async (
     const encoding = encodingOf(s);
     if (encoding !== undefined) base.encoding = encoding;
     if (isTileSpec(s)) base.scheme = s.scheme ?? 'xyz';
+    // 提供元は作るときだけ写す。合流では先の値を変えない（m3-t5）
+    if (s.provider !== undefined) base.provider = s.provider;
     await store.createResource(recompose(base, recs));
   } else if (plan.join) {
     await store.patchResource(plan.join.resourceId, (m) => {
