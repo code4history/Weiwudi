@@ -15,8 +15,8 @@ import type { RouteHandlerCallbackOptions } from 'workbox-core';
 import type { Context } from './context';
 import { tableChanged } from './hook';
 import { applyRegister, applyRemove, applyUpdate, isExclusiveTo } from './registry';
-import { normalizeSpec, type NormalizedSpec, type StoredSpec } from './spec';
-import { isLegacyRecord, toResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
+import { normalizeSpec, type NormalizedSpec } from './spec';
+import { isChildRecord, isLegacyRecord, storedSpecOf, styleSpecOf, toResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
 import { countTiles } from './tile_math';
 import { WeiwudiError } from './errors';
 import { V2_PREFIX } from './constants';
@@ -42,10 +42,13 @@ const failure = (e: unknown): Response => {
 const notFound = (id: string): WeiwudiError =>
   new WeiwudiError('source-not-found', `Source "${id}" not found`, { sourceId: id });
 
-/** 新 API の Source。無い・旧 API の記録なら source-not-found */
+/** 利用者が見る記録か（旧 API の記録とスタイルの子 Source は見せない。m3-t2） */
+const isVisible = (rec: SourceRecord): boolean => !isLegacyRecord(rec) && !isChildRecord(rec);
+
+/** 新 API の Source。無い・旧 API の記録・子 Source なら source-not-found */
 const getOwn = async (store: Store, id: string): Promise<SourceRecord> => {
   const rec = await store.getSource(id);
-  if (!rec || isLegacyRecord(rec)) throw notFound(id);
+  if (!rec || !isVisible(rec)) throw notFound(id);
   return rec;
 };
 
@@ -67,11 +70,14 @@ const resourcesOf = async (store: Store, id: string): Promise<ResourceMeta[]> =>
 
 /** SourceInfo（仕様 §12）。resources は toResourceInfo(meta, now, その Source の id)（rangeOnly を出す。第 3 回 O7） */
 const infoOf = async (store: Store, rec: SourceRecord): Promise<SourceInfo> => {
-  const spec = rec.spec as StoredSpec;
+  // 読み方は store の補助だけ（m2 の記録の type を補う。L1 M1）。style の親は m3-t7 まで作られない
+  const spec = storedSpecOf(rec) ?? styleSpecOf(rec);
+  if (!spec) throw notFound(rec.id);
   const now = Date.now();
   return {
     id: rec.id,
-    kind: spec.kind,
+    // getOwn・sources が旧 API の記録と子を除くので、kind は利用者の kind
+    kind: rec.kind as SourceInfo['kind'],
     url: Array.isArray(spec.url) ? spec.url.slice() : spec.url,
     resources: (await resourcesOf(store, rec.id)).map((m) => toResourceInfo(m, now, rec.id)),
     warnings: rec.warnings.slice(),
@@ -89,7 +95,7 @@ const statsOf = async (store: Store, rec: SourceRecord): Promise<SourceStats> =>
     size += m.bytes;
   }
   const stats: SourceStats = { count, size, byResource };
-  const extent = (rec.spec as StoredSpec).extent;
+  const extent = storedSpecOf(rec)?.extent;
   if (extent?.box) {
     // 範囲が決まるときだけ（仕様 §12）
     stats.total = countTiles(extent.box, extent.minZoom, extent.maxZoom);
@@ -160,7 +166,10 @@ export function createControl(ctx: Context): Control {
     const rec = await getOwn(store, id);
     const credentials = await store.getCredentials(id);
     // 保存した登録内容で合流と方針を作り直す（資格情報は credentials ストアのものを持ち越す）
-    const spec: NormalizedSpec = credentials ? { spec: rec.spec as StoredSpec, credentials } : { spec: rec.spec as StoredSpec };
+    // 保存した登録内容は storedSpecOf で読む（m2 の記録は type が無く、生のまま渡すと型違いの衝突になる。L1 M1）
+    const stored = storedSpecOf(rec);
+    if (!stored) throw notFound(id);
+    const spec: NormalizedSpec = credentials ? { spec: stored, credentials } : { spec: stored };
     const r = await applyUpdate(store, id, spec);
     // CORS の判定をやり直す（仕様 §4.5。corsOk・corslessUntil は registry が消す）
     for (const m of r.resources) ctx.corslessStreak.delete(m.id);
@@ -197,7 +206,7 @@ export function createControl(ctx: Context): Control {
 
   const sources = async () => {
     const store = await ctx.store();
-    const recs = (await store.listSources()).filter((r) => !isLegacyRecord(r));
+    const recs = (await store.listSources()).filter(isVisible);
     return Promise.all(recs.map((r) => infoOf(store, r)));
   };
 

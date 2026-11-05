@@ -792,3 +792,63 @@ describe('認証付きの要求と保存済みの Entry（仕様 §4.6・PR #75 
     expect(res.headers.get('x-weiwudi-error')).toBe('network');
   });
 });
+
+describe('退避の範囲: 子 Source は親ごとに 1 要素（m3-t2）', () => {
+  const OTHER = 'https://o.example/{z}/{x}/{y}.png';
+  const childRecord = (id: string, parentId?: string): SourceRecord => ({
+    id,
+    kind: 'child',
+    spec: { kind: 'child', type: 'tile', id, url: RID, templates: [RID], scheme: 'xyz', policy: POLICY, logicalName: id },
+    order: 1,
+    warnings: [],
+    createdAt: 0,
+    ...(parentId !== undefined ? { parentId } : {}),
+  });
+  const parentRecord = (cacheMaxBytes?: number): SourceRecord => ({
+    id: 'P',
+    kind: 'style',
+    spec: {
+      kind: 'style', id: 'P', url: 'https://s.example/style.json', templates: ['https://s.example/style.json'], policy: POLICY,
+      ...(cacheMaxBytes !== undefined ? { cacheMaxBytes } : {}),
+      children: [{ id: 'c1', logicalName: 'a', type: 'tile' }, { id: 'c2', logicalName: 'b', type: 'tile' }],
+    },
+    order: 1,
+    warnings: [],
+    createdAt: 0,
+  });
+
+  it('子 2 つの親が cacheMaxBytes を持つとき、2 つの子の Resource を併せて 1 要素で退避する', async () => {
+    // 同じ親の子 c1・c2 が同じ RID を参照し、c2 は OTHER も参照する
+    await store.patchResource(RID, (m) => ({ ...m, sourceIds: ['c1', 'c2'] }));
+    await store.createResource(resource({ id: OTHER, templates: [OTHER], sourceIds: ['c2'] }));
+    await store.putSource(parentRecord(40));
+    await store.putSource(childRecord('c1', 'P'));
+    await store.putSource(childRecord('c2', 'P'));
+    const scopes = await evictScopesFor(store, (await store.getResource(RID))!);
+    expect(scopes.map((s) => ({ ...s, resourceIds: [...s.resourceIds].sort() }))).toEqual([
+      { resourceIds: [OTHER, RID].sort(), maxBytes: 40 },
+    ]);
+  });
+
+  it('親が cacheMaxBytes を持たなければ要素なし（子自身は上限を持たない）。親の無い子も数えない', async () => {
+    await store.patchResource(RID, (m) => ({ ...m, sourceIds: ['c1', 'c3'] }));
+    await store.putSource(parentRecord());
+    await store.putSource(childRecord('c1', 'P'));
+    await store.putSource({ ...childRecord('c3'), spec: { ...childRecord('c3').spec, cacheMaxBytes: 5 } as StoredSpec });
+    expect(await evictScopesFor(store, (await store.getResource(RID))!)).toEqual([]);
+  });
+
+  it('2 つの子の Resource の合計で上限を見て、古い順に消す', async () => {
+    await store.patchResource(RID, (m) => ({ ...m, sourceIds: ['c1'] }));
+    await store.createResource(resource({ id: OTHER, templates: [OTHER], sourceIds: ['c2'] }));
+    await store.putSource(parentRecord(20));
+    await store.putSource(childRecord('c1', 'P'));
+    await store.putSource(childRecord('c2', 'P'));
+    await seed('0_0_0', { size: 10, accessedAt: 1, resourceId: OTHER });
+    await seed('0_0_1', { size: 10, accessedAt: 2 });
+    // 新しい 10 バイト: (OTHER 10 + RID 10 + 新 10) > 20 → 最も古い OTHER の 1 件を消す
+    const res = await run({ key: k('1_0_0') });
+    expect(res.headers.get('x-weiwudi-status')).toBe('miss');
+    expect(await store.hasEntries([`${OTHER}\u00000_0_0`, k('0_0_1'), k('1_0_0')])).toEqual([false, true, true]);
+  });
+});

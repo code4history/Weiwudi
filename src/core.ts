@@ -13,8 +13,7 @@
 // - 保存に失敗しても配信は続け、x-weiwudi-error に quota か storage を付ける（#22）
 // - store の読み出しの失敗（接続・Resource・Entry）は reject で返す（呼び出し側が旧 API の文面などへ直す）
 import type { Context } from './context';
-import type { StoredSpec } from './spec';
-import { toResourceInfo, type EntryMeta, type EvictionScope, type ResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
+import { isChildRecord, storedSpecOf, styleSpecOf, toResourceInfo, type EntryMeta, type EvictionScope, type ResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
 import { getPlugins, type WeiwudiPlugin } from './plugins';
 import { isInTileBox, scaleTileBox } from './tile_math';
 import { WeiwudiError, type TileFailure } from './errors';
@@ -244,25 +243,45 @@ const outOfRangeResponse = (resource: ResourceMeta, kind: 'zoom' | 'extent'): Re
 // ---- 退避の範囲 ----
 
 const sourceMaxBytes = (rec: SourceRecord): number | undefined => {
-  const v = rec.kind === 'legacy' ? rec.legacy?.cacheMaxBytes : (rec.spec as Partial<StoredSpec>).cacheMaxBytes;
+  const v = rec.kind === 'legacy'
+    ? rec.legacy?.cacheMaxBytes
+    : (storedSpecOf(rec) ?? styleSpecOf(rec))?.cacheMaxBytes;
   return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 };
 
 /**
  * putEntry の退避の範囲（仕様 §7.1・第 1 回 S4）。その Resource を sourceIds に持ち cacheMaxBytes を持つ
- * Source ごとに 1 要素（その Source の Resource 群）。rangeOnlySourceIds の Source は数えない
+ * Source ごとに 1 要素（その Source の Resource 群）。rangeOnlySourceIds の Source は数えない。
+ * 子 Source（m3-t2）は親に読み替え、親ごとに 1 要素にする（maxBytes は親の cacheMaxBytes、resourceIds は
+ * 親の全子（StyleSpec.children）の Resource）。子自身は cacheMaxBytes を持たない
  */
 export async function evictScopesFor(store: Store, resource: ResourceMeta): Promise<EvictionScope[]> {
   const rangeOnly = resource.rangeOnlySourceIds ?? [];
   const scopes: EvictionScope[] = [];
   const seen: string[] = [];
   for (const sourceId of resource.sourceIds) {
-    if (seen.indexOf(sourceId) >= 0 || rangeOnly.indexOf(sourceId) >= 0) continue;
-    seen.push(sourceId);
+    if (rangeOnly.indexOf(sourceId) >= 0) continue;
     const rec = await store.getSource(sourceId);
-    const maxBytes = rec ? sourceMaxBytes(rec) : undefined;
+    let owner = rec;
+    let ownerId = sourceId;
+    let members = [sourceId];
+    if (rec && isChildRecord(rec)) {
+      // 親の無い子は上限を持たない（子自身は cacheMaxBytes を持たない）
+      if (rec.parentId === undefined) continue;
+      ownerId = rec.parentId;
+      owner = await store.getSource(ownerId);
+      members = (owner ? styleSpecOf(owner)?.children ?? [] : []).map((c) => c.id);
+    }
+    if (seen.indexOf(ownerId) >= 0) continue;
+    seen.push(ownerId);
+    const maxBytes = owner ? sourceMaxBytes(owner) : undefined;
     if (maxBytes === undefined) continue;
-    const resourceIds = (await store.resourcesBySource(sourceId)).map((r) => r.id);
+    const resourceIds: string[] = [];
+    for (const member of members) {
+      for (const r of await store.resourcesBySource(member)) {
+        if (resourceIds.indexOf(r.id) < 0) resourceIds.push(r.id);
+      }
+    }
     if (resourceIds.indexOf(resource.id) < 0) resourceIds.push(resource.id);
     scopes.push({ resourceIds, maxBytes });
   }

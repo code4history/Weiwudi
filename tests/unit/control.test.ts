@@ -425,3 +425,36 @@ describe('直列の待ち行列', () => {
   });
 });
 
+
+describe('子 Source は見せない（m3-t2）', () => {
+  it('kind: child の記録は sources() に出ず、source・stats・update・clean・remove は source-not-found', async () => {
+    const h = harness();
+    await ok(h, 'register', { kind: 'raster', id: 'a', url: TPL });
+    const store = await storeOf(h);
+    const a = (await store.getSource('a'))!;
+    const childId = 'p\u0000tile:base';
+    await store.putSource({ ...a, id: childId, kind: 'child', parentId: 'p', spec: { ...a.spec, id: childId } });
+    expect((await ok(h, 'sources')).map((s: { id: string }) => s.id)).toEqual(['a']);
+    for (const op of ['source', 'stats', 'update', 'clean', 'remove']) await fails(h, op, { id: childId }, 'source-not-found');
+    expect(await store.getSource(childId)).toBeDefined();
+  });
+});
+
+describe('m2 の記録（spec.type なし）の update()（m3-t2 L1 M1）', () => {
+  it('type の無い記録に update() をかけても成功し、scheme と範囲が残る', async () => {
+    const h = harness();
+    const box = { minX: 0, maxX: 1, minY: 0, maxY: 1 };
+    await ok(h, 'register', { kind: 'raster', id: 'old', url: TPL, scheme: 'tms', minZoom: 0, maxZoom: 1, box });
+    const store = await storeOf(h);
+    const rec = (await store.getSource('old'))!;
+    const m2Spec: Record<string, unknown> = { ...rec.spec };
+    delete m2Spec.type;
+    await store.putSource({ ...rec, spec: m2Spec as typeof rec.spec });
+    const info = await ok(h, 'update', { id: 'old' });
+    expect(info.warnings).toEqual([]);
+    const r = (await store.listResources())[0];
+    expect(r).toMatchObject({ type: 'tile', scheme: 'tms', sourceIds: ['old'] });
+    expect(r.extents).toEqual([{ minZoom: 0, maxZoom: 1, box, sourceId: 'old' }]);
+    expect((await ok(h, 'stats', { id: 'old' })).total).toBe(5);
+  });
+});

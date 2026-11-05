@@ -7,7 +7,7 @@ import type { StoredSpec } from '../../src/spec';
 const rec = (over: Partial<SourceRecord>): SourceRecord => ({
   id: 'a', kind: 'raster', spec: {}, order: 1, warnings: [], createdAt: 0, ...over,
 });
-const spec = { kind: 'raster', id: 'a', templates: ['https://t.example/{z}/{x}/{y}.png'] } as unknown as StoredSpec;
+const spec = { kind: 'raster', type: 'tile', id: 'a', templates: ['https://t.example/{z}/{x}/{y}.png'] } as unknown as StoredSpec;
 
 describe('constants', () => {
   it('値は m2 までの各ファイルの定数と同じ', () => {

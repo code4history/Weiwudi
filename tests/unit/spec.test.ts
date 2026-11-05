@@ -1,6 +1,6 @@
 // src/spec.ts の試験（m2-t3・第 1 回 S6・C3・C6、第 2 回 D1・D5、第 3 回 M5）。仕様 §5.1・§10・§12、計画の m2-t3。
 import { describe, expect, it } from 'vitest';
-import { normalizeSpec, type NormalizedSpec } from '../../src/spec';
+import { normalizeMember, normalizeSpec, type NormalizedSpec } from '../../src/spec';
 import { WeiwudiError } from '../../src/errors';
 import { lngLatBoundsToTileBox } from '../../src/tile_math';
 import { DEFAULT_CREDENTIAL_PARAMS } from '../../src/url_pattern';
@@ -342,5 +342,62 @@ describe('m2-t3 水準 1 の指摘', () => {
   ])('I1: クエリ項目の名前の sk.（%s）も credential-rejected', (_l, url) => {
     expect(codeOf({ kind: 'raster', url })).toBe('credential-rejected');
     expectNotLeaked({ kind: 'raster', url }, 'SECRET');
+  });
+});
+
+describe('normalizeMember: 型ごとの字句の許可（m3-t2）', () => {
+  const member = (type: Parameters<typeof normalizeMember>[0], url: string) =>
+    normalizeMember(type, [url], {}, { kind: 'child', internalId: 'p\u0000x', single: true });
+  const memberCode = (type: Parameters<typeof normalizeMember>[0], url: string): string => {
+    try {
+      member(type, url);
+    } catch (e) {
+      if (e instanceof WeiwudiError) return e.code;
+      throw e;
+    }
+    return 'accepted';
+  };
+
+  it.each([
+    ['tile', T, 'accepted'],
+    ['tile', 'https://a.example/{fontstack}/{z}/{x}/{y}.png', 'unsupported-template'],
+    ['glyph', 'https://g.example/{fontstack}/{range}.pbf', 'accepted'],
+    ['glyph', 'https://g.example/{fontstack}/{z}.pbf', 'unsupported-template'],
+    ['glyph', 'https://g.example/{fontstack}/0-255.pbf', 'unsupported-template'],
+    ['glyph', 'https://g.example/{z}/{x}/{y}.pbf', 'unsupported-template'],
+    ['glyph', 'https://g.example/{fontstack}/{range}/{z}.pbf', 'unsupported-template'],
+    ['sprite', 'https://s.example/sprite', 'accepted'],
+    ['sprite', 'https://s.example/sprite{ratio}', 'unsupported-template'],
+    ['style', 'https://s.example/style.json', 'accepted'],
+    ['style', 'https://s.example/{z}/style.json', 'unsupported-template'],
+    ['tilejson', 'https://s.example/tiles.json', 'accepted'],
+    ['tilejson', 'https://s.example/tiles.json?v={range}', 'unsupported-template'],
+    ['data', 'https://d.example/points.json', 'accepted'],
+    ['data', 'https://d.example/{x}.json', 'unsupported-template'],
+  ] as const)('%s: %s → %s', (type, url, want) => {
+    expect(memberCode(type, url)).toBe(want);
+  });
+
+  it('テンプレートの検査は checkTemplate と共有する（data でも sk.・疑似ホスト・userinfo・# を拒否する）', () => {
+    expect(memberCode('data', 'https://d.example/a.json?access_token=sk.x')).toBe('credential-rejected');
+    expect(memberCode('data', 'https://weiwudi.example.com/a.json')).toBe('unsupported-template');
+    expect(memberCode('data', 'https://u:p@d.example/a.json')).toBe('attribute-invalid');
+    expect(memberCode('data', 'https://d.example/a.json#f')).toBe('unsupported-template');
+  });
+
+  it('内部の id は検査しない（\\0 を含む子の id）。type・logicalName を持ち、tile でなければ範囲と scheme を持たない', () => {
+    const n = normalizeMember('glyph', ['https://g.example/{fontstack}/{range}.pbf'], { minZoom: 1, maxZoom: 3, scheme: 'tms' },
+      { kind: 'child', internalId: 'p\u0000glyph:glyphs', single: true, logicalName: 'glyphs' });
+    expect(n.spec).toMatchObject({ kind: 'child', type: 'glyph', id: 'p\u0000glyph:glyphs', logicalName: 'glyphs' });
+    expect(n.spec.extent).toBeUndefined();
+    expect(n.spec.scheme).toBeUndefined();
+    expect(n.spec.encoding).toBeUndefined();
+  });
+
+  it('normalizeSpec は今の形のまま（raster・vector は type: tile。style・asset は unsupported-kind）', () => {
+    expect(normalizeSpec({ kind: 'raster', url: T }).spec).toMatchObject({ kind: 'raster', type: 'tile', scheme: 'xyz' });
+    expect(normalizeSpec({ kind: 'raster', url: T }).spec.encoding).toBeUndefined();
+    expect(codeOf({ kind: 'style', url: 'https://s.example/style.json' })).toBe('unsupported-kind');
+    expect(codeOf({ kind: 'asset', url: 'https://d.example/a.json' })).toBe('unsupported-kind');
   });
 });

@@ -6,7 +6,7 @@
 // - Resource の書き換えは createResource・replaceResource・patchResource だけ（count・bytes を store が引き継ぐ。第 1 回 S2）
 // - id は spec.ts の正規化済みの値だけを使う（第 1 回 C3）。warnings は "<code>: <Resource.id>"（R12）
 // - 旧 API の Resource（map: で始まる id）は合流の候補に入れず、書き換えない（第 2 回 S-6）
-import type { OutOfRange, ResourceMeta, ResourcePolicy, SourceRecord, Store, TileExtent } from './store';
+import type { OutOfRange, ResourceMeta, ResourcePolicy, ResourceType, SourceRecord, Store, TileExtent } from './store';
 import type { NormalizedSpec, StoredSpec } from './spec';
 import { WeiwudiError } from './errors';
 import { nextOrder, storedSpecOf } from './store';
@@ -45,6 +45,39 @@ const byOrder = (a: SourceRecord, b: SourceRecord): number => a.order - b.order 
 const specsOf = (sources: readonly SourceRecord[]): StoredSpec[] =>
   sources.slice().sort(byOrder).map(storedSpecOf).filter((s): s is StoredSpec => s !== undefined);
 
+/** タイルの符号化。raster・vector の Source は kind、子は encoding（tile でなければ undefined） */
+const encodingOf = (s: StoredSpec): ResourceMeta['encoding'] =>
+  s.type === 'tile' ? s.encoding ?? (s.kind === 'raster' || s.kind === 'vector' ? s.kind : undefined) : undefined;
+
+/** 範囲の持ち主（P1・R9）: 範囲は tile の Source だけが持つ。tile でない Source は範囲を足さない */
+const isTileSpec = (s: StoredSpec): boolean => s.type === 'tile';
+
+// ---- 子 Source（R1・X1） ----
+
+/** 子の id（X1）: "<parentId>\0<type>:<logicalName>"。利用者の id は \0 を含まない（m2 R36）ので衝突しない */
+export const childSourceId = (parentId: string, type: ResourceType, logicalName: string): string =>
+  `${parentId}\0${type}:${logicalName}`;
+
+/** 子の論理名の置き場所（X1）。source はタイル・TileJSON（sources のキー）、tilejson-tiles は TileJSON の下のタイル */
+export type ChildSlot = 'source' | 'tilejson-tiles' | 'glyphs' | 'sprite' | 'data' | 'style';
+
+/**
+ * 子の論理名（X1・O-N8）。encodeURIComponent はスタイルの sources のキーとスプライトの配列の id にだけ当てる
+ * （/ と固定の語には当てない）。key は source・tilejson-tiles・data では sources のキー、sprite では配列の id（無ければ単一）。
+ * 同じ論理ソースの URL や範囲が変わっても id は変わらない
+ */
+export function childLogicalName(slot: ChildSlot, key?: string): string {
+  const k = encodeURIComponent(key ?? '');
+  switch (slot) {
+    case 'source': return k;
+    case 'tilejson-tiles': return `${k}/tiles`;
+    case 'glyphs': return 'glyphs';
+    case 'sprite': return key === undefined ? 'sprite' : `sprite/${k}`;
+    case 'data': return `sources/${k}/data`;
+    case 'style': return 'style';
+  }
+}
+
 // ---- 実効方針（仕様 §5.6 の表） ----
 
 /** 範囲外の型の既定（仕様 §6）。ラスタは transparent、ベクタは empty */
@@ -60,7 +93,7 @@ const extentOf = (s: StoredSpec, scheme: ResourceMeta['scheme']): TileExtent => 
     : { minZoom: 0, maxZoom: MAX_TILE_ZOOM, sourceId: s.id };
   if (e.box) {
     const box = { ...e.box };
-    if (s.scheme !== (scheme ?? 'xyz')) {
+    if ((s.scheme ?? 'xyz') !== (scheme ?? 'xyz')) {
       const last = Math.pow(2, e.maxZoom) - 1;
       box.minY = last - e.box.maxY;
       box.maxY = last - e.box.minY;
@@ -83,7 +116,8 @@ export function composePolicy(
   extraPolicies: readonly ResourcePolicy[] = [],
 ): Pick<ResourceMeta, 'policy' | 'extents'> {
   const specs = specsOf(sources);
-  const extents = [...specs, ...specsOf(rangeOnly)].map((s) => extentOf(s, resource.scheme));
+  // 範囲は tile の Source だけから作る（P1。tile でない Source を「範囲の指定が無い Source」として全域にしない）
+  const extents = [...specs, ...specsOf(rangeOnly)].filter(isTileSpec).map((s) => extentOf(s, resource.scheme));
   if (specs.length === 0) return { policy: resource.policy, extents };
 
   const policies = [...specs.map((s) => s.policy), ...extraPolicies];
@@ -126,12 +160,14 @@ export function credentialSourceFor(
 }
 
 /**
- * clean・remove の唯一の判定（第 1 回 O-2・O-15）: sourceIds がその Source だけで、rangeOnlySourceIds に他が無い
+ * clean・remove の唯一の判定（第 1 回 O-2・O-15・C-S7）: sourceIds と rangeOnlySourceIds の全部が owners に入る
+ * （sourceIds が空なら偽）。文字列は 1 つの一覧として読む。スタイルの親は子の id の一覧を渡す
  */
-export function isExclusiveTo(resource: ResourceMeta, sourceId: string): boolean {
+export function isExclusiveTo(resource: ResourceMeta, owners: string | readonly string[]): boolean {
+  const list: readonly string[] = typeof owners === 'string' ? [owners] : owners;
   return resource.sourceIds.length > 0
-    && resource.sourceIds.every((id) => id === sourceId)
-    && (resource.rangeOnlySourceIds ?? []).every((id) => id === sourceId);
+    && resource.sourceIds.every((id) => list.indexOf(id) >= 0)
+    && (resource.rangeOnlySourceIds ?? []).every((id) => list.indexOf(id) >= 0);
 }
 
 // ---- 計画 ----
@@ -154,9 +190,13 @@ export interface RegisterPlan {
 
 /** 合流の拒否の理由（仕様 §5.6）。合流できれば undefined */
 const conflictOf = (r: ResourceMeta, s: StoredSpec): string | undefined => {
-  if (r.type !== 'tile') return 'type';
-  if ((r.encoding ?? s.kind) !== s.kind) return 'encoding';
-  if ((r.scheme ?? 'xyz') !== s.scheme) return 'scheme';
+  if (r.type !== s.type) return 'type';
+  if (isTileSpec(s)) {
+    // encoding・scheme の比較は tile だけ
+    const encoding = encodingOf(s);
+    if ((r.encoding ?? encoding) !== encoding) return 'encoding';
+    if ((r.scheme ?? 'xyz') !== (s.scheme ?? 'xyz')) return 'scheme';
+  }
   if (r.count > 0) {
     const have = new Set(r.policy.credentialParams.map((p) => p.toLowerCase()));
     if (s.policy.credentialParams.some((p) => !have.has(p.toLowerCase()))) return 'credentialParams';
@@ -191,12 +231,13 @@ export function planRegister(spec: NormalizedSpec, existing: SourceRecord | unde
   } else if (overlapping.length === 1 && conflictOf(overlapping[0], s) === undefined) {
     plan.join = { resourceId: overlapping[0].id, create: false };
   } else {
-    // 2 つ以上に重なるか、1 つと衝突した
+    // 2 つ以上に重なるか、1 つと衝突した。範囲だけ足すのは既存の Resource も新しい指定も tile のときだけ（P1。
+    // 型が違う衝突は warnings に書くだけ）
     for (const r of overlapping) {
       plan.conflicts.push(r.id);
       plan.warnings.push(conflictWarning(r.id));
       if (existing !== undefined && r.sourceIds.indexOf(id) >= 0) plan.keep.push(r.id);
-      else plan.rangeOnly.push(r.id);
+      else if (r.type === 'tile' && isTileSpec(s)) plan.rangeOnly.push(r.id);
     }
   }
   plan.leave = pool
@@ -247,15 +288,23 @@ const composeFor = (m: ResourceMeta, recs: Lookup): Pick<ResourceMeta, 'policy' 
   return { policy: own.policy, extents: [...(own.extents ?? []), ...oldKept, ...rangeOnly], templates };
 };
 
+/** 範囲は tile の Resource だけが持つ（P1）。tile でなければ extents を消す（空の配列も書かない。L1 m1） */
+const tileExtentsOnly = (next: ResourceMeta): ResourceMeta => {
+  if (next.type === 'tile') return next;
+  delete next.extents;
+  return next;
+};
+
 /** sourceIds が変わった Resource を合成し直す（方針・範囲・テンプレート） */
 const recompose = (m: ResourceMeta, recs: Lookup): ResourceMeta => {
   const next: ResourceMeta = { ...m, ...composeFor(m, recs) };
   if (next.policy.cacheRetention === undefined) delete next.policy.cacheRetention;
-  return next;
+  return tileExtentsOnly(next);
 };
 
 /** rangeOnlySourceIds だけが変わった Resource は範囲だけを計算し直す（方針は sourceIds の Source だけから作るので変わらない） */
-const recomposeExtents = (m: ResourceMeta, recs: Lookup): ResourceMeta => ({ ...m, extents: composeFor(m, recs).extents });
+const recomposeExtents = (m: ResourceMeta, recs: Lookup): ResourceMeta =>
+  tileExtentsOnly({ ...m, extents: composeFor(m, recs).extents });
 
 const setRangeOnly = (m: ResourceMeta, ids: string[]): ResourceMeta => {
   const next = { ...m };
@@ -290,25 +339,46 @@ export interface RegisterResult {
   warnings: string[];
 }
 
-const apply = async (
+/** apply の振る舞い（m3-t2）。applyRegister は { false, false }、applyUpdate は { true, true }、スタイルの update() の子は { false, true }（P2） */
+export interface ApplyOptions {
+  /** 衝突を WeiwudiError('resource-conflict') にして何も変えない（自分自身の update()） */
+  throwOnConflict: boolean;
+  /** 通常の合流先の corsOk・corslessUntil を消す（CORS の判定のやり直し。仕様 §4.5） */
+  resetCors: boolean;
+  /** 登録順。無ければ既存の値か nextOrder（子は親の order を渡す） */
+  order?: number;
+  /** 子の親の id（SourceRecord.parentId） */
+  parentId?: string;
+}
+
+/**
+ * 1 つの資源の指定を合流させて保存する（仕様 §5.6）。existing は同じ id の保存済みの記録（旧 API の記録は渡さない）。
+ * 同じ id で kind を替えた登録は attribute-invalid で、何も変えない（C-O5。子の構成が丸ごと変わり keep の規則が当たらない）
+ */
+export const apply = async (
   store: Store,
   spec: NormalizedSpec,
   existing: SourceRecord | undefined,
-  mode: 'register' | 'update',
+  opts: ApplyOptions,
 ): Promise<RegisterResult> => {
   const s = spec.spec;
   const id = s.id;
+  if (existing && existing.kind !== s.kind) {
+    throw new WeiwudiError('attribute-invalid', 'Attribute "kind" must not change for the same id (remove() it first)',
+      { attribute: 'kind' });
+  }
   const plan = planRegister(spec, existing, await store.listResources());
-  if (mode === 'update' && plan.conflicts.length > 0) {
+  if (opts.throwOnConflict && plan.conflicts.length > 0) {
     // 自分自身の update() の衝突は全体を失敗させ、何も変えない（仕様 §5.6）
     throw new WeiwudiError('resource-conflict', `Source "${id}" conflicts with ${plan.conflicts.length} resource(s)`,
       { resourceIds: plan.conflicts.slice() });
   }
 
-  const order = existing ? existing.order : await nextOrder(store);
+  const order = opts.order ?? (existing ? existing.order : await nextOrder(store));
   const record: SourceRecord = {
     id, kind: s.kind, spec: s, order, warnings: plan.warnings.slice(), createdAt: existing?.createdAt ?? Date.now(),
   };
+  if (opts.parentId !== undefined) record.parentId = opts.parentId;
   // Source を先に書く（合成が新しい登録内容を読む。途中で止まっても remove() で外せる）
   await store.putSource(record);
   if (spec.credentials) await store.putCredentials(id, spec.credentials);
@@ -318,22 +388,23 @@ const apply = async (
   if (plan.join?.create) {
     const base: ResourceMeta = {
       id: plan.join.resourceId,
-      type: 'tile',
+      type: s.type,
       templates: s.templates.slice(),
       sourceIds: [id],
-      encoding: s.kind,
-      scheme: s.scheme,
       policy: s.policy,
       count: 0,
       bytes: 0,
       pinnedBytes: 0,
     };
+    const encoding = encodingOf(s);
+    if (encoding !== undefined) base.encoding = encoding;
+    if (isTileSpec(s)) base.scheme = s.scheme ?? 'xyz';
     await store.createResource(recompose(base, recs));
   } else if (plan.join) {
     await store.patchResource(plan.join.resourceId, (m) => {
       const sourceIds = m.sourceIds.indexOf(id) >= 0 ? m.sourceIds.slice() : [...m.sourceIds, id];
       const next = recompose(setRangeOnly({ ...m, sourceIds }, without(m.rangeOnlySourceIds, id)), recs);
-      if (mode === 'update') {
+      if (opts.resetCors) {
         // update() は CORS の判定をやり直す（仕様 §4.5。count には触らない）
         delete next.corsOk;
         delete next.corslessUntil;
@@ -361,7 +432,7 @@ const apply = async (
  */
 export async function applyRegister(store: Store, spec: NormalizedSpec): Promise<RegisterResult> {
   const existing = await store.getSource(spec.spec.id);
-  return apply(store, spec, existing && existing.kind !== 'legacy' ? existing : undefined, 'register');
+  return apply(store, spec, existing && existing.kind !== 'legacy' ? existing : undefined, { throwOnConflict: false, resetCors: false });
 }
 
 /**
@@ -376,7 +447,7 @@ export async function applyUpdate(store: Store, sourceId: string, spec: Normaliz
   if (spec.spec.id !== sourceId) {
     throw new WeiwudiError('attribute-invalid', 'Attribute "id" must not change in update()', { attribute: 'id' });
   }
-  return apply(store, spec, existing, 'update');
+  return apply(store, spec, existing, { throwOnConflict: true, resetCors: true });
 }
 
 /**
