@@ -176,7 +176,7 @@ describe('資格情報の分離（仕様 §10）', () => {
   it('テンプレートに載っていた資格情報の項目は credentials.query へ移す（明示の credentials が勝つ）', () => {
     const n = normalizeSpec({
       kind: 'raster',
-      url: [`${T}?access_token=pk.fromurl&sku=s1`, 'https://b.example/{z}/{x}/{y}.png?access_token=pk.second'],
+      url: [`${T}?access_token=pk.fromurl&sku=s1`, 'https://b.example/{z}/{x}/{y}.png?access_token=pk.fromurl&sku=pk.second'],
       credentials: { query: { sku: 'explicit' } },
     });
     expect(n.credentials).toEqual({ query: { access_token: 'pk.fromurl', sku: 'explicit' } });

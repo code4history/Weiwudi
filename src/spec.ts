@@ -115,6 +115,13 @@ const unsupportedTemplate = (index: number, reason: string): WeiwudiError =>
 const rejectedCredential = (where: string): WeiwudiError =>
   new WeiwudiError('credential-rejected', `A secret token (sk.) is not accepted in ${where}`, { where });
 
+const conflictingCredential = (name: string): WeiwudiError =>
+  new WeiwudiError(
+    'attribute-invalid',
+    `URL templates carry different values for credential "${name}"; register each mirror as its own source`,
+    { attribute: 'url' },
+  );
+
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -126,6 +133,9 @@ const isNonNegInt = (v: unknown): v is number => typeof v === 'number' && Number
 
 /** 先頭の Bearer ・Token ・Basic （大文字小文字を問わない）と空白を剥がしてから sk. で始まるか（仕様 §10） */
 const isSecretToken = (v: string): boolean => /^sk\./i.test(v.replace(/^\s*(?:(?:bearer|token|basic)\s+)?\s*/i, ''));
+
+/** パスの区画の秘密トークン（仕様 §10。I9・R23）: sk.eyJ で始まる区画だけ（sk.osm のような区画名は通す）。大文字小文字を問わない */
+const isSecretPathSegment = (v: string): boolean => /^sk\.eyj/i.test(v);
 
 /** クエリ値を percent-decode する。崩れた % でも投げない（URLSearchParams で取る。第 4 回 O-3） */
 const decodeQueryValue = (raw: string): string => new URLSearchParams(`v=${raw.replace(/&/g, '%26')}`).get('v') ?? raw;
@@ -237,11 +247,11 @@ const checkTemplate = (t: string, index: number, credentialParams: readonly stri
   if (parsed.username !== '' || parsed.password !== '') {
     throw new WeiwudiError('attribute-invalid', `URL template #${index + 1} must not contain user info`, { attribute: 'url', index });
   }
-  // パスの区画も見る（生の形と decode した形。L-2）。崩れた % は生の形だけで見る
+  // パスの区画も見る（生の形と decode した形。L-2）。区画は sk.eyJ だけ（I9）。崩れた % は生の形だけで見る
   for (const seg of parsed.pathname.split('/')) {
     let decoded = seg;
     try { decoded = decodeURIComponent(seg); } catch (_e) { /* 生の形だけ */ }
-    if (isSecretToken(seg) || isSecretToken(decoded)) throw rejectedCredential(`URL template #${index + 1}`);
+    if (isSecretPathSegment(seg) || isSecretPathSegment(decoded)) throw rejectedCredential(`URL template #${index + 1}`);
   }
   for (const p of templateQueryPairs(t)) {
     // 値の無い項目（?sk.…）も名前で見る（I1）
@@ -353,7 +363,9 @@ export interface MemberOptions {
  * - id（利用者の id）: map: から始まる・空・\0 を含む・文字列でない は attribute-invalid。既定は先頭のテンプレートの normalizeTemplate
  * - テンプレート: 絶対でない・http/https 以外・字句の誤り（型ごとの許可は checkTokens）・weiwudi.example.com・
  *   tile で座標が取れない は unsupported-template、userinfo は attribute-invalid
- * - sk. の資格情報（credentials の query・headers の値、テンプレートの全クエリ値。decode した後も）は credential-rejected
+ * - sk. の資格情報（credentials の query・headers の値、テンプレートの全クエリ値と名前。decode した後も）と
+ *   sk.eyJ で始まるパスの区画は credential-rejected
+ * - テンプレートの資格情報の項目に、同じ名前（大文字小文字を問わない）で違う値があれば attribute-invalid（明示の名前は除く）
  * テンプレートに載っていた資格情報の項目は credentials.query へ移す（明示の credentials が勝つ）。
  * 範囲・scheme・tileSize・outOfRange は tile だけが読む（tile でない指定は範囲を持たない。P1）
  */
@@ -367,14 +379,23 @@ export function normalizeMember(type: ResourceType, urls: string[], common: Comm
   const id = opts.internalId ?? parseId(opts.id, templates[0]);
 
   // テンプレートに載っていた資格情報の項目（字句を含む値は除く）。名前は小文字で 1 つにまとめ（M2）、
-  // 先のミラー・先の出現が勝ち、明示の credentials がさらに勝つ。出力の名前は勝った側の綴り
+  // 先のミラー・先の出現が勝ち、明示の credentials がさらに勝つ。出力の名前は勝った側の綴り。
+  // 同じ名前に違う値があれば attribute-invalid（I2・R22。明示の名前は見ない。値は文面に入れない）
   const drop = new Set(credentialParams.map((p) => p.toLowerCase()));
+  const explicitNames = new Set(Object.keys(explicit?.query ?? {}).map((n) => n.toLowerCase()));
+  // 1 つのテンプレートの中では先の出現が勝つ（M2）。比べるのはミラーごとに勝った値どうし
   const merged = new Map<string, [name: string, value: string]>();
   for (const t of urls) {
+    const first = new Map<string, [name: string, value: string]>();
     for (const p of templateQueryPairs(t)) {
       const lower = p.name.toLowerCase();
       if (!drop.has(lower) || /\{[^{}]*\}/.test(p.decoded)) continue;
-      if (!merged.has(lower)) merged.set(lower, [p.name, p.decoded]);
+      if (!first.has(lower)) first.set(lower, [p.name, p.decoded]);
+    }
+    for (const [lower, pair] of first) {
+      const seen = merged.get(lower);
+      if (!seen) merged.set(lower, pair);
+      else if (seen[1] !== pair[1] && !explicitNames.has(lower)) throw conflictingCredential(seen[0]);
     }
   }
   for (const [name, value] of Object.entries(explicit?.query ?? {})) merged.set(name.toLowerCase(), [name, value]);

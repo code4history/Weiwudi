@@ -160,6 +160,9 @@ console.log(source.warnings, await source.stats());
 - 試験しているのは Chromium だけです。**WebKit・Firefox は未確認です。**
 - この版の `kind` は `'raster'` と `'vector'` です。`'style'`・`'asset'` は `unsupported-kind` で拒否します。
 - 明示の `id` は公開の値です（`sources()` と `warnings` に出ます）。資格情報を入れず、`credentials` で渡してください。
+- サービスワーカーが `credentials` を足すのはページの要求と同じオリジンの要求だけで、ヘッダの資格情報を足した要求は
+  `redirect: 'error'` で出します。秘密トークン（クエリの `sk.`・`sk.eyJ…` のパスの区画）は拒否し、同じ資格情報の項目に
+  違う値を持つミラーは `attribute-invalid` で拒否します。
 - 失敗は `WeiwudiError`（`sw-not-controlling`・`sw-outdated`・`source-not-found` など）で reject します。
   既存の資源と合流できない資源があっても `register()` は失敗せず、`source.warnings` に書きます。
 - サービスワーカーでは **Weiwudi の import を先に書き**（`import '@c4h/weiwudi/sw'` か `importScripts` の行）、

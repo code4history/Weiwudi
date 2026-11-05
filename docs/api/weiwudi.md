@@ -289,13 +289,30 @@ interface TileBox { minX: number; maxX: number; minY: number; maxY: number }
 
 **Rejects with `WeiwudiError`:**
 - `attribute-invalid`: a malformed attribute, an `id` starting with `map:`, empty
-  or containing `\0`, or a template with user info (`user:pass@`)
+  or containing `\0`, a template with user info (`user:pass@`), or mirrors that
+  carry different values for the same credential parameter (names compared
+  case-insensitively; register each mirror as its own source; names in an
+  explicit `credentials.query` are not compared)
 - `unsupported-template`: an unsupported token, a URL that cannot be resolved
   or is not `http:` / `https:` (relative URLs are resolved against the page
   first), or a template on `weiwudi.example.com`
 - `unsupported-kind`: `style` or `asset` (not handled by this version)
-- `credential-rejected`: a secret token (`sk.`) in `credentials` or in the template
+- `credential-rejected`: a secret token (`sk.`) in `credentials` or in a template query,
+  or a path segment starting with `sk.eyJ` (a segment name such as `sk.osm` is accepted)
 - `sw-not-controlling` / `sw-outdated`: see [Before every call](#before-every-call)
+
+**Credentials:**
+- The service worker adds credentials only when the request after the plugins
+  has the same origin as the request from the page. A request that got
+  credential headers is sent with `redirect: 'error'`, so a redirect is treated
+  as a network failure (query credentials alone keep the original `redirect`).
+- Query items whose name or value starts with `sk.` are not put in cache keys.
+- **A resource id is never rewritten.** The id of a resource first created by a
+  source that does not declare a `credentialParams` item keeps that item. Declare
+  credential query items in the source you register first.
+- When a source with an explicit `credentials.query` is registered later onto a
+  resource that already has entries, it gets `resource-conflict` (the key shape
+  would change).
 
 A resource that cannot be merged with an existing one does **not** make
 `register()` fail. The source is saved and `warnings` gets
