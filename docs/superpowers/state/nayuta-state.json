@@ -95,5 +95,5 @@
     "docs/superpowers/reports/2026-11-02-onboard-summary.md",
     "docs/superpowers/specs/2026-11-02-new-interface-spec.md"
   ],
-  "next_action": "実行するのはこのサイクルのセッション（進行役）。m1（2026-11-03）・m2（2026-11-04）は完了。m2 は PR #72〜#83 で vector-cache へ合流（まとめは reports/2026-11-04-m2-core-summary.md）。m3（ベクタ資源。#39・#40・#38）の計画は事前点検を 2 回で合格（2de426a）。次は m3-t1（定数の一本化）。順は t1 → t2 → t3∥t4 → t5 → t6 → t7 → t8 → t9 → t10。水準 2 は t3・t5・t7・t8 と区切り。水準 2（Codex）は見る範囲と時間を必ず指定し、同じ確認を Claude にも並べて出す。人間の判断 2 件（mapbox:// の標準搭載・旧 API の非推奨時期）は推奨案で進めてよく、m3・m4 までに要る。PMTiles・COG の区画キャッシュは Issue #78（m4 の後）。"
+  "next_action": "m3-t2（registry の一般化）を実装する。順は t2 → t3∥t4 → t5 → t6 → t7 → t8 → t9 → t10。L2 は t3・t5・t7・t8 と区切り。t1 は PR #84 で合流済み（511e96d）"
 }
