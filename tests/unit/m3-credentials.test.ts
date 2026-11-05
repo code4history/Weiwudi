@@ -195,6 +195,18 @@ describe('I1（R21）: 資格情報は差し込み口の後の要求が元と同
     expect((await run(original, original, undefined)).redirect).toBe('manual');
   });
 
+  it('no-cors の取り直しは、ヘッダの資格情報があっても元の redirect のまま（L1 M-1。no-cors は follow 以外だと network error）', async () => {
+    fetchMock.mockImplementationOnce(async () => { throw new TypeError('cors failed'); });
+    const original = new Request(TILE, { mode: 'no-cors', credentials: 'include' });
+    const up = createUpstream(ctx, { resourceId: RID, original, credentials: { headers: { 'x-api-key': 'HTOKEN' } }, now: () => 0 });
+    await up(original, { hasEntry: false, requestChanged: false });
+    expect(fetchMock.mock.calls).toHaveLength(2);
+    expect((fetchMock.mock.calls[0][0] as Request).redirect).toBe('error');
+    const retry = fetchMock.mock.calls[1][0] as Request;
+    expect(retry.mode).toBe('no-cors');
+    expect(retry.redirect).toBe('follow');
+  });
+
   it('リダイレクトで fetch が失敗したら network になる（§6 の 6・7）', async () => {
     fetchMock.mockImplementation(async (r: Request) => {
       if (r.redirect === 'error') throw new TypeError('redirect');

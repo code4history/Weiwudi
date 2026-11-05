@@ -229,6 +229,17 @@ test.describe('Weiwudi hook (real urls)', () => {
         expect(await statsCount(page)).toBe(0);
     });
 
+    test('retries cors-less servers with no-cors even with header credentials (m3-t3 L1 M-1)', async ({ page, request }) => {
+        await openPage(page);
+        await register(page, { kind: 'raster', url: tpl('nocors'), credentials: { headers: { 'x-api-key': 'HKEY' } } });
+        const img = await getImg(page, at('nocors', 2, 1, 1));
+        // no-cors の取り直しが redirect: 'error' だと network error になり、画像が読めない
+        expect(img.loaded).toBe(true);
+        const modes = (await upstreamLog(request, '/nocors/2/1/1.png')).map((e) => e.mode);
+        expect(modes[modes.length - 1]).toBe('no-cors');
+        expect(await statsCount(page)).toBe(0);
+    });
+
     test('keeps sparse cors servers cacheable', async ({ page }) => {
         await openPage(page);
         await register(page, { kind: 'raster', url: tpl('sparse') });

@@ -9,6 +9,7 @@
 // - 条件付き要求（If-None-Match など）を出さない
 // - 登録の資格情報は要求に無いときだけ足す（R5）。足す相手のオリジンは呼び出し側（hook）が選ぶ（I2）。
 //   差し込み口の後の要求のオリジンがページの要求と違えば足さない（I1・R21）。ヘッダを足した要求は redirect: 'error'
+//   （no-cors の要求を除く。ヘッダが送られないため）
 // - 範囲取得側の規則（jobOpaqueStreak ほか）と opaque イベントは m4
 import type { Context } from './context';
 import type { ServeInput, UpstreamResult } from './core';
@@ -67,16 +68,18 @@ const outgoing = (request: Request, credentials: Credentials | undefined): { url
 /**
  * 要求を mode・credentials を指定して作り直す（referrer などは元のまま）。
  * ヘッダの資格情報を足したときは redirect: 'error'（別オリジンへのリダイレクトにヘッダを持って行かせない。I1・R21）。
- * それ以外は元の redirect のまま
+ * no-cors の要求は除く: safelist に無いヘッダは捨てられて送られず、follow 以外の redirect は Fetch の main fetch で
+ * network error になる（L1 M-1）。それ以外は元の redirect のまま
  */
 const rebuild = (request: Request, credentials: Credentials | undefined, mode: RequestMode, cred: RequestCredentials): Request => {
   const { url, headers, addedHeader } = outgoing(request, credentials);
+  const redirect: RequestInit = addedHeader && mode !== 'no-cors' ? { redirect: 'error' } : { redirect: request.redirect };
   return new Request(url, {
     method: request.method,
     headers,
     mode,
     credentials: cred,
-    redirect: addedHeader ? 'error' : request.redirect,
+    ...redirect,
     referrer: request.referrer,
     referrerPolicy: request.referrerPolicy,
   });

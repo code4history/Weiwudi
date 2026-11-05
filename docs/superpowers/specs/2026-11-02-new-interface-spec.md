@@ -570,7 +570,7 @@ type Credentials = { query?: Record<string, string>; headers?: Record<string, st
 - `templates` は登録時に資格情報の項目を除いて保存する。TileJSON の `tiles` に載っているものも同様
 - **`bodies` のスタイル・TileJSON の本体**: `credentials` を登録した `Source` では、保存の前に本体内の URL から `credentialParams` を除く（SW が上流で足せるので失うものが無い）。`credentials` の登録が無いときは本体を変えない。除くと地図ライブラリの要求にトークンが載らず、上流が拒否する。その場合のトークンは配信元がページへ渡したもので、ページの JS からもともと見える
 - 上流へ出す直前に、要求に資格情報が無ければ `applyCredentials` で足す。これで `source.url`（資格情報なし）をページに渡せる
-- 足すのは、差し込み口を通した後の要求の URL のオリジンが、ページから届いた要求のオリジンと同じときだけ（違えば足さない。m3-t3 I1）。ヘッダの資格情報を足した要求は `redirect: 'error'` で出す（別オリジンへのリダイレクトに `Authorization` 以外のヘッダが付いて行くのを止める）。リダイレクトはネットワークの失敗として §6 の 6・7 になる。クエリの資格情報だけを足した要求は元の `redirect` のまま
+- 足すのは、差し込み口を通した後の要求の URL のオリジンが、ページから届いた要求のオリジンと同じときだけ（違えば足さない。m3-t3 I1）。ヘッダの資格情報を足した要求は `redirect: 'error'` で出す（別オリジンへのリダイレクトに `Authorization` 以外のヘッダが付いて行くのを止める。no-cors の要求を除く（ヘッダが送られないため。follow 以外の `redirect` は no-cors では network error になる））。リダイレクトはネットワークの失敗として §6 の 6・7 になる。クエリの資格情報だけを足した要求は元の `redirect` のまま。クエリの資格情報だけを足した要求はリダイレクトを辿る。リダイレクト先の URL は上流が `Location` で決めるもので、元の要求のクエリは引き継がれない（上流自身が書き込む場合を除き、上流は信頼する前提）
 - テンプレートのクエリから資格情報を移すとき、同じ名前（大文字小文字を問わない）に違う値がミラーの間にあれば `attribute-invalid`（`URL templates carry different values for credential "<名前>"; register each mirror as its own source`。値は文面に入れない）。明示の `credentials.query` にある名前はテンプレートの値を見ない（明示が勝つ。m3-t3 I2）
 - Entry のキーの残りのクエリ（§5.3）からは、名前か値が `sk.` で始まる項目も除く（decode した後の形で見る。m3-t3 I9）
 - エラー文面と `warnings` に URL を入れるときは、クエリを落とす。`Resource.id`（§5.1 の正規化で資格情報を除いた形）は URL ではなく id としてそのまま書く（§5.6・§12。クエリを落とすと `layer=a` と `layer=b` の Resource を区別できない）

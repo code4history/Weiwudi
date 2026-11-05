@@ -304,8 +304,13 @@ interface TileBox { minX: number; maxX: number; minY: number; maxY: number }
 **Credentials:**
 - The service worker adds credentials only when the request after the plugins
   has the same origin as the request from the page. A request that got
-  credential headers is sent with `redirect: 'error'`, so a redirect is treated
+  credential headers is sent with `redirect: 'error'` (except a `no-cors`
+  request, which does not send those headers), so a redirect is treated
   as a network failure (query credentials alone keep the original `redirect`).
+  A request with only query credentials follows redirects. The redirect target
+  is chosen by the upstream in `Location`, and the query of the original request
+  is not carried over (unless the upstream itself writes it there; the upstream
+  is assumed to be trusted).
 - Query items whose name or value starts with `sk.` are not put in cache keys.
 - **A resource id is never rewritten.** The id of a resource first created by a
   source that does not declare a `credentialParams` item keeps that item. Declare
