@@ -64,7 +64,8 @@ const applyProvider = (url: URL, provider: WeiwudiProvider, credentials: Credent
   try {
     provider.applyCredentials(next, { ...credentials });
   } catch (e) {
-    console.error(e);
+    // 文面に資格情報が入り得るので、提供元の id と例外の名前だけを残す
+    console.error(`weiwudi: applyCredentials of provider "${provider.id}" threw ${e instanceof Error ? e.name : typeof e}`);
     return url;
   }
   return next.origin === url.origin ? next : url;

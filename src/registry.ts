@@ -197,6 +197,8 @@ const conflictOf = (r: ResourceMeta, s: StoredSpec): string | undefined => {
     if ((r.encoding ?? encoding) !== encoding) return 'encoding';
     if ((r.scheme ?? 'xyz') !== (s.scheme ?? 'xyz')) return 'scheme';
   }
+  // 提供元が違えば合流しない（資格情報の足し方が Resource ごとに 1 つに決まらない。未指定どうしは一致。m3-t5）
+  if (r.provider !== s.provider) return 'provider';
   if (r.count > 0) {
     const have = new Set(r.policy.credentialParams.map((p) => p.toLowerCase()));
     if (s.policy.credentialParams.some((p) => !have.has(p.toLowerCase()))) return 'credentialParams';

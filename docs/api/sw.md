@@ -172,7 +172,18 @@ persisted.
 **Order.** Providers you add are tried first, in the order you added them.
 The built-in `mapbox` provider is tried last. The first provider whose
 `matches` returns `true` for the URL is used, so a provider you add can replace
-the built-in one for the same URLs. All mirrors of one source must match the
+the built-in one for the same URLs.
+
+**`id`.** Each `id` may be added only once: adding a different object with an
+`id` already added throws a `TypeError`. Adding a provider with the `id`
+`'mapbox'` replaces the built-in one (yours is tried first, and a resource with
+`provider: 'mapbox'` uses yours). If the service worker restarts and your
+script does not add it again, the built-in `mapbox` provider is used for those
+resources. Sources registered with different providers are never merged into
+one resource, even when their URLs resolve to the same template; this is
+reported as a `resource-conflict` warning.
+
+All mirrors of one source must match the
 same provider (or none): mixing them is `attribute-invalid`.
 
 ```js
@@ -198,7 +209,7 @@ type Credentials = { query?: Record<string, string>; headers?: Record<string, st
 interface WeiwudiProvider {
   id: string;                                         // stored on the resource
   matches(url: string): boolean;                      // its own scheme and its https URLs
-  resolve(url: string): string;                       // an https URL without credentials
+  resolve(url: string): string;                       // an https URL; adds no credentials (see below)
   applyCredentials(url: URL, c: Credentials): void;   // called just before the request goes upstream
   rewriteStyle?(style: unknown): unknown;             // its own scheme inside a style, to https
   validateCredentials?(c: Credentials): void;         // throw to reject the registration
@@ -208,9 +219,13 @@ interface WeiwudiProvider {
 
 - `resolve` runs when a source is registered. The URL it returns is checked
   like any other URL template, and becomes the source's `url` and the
-  resource's templates. Return `https` URLs unchanged. Throw a
-  `WeiwudiError` with the code `unsupported-template` for a form you cannot
-  resolve.
+  resource's templates. Return `https` URLs unchanged. Throw for a form you
+  cannot resolve; the registration fails with `unsupported-template` and a
+  fixed message (`cannot be resolved by the provider "<id>"`; your error's
+  message is not passed on).
+- `resolve` must not add new credentials. It may keep the query of its input.
+  Names listed in `credentialParams` are then removed by the registration check;
+  credentials under any other name stay in the URL.
 - `applyCredentials` changes `url` in place. Only the query is taken from it:
   header credentials are always added the generic way. If it throws, or changes
   the origin of `url`, no query credentials are added. The rules for credentials
@@ -218,8 +233,12 @@ interface WeiwudiProvider {
   origin of the request, and a request that got a header credential is sent
   with `redirect: 'error'`.
 - `validateCredentials` receives the credentials of the registration (the
-  `credentials` option and those moved out of the URL query). The generic check
-  for secret tokens (`sk.`) runs as well.
+  `credentials` option and those moved out of the URL query). If it throws, the
+  registration fails with `credential-rejected` and a fixed message (your
+  error's message is not passed on). The generic check for secret tokens (`sk.`)
+  runs as well.
+- When `applyCredentials` throws, only the provider `id` and the error's `name`
+  are logged with `console.error`.
 - `credentialParams` is added to the source's `credentialParams`.
 - `rewriteStyle` must return a new object and leave its input unchanged.
 
@@ -235,6 +254,10 @@ interface WeiwudiProvider {
 | `mapbox://fonts/{user}/{fontstack}/{range}.pbf` | `https://api.mapbox.com/fonts/v1/{user}/{fontstack}/{range}.pbf` |
 | `mapbox://tiles/{id}/{z}/{x}/{y}[@2x].{format}` | `https://api.mapbox.com/v4/{id}/{z}/{x}/{y}[@2x].{format}` |
 | `mapbox://{id}[,{id}…]` (a source `url`) | `https://api.mapbox.com/v4/{ids}.json?secure` |
+
+Tile URLs are copied as written: the `@2x` and `webp` substitutions that Mapbox
+GL JS makes are not applied. A sprite URL resolves to its base; the map library
+adds the format and extension.
 
 Register the access token as `credentials: { query: { access_token } }` (or in
 the URL query; it is moved out). A secret token (`sk.`) is rejected with

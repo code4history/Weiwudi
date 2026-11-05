@@ -288,23 +288,24 @@ const safeMatches = (p: WeiwudiProvider, url: string): boolean => {
 
 /**
  * 提供元の解決（m3-t5）。各 URL に最初に当たる提供元で resolve する。当たる提供元がミラーの間で違う
- * （当たるものと当たらないものが混ざるのも含む）なら attribute-invalid。resolve の失敗は unsupported-template（番号つき）
+ * （オブジェクトの同一性で比べる。当たるものと当たらないものが混ざるのも含む）なら attribute-invalid。
+ * resolve の失敗は、例外の種類を問わず固定の文面の unsupported-template（番号つき。利用者の提供元の文面を外へ出さない）
  */
 const resolveProviders = (urls: string[], providers: readonly WeiwudiProvider[] | undefined): { urls: string[]; provider?: WeiwudiProvider } => {
   if (!providers || providers.length === 0) return { urls };
   const hits = urls.map((u) => providers.find((p) => safeMatches(p, u)));
   const provider = hits[0];
-  if (hits.some((h) => (h?.id) !== (provider?.id))) throw invalid('url', 'must not mix URLs of different providers');
+  if (hits.some((h) => h !== provider)) throw invalid('url', 'must not mix URLs of different providers');
   if (!provider) return { urls };
+  const cannot = (i: number) => unsupportedTemplate(i, `cannot be resolved by the provider "${provider.id}"`);
   const resolved = urls.map((u, i) => {
     let out: unknown;
     try {
       out = provider.resolve(u);
-    } catch (e) {
-      if (e instanceof WeiwudiError && e.code !== 'unsupported-template') throw e;
-      throw unsupportedTemplate(i, e instanceof WeiwudiError ? e.message : 'cannot be resolved by the provider');
+    } catch (_e) {
+      throw cannot(i);
     }
-    if (typeof out !== 'string' || out === '') throw unsupportedTemplate(i, 'cannot be resolved by the provider');
+    if (typeof out !== 'string' || out === '') throw cannot(i);
     return out;
   });
   return { urls: resolved, provider };
@@ -449,7 +450,14 @@ export function normalizeMember(
     if (merged.size > 0) credentials.query = Object.fromEntries([...merged.values()]);
   }
   // 提供元としての資格情報の検査（汎用の検査と重なってもよい。不正なら credential-rejected）
-  if (provider?.validateCredentials) provider.validateCredentials(credentials ? { ...credentials } : {});
+  // 例外は種類を問わず固定の文面の credential-rejected へ包む（利用者の提供元の文面を外へ出さない）
+  if (provider?.validateCredentials) {
+    try {
+      provider.validateCredentials(credentials ? { ...credentials } : {});
+    } catch (_e) {
+      throw new WeiwudiError('credential-rejected', `Credentials are rejected by the provider "${provider.id}"`, { where: 'credentials' });
+    }
+  }
 
   const cacheTtl = own(common, 'cacheTtl');
   if (cacheTtl !== undefined && !isNonNegNumber(cacheTtl)) throw invalid('cacheTtl', 'must be a non-negative number');

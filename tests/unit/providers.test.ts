@@ -80,6 +80,18 @@ describe('登録表（plugins.ts）', () => {
     expect(getProviders()).toEqual([]);
   });
 
+  it('別のオブジェクトで id が同じなら TypeError（同じオブジェクトの 2 回目は無視のまま）', () => {
+    const a = provider('dup');
+    addProvider(a);
+    expect(() => addProvider(a)).not.toThrow();
+    expect(() => addProvider(provider('dup'))).toThrow(TypeError);
+    expect(getProviders()).toEqual([a]);
+  });
+
+  it('id が mapbox の利用者の提供元は登録できる（標準は登録表に無い）', () => {
+    expect(() => addProvider(provider('mapbox'))).not.toThrow();
+  });
+
   it('形の違う値は TypeError', () => {
     expect(() => addProvider(null as unknown as WeiwudiProvider)).toThrow(TypeError);
     expect(() => addProvider({ id: '' } as unknown as WeiwudiProvider)).toThrow(TypeError);
@@ -139,6 +151,45 @@ describe('normalizeSpec の providers（X8）', () => {
   it('解決できない mapbox:// は unsupported-template（番号つき）', () => {
     expect(() => normalizeSpec({ kind: 'raster', url: 'mapbox://tiles/u1.t1' }, [mapbox]))
       .toThrow(expect.objectContaining({ code: 'unsupported-template', detail: { index: 0 } }));
+  });
+
+  it('ミラーの間はオブジェクトの同一性で比べる（id が同じ別の提供元に当たれば attribute-invalid）', () => {
+    const p1 = provider('same', { matches: (u) => u.startsWith('https://one.example/') });
+    const p2 = provider('same', { matches: (u) => u.startsWith('https://two.example/') });
+    expect(() => normalizeSpec({ kind: 'raster', url: ['https://one.example/{z}/{x}/{y}.png', 'https://two.example/{z}/{x}/{y}.png'] }, [p1, p2]))
+      .toThrow(expect.objectContaining({ code: 'attribute-invalid' }));
+  });
+
+  it.each([
+    ['Error', () => new Error('SECRET_MSG pk.leak')],
+    ['別の code の WeiwudiError', () => new WeiwudiError('attribute-invalid', 'SECRET_MSG pk.leak', {})],
+    ['unsupported-template の WeiwudiError', () => new WeiwudiError('unsupported-template', 'SECRET_MSG pk.leak', {})],
+  ])('resolve の例外（%s）は固定の文面の unsupported-template', (_l, make) => {
+    const p = provider('rx', { matches: (u) => u.startsWith('rx://'), resolve: () => { throw make(); } });
+    expect.assertions(3);
+    try {
+      normalizeSpec({ kind: 'raster', url: 'rx://a/{z}/{x}/{y}' }, [p]);
+    } catch (e) {
+      expect((e as WeiwudiError).code).toBe('unsupported-template');
+      expect((e as Error).message).toBe('URL template #1: cannot be resolved by the provider "rx"');
+      expect(JSON.stringify((e as WeiwudiError).detail)).not.toContain('SECRET_MSG');
+    }
+  });
+
+  it.each([
+    ['Error', () => new Error('SECRET_MSG pk.leak')],
+    ['credential-rejected の WeiwudiError', () => new WeiwudiError('credential-rejected', 'SECRET_MSG pk.leak', { leak: 'SECRET_MSG' })],
+    ['別の code の WeiwudiError', () => new WeiwudiError('attribute-invalid', 'SECRET_MSG pk.leak', {})],
+  ])('validateCredentials の例外（%s）は固定の文面の credential-rejected', (_l, make) => {
+    const p = provider('vx', { matches: (u) => u.startsWith('https://vx.example/'), validateCredentials: () => { throw make(); } });
+    expect.assertions(3);
+    try {
+      normalizeSpec({ kind: 'raster', url: 'https://vx.example/{z}/{x}/{y}.png' }, [p]);
+    } catch (e) {
+      expect((e as WeiwudiError).code).toBe('credential-rejected');
+      expect((e as Error).message).toBe('Credentials are rejected by the provider "vx"');
+      expect(JSON.stringify((e as WeiwudiError).detail)).not.toContain('SECRET_MSG');
+    }
   });
 
   it('先に並んだ提供元が勝つ', () => {
@@ -269,6 +320,65 @@ describe('SW を通した利用者の提供元', () => {
     await h.flushRoutes();
     await h.dispatch('https://bad.example/3/1/2.png');
     expect((h.fetch.mock.calls[0][0] as Request).url).toBe('https://bad.example/3/1/2.png');
+  });
+
+  it('applyCredentials の例外は console.error に提供元の id と例外の名前だけを出す', async () => {
+    const h = createSwHarness();
+    const logged: unknown[][] = [];
+    vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => { logged.push(a); });
+    addProvider(provider('thrower', {
+      matches: (u) => u.startsWith('https://thr.example/'),
+      applyCredentials: () => { throw new RangeError(`SECRET_MSG ${TOKEN}`); },
+    }));
+    h.fetch.mockImplementation(async () => png());
+    await register(h, { kind: 'raster', id: 't', url: 'https://thr.example/{z}/{x}/{y}.png', credentials: { query: { k: 'KFAKE' } } });
+    await h.flushRoutes();
+    await h.dispatch('https://thr.example/3/1/2.png');
+    expect((h.fetch.mock.calls[0][0] as Request).url).toBe('https://thr.example/3/1/2.png');
+    const text = JSON.stringify(logged.map((a) => a.map(String)));
+    expect(text).toContain('thrower');
+    expect(text).toContain('RangeError');
+    expect(text).not.toContain('SECRET_MSG');
+    expect(text).not.toContain(TOKEN);
+  });
+
+  it('id が mapbox の利用者の提供元は標準の差し替えになり、再起動で未登録なら標準の mapbox を使う', async () => {
+    const h = createSwHarness();
+    addProvider(provider('mapbox', {
+      matches: (u) => u.startsWith('mapbox://') || u.startsWith('https://api.mapbox.com/'),
+      resolve: (u) => u.replace(/^mapbox:\/\/tiles\//, 'https://api.mapbox.com/v4/'),
+      applyCredentials: (url) => { url.searchParams.set('mine', '1'); },
+    }));
+    h.fetch.mockImplementation(async () => png());
+    const r = await register(h, { kind: 'raster', id: 'mb', url: MAPBOX_TILES, credentials: { query: { access_token: TOKEN } } });
+    expect(r.ok).toBe(true);
+    expect((await dump()).resources[0].provider).toBe('mapbox');
+    await h.flushRoutes();
+    await h.dispatch('https://api.mapbox.com/v4/u1.t1/3/1/2.png');
+    expect((h.fetch.mock.calls[0][0] as Request).url).toBe('https://api.mapbox.com/v4/u1.t1/3/1/2.png?mine=1');
+    _resetPluginsForTest();
+    await h.dispatch('https://api.mapbox.com/v4/u1.t1/3/1/3.png');
+    expect((h.fetch.mock.calls[1][0] as Request).url).toBe(`https://api.mapbox.com/v4/u1.t1/3/1/3.png?access_token=${TOKEN}`);
+  });
+
+  it('provider の違う Source は同じテンプレートでも合流させない（resource-conflict。資格情報は先の Source のもの）', async () => {
+    const h = createSwHarness();
+    h.fetch.mockImplementation(async () => png());
+    const a = await register(h, { kind: 'raster', id: 'A', url: MAPBOX_TILES, credentials: { query: { access_token: 'pk.A_FAKE' } } });
+    expect(a.ok).toBe(true);
+    addProvider(provider('mine', { matches: (u) => u.startsWith('https://api.mapbox.com/') }));
+    const b = await register(h, { kind: 'raster', id: 'B', url: HTTPS_TILES, credentials: { query: { access_token: 'pk.B_FAKE' } } });
+    expect(b.ok).toBe(true);
+    const rid = (await dump()).resources[0].id;
+    expect(b.result.warnings).toEqual([`resource-conflict: ${rid}`]);
+    const { resources } = await dump();
+    expect(resources).toHaveLength(1);
+    expect(resources[0].provider).toBe('mapbox');
+    expect(resources[0].sourceIds).toEqual(['A']);
+    expect(resources[0].rangeOnlySourceIds).toEqual(['B']);
+    await h.flushRoutes();
+    await h.dispatch('https://api.mapbox.com/v4/u1.t1/3/1/2.png');
+    expect((h.fetch.mock.calls[0][0] as Request).url).toBe('https://api.mapbox.com/v4/u1.t1/3/1/2.png?access_token=pk.A_FAKE');
   });
 
   it('登録表に無い provider の Resource は汎用の足し方（SW の再起動で利用者の提供元が未登録のとき）', async () => {

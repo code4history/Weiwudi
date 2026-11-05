@@ -2,8 +2,10 @@
 // 値の依存は errors だけ（仕様 §3）。WeiwudiProvider・Credentials は import type で使う。
 //
 // 決まり:
-// - 解決の表は計画 m3-t5 の表（BeatBox 0.1.1 の変換表を写し、Mapbox GL JS 3.27.0 の normalize*URL と突き合わせた）。
-//   TileJSON（ソースの url）には GL JS と同じく ?secure を付ける（F3）。資格情報は足さない
+// - 解決の表は計画 m3-t5 の表（BeatBox 0.1.1 の変換表を写した）。Mapbox GL JS 3.27.0 の normalize*URL との関係は次のとおり:
+//   styles・glyphs（fonts）・source（TileJSON。GL JS と同じく ?secure を付ける。F3）は一致する。
+//   sprite は基底の URL まで（GL JS はこの後ろに format と拡張子を付ける）。
+//   tiles は字句のまま写す（GL JS の @2x・webp への置き換え・raster の前置は扱わない）。資格情報は足さない
 // - パスの残りは字句のまま写す（{z}・{fontstack} などをそのまま通す）。クエリは解決した URL の後ろへそのまま残す
 // - 資格情報の足し方は自前で組まない。配線が upstream の関数を createMapboxProvider に渡す
 // - 解決できない mapbox:// は unsupported-template。文面に URL を入れない

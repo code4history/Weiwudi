@@ -39,7 +39,10 @@ export interface WeiwudiProvider {
   id: string;
   /** 独自スキームと、その提供元の https の URL の両方に当たる */
   matches(url: string): boolean;
-  /** 資格情報を足さない https の URL（https はそのまま返す） */
+  /**
+   * https の URL（https はそのまま返す）。資格情報を新たに足さない。入力のクエリは残してよい。
+   * credentialParams に挙げた名前は登録の検査が取り除く。それ以外の名前の資格情報は残る
+   */
   resolve(url: string): string;
   /** 上流へ出す直前にだけ呼ぶ。url を直に書き換える（オリジンを替えた結果は使わない） */
   applyCredentials(url: URL, c: Credentials): void;
@@ -73,7 +76,7 @@ export function getPlugins(): readonly WeiwudiPlugin[] {
 }
 
 /**
- * 提供元を登録する。SW スクリプトの先頭で呼ぶ前提で、永続化しない。同じオブジェクトの 2 回目は無視する。
+ * 提供元を登録する。SW スクリプトの先頭で呼ぶ前提で、永続化しない。同じオブジェクトの 2 回目は無視し、別のオブジェクトで id が同じなら TypeError。
  * object でない値・id が空・matches・resolve・applyCredentials が関数でない値は TypeError
  */
 export function addProvider(provider: WeiwudiProvider): void {
@@ -86,6 +89,11 @@ export function addProvider(provider: WeiwudiProvider): void {
     throw new TypeError('addProvider: provider needs id, matches, resolve and applyCredentials');
   }
   if (providers.indexOf(provider) >= 0) return;
+  // id は登録表の中で一意（Resource の provider から 1 つに引くため）。標準の 'mapbox' は登録表に無いので、
+  // 同じ id の利用者の提供元は標準の差し替えになる（評価が先なので find でも先に当たる）
+  if (providers.some((p) => p.id === provider.id)) {
+    throw new TypeError('addProvider: another provider with the same id is already added');
+  }
   providers.push(provider);
 }
 

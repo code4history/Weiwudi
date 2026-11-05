@@ -101,9 +101,11 @@ describe('解決できない mapbox:// は unsupported-template', () => {
   });
 
   it('文面に URL を入れない', () => {
+    expect.assertions(2);
     try {
       mapbox.resolve('mapbox://styles/secretuser');
     } catch (e) {
+      expect((e as WeiwudiError).code).toBe('unsupported-template');
       expect((e as Error).message).not.toContain('secretuser');
     }
   });

@@ -545,7 +545,8 @@ export class WeiwudiError extends Error {
 export interface WeiwudiProvider {
   id: string;
   matches(url: string): boolean;
-  resolve(url: string): string;                       // 資格情報を含まない https URL
+  resolve(url: string): string;                       // https URL。資格情報を新たに足さない。入力のクエリは残してよい
+                                                      // （credentialParams に挙げた名前は登録の検査が取り除く。それ以外の名前の資格情報は残る）
   applyCredentials(url: URL, c: Credentials): void;   // 上流へ出す直前にだけ呼ぶ
   rewriteStyle?(style: unknown): unknown;             // スタイル中の独自スキームを https へ
   validateCredentials?(c: Credentials): void;         // 不正なら credential-rejected

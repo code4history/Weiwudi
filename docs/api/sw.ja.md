@@ -153,6 +153,12 @@ URL の提供元を登録します。提供元は、自分の独自スキーム�
 
 **評価の順。** 利用者が足した提供元を先に、足した順に試します。標準の `mapbox` は最後です。URL に対して
 `matches` が最初に `true` を返した提供元を使うので、利用者の提供元で、同じ URL の標準の提供元を差し替えられます。
+
+**`id`。** 同じ `id` は 1 度だけ登録できます。すでに登録した `id` を別のオブジェクトで登録すると `TypeError` です。
+`id` が `'mapbox'` の提供元を登録すると、標準のものの差し替えになります（利用者のものを先に試し、`provider: 'mapbox'`
+の Resource も利用者のものを使います）。サービスワーカーが起動し直し、スクリプトがそれを登録し直さなかったときは、
+その Resource には標準の `mapbox` を使います。提供元の違う Source は、URL が同じテンプレートに解決しても
+1 つの Resource へ合流させません（`resource-conflict` の警告になります）。
 1 つの Source のミラーは、すべて同じ提供元に当たる（またはすべて当たらない）必要があります。混ざると
 `attribute-invalid` です。
 
@@ -179,7 +185,7 @@ type Credentials = { query?: Record<string, string>; headers?: Record<string, st
 interface WeiwudiProvider {
   id: string;                                         // Resource に保存する
   matches(url: string): boolean;                      // 独自スキームと、その提供元の https の URL
-  resolve(url: string): string;                       // 資格情報を含まない https の URL
+  resolve(url: string): string;                       // https の URL。資格情報を新たに足さない（下の注）
   applyCredentials(url: URL, c: Credentials): void;   // 上流へ出す直前にだけ呼ぶ
   rewriteStyle?(style: unknown): unknown;             // スタイルの中の独自スキームを https へ
   validateCredentials?(c: Credentials): void;         // 投げると登録を拒否する
@@ -189,13 +195,18 @@ interface WeiwudiProvider {
 
 - `resolve` は Source の登録の時点で呼びます。返した URL はほかの URL テンプレートと同じく検査し、Source の
   `url` と Resource のテンプレートになります。`https` の URL はそのまま返してください。解決できない形には
-  コード `unsupported-template` の `WeiwudiError` を投げてください。
+  例外を投げてください。登録は `unsupported-template` で失敗し、文面は固定です
+  （`cannot be resolved by the provider "<id>"`。投げた例外の文面は外へ出しません）。
+- `resolve` は資格情報を新たに足さないでください。入力のクエリは残してかまいません。`credentialParams` に
+  挙げた名前は登録の検査が取り除きます。それ以外の名前の資格情報は URL に残ります。
 - `applyCredentials` は `url` を直に書き換えます。使うのはクエリだけで、ヘッダの資格情報は常に汎用の方法で
   足します。投げたとき、または `url` のオリジンを替えたときは、クエリの資格情報を足しません。資格情報の規則は
   そのまま当たります: 差し込み口の `requestWillFetch` が要求のオリジンを替えたときは何も足さず、ヘッダの
   資格情報を足した要求は `redirect: 'error'` で出します。
 - `validateCredentials` は登録の資格情報（`credentials` の指定と、URL のクエリから移したもの）を受け取ります。
+  投げると登録は `credential-rejected` で失敗し、文面は固定です（投げた例外の文面は外へ出しません）。
   秘密トークン（`sk.`）の汎用の検査も行います。
+- `applyCredentials` が投げたとき、`console.error` に出すのは提供元の `id` と例外の `name` だけです。
 - `credentialParams` は Source の `credentialParams` に足します。
 - `rewriteStyle` は新しい object を返し、入力を書き換えないでください。
 
@@ -211,6 +222,9 @@ interface WeiwudiProvider {
 | `mapbox://fonts/{user}/{fontstack}/{range}.pbf` | `https://api.mapbox.com/fonts/v1/{user}/{fontstack}/{range}.pbf` |
 | `mapbox://tiles/{id}/{z}/{x}/{y}[@2x].{format}` | `https://api.mapbox.com/v4/{id}/{z}/{x}/{y}[@2x].{format}` |
 | `mapbox://{id}[,{id}…]`（ソースの `url`） | `https://api.mapbox.com/v4/{ids}.json?secure` |
+
+タイルの URL は字句のまま写します（Mapbox GL JS が行う `@2x`・`webp` への置き換えは行いません）。スプライトは
+基底の URL へ解決し、形式と拡張子は地図ライブラリが付けます。
 
 アクセストークンは `credentials: { query: { access_token } }` で登録してください（URL のクエリに書いても
 移します）。秘密トークン（`sk.`）は `credential-rejected` で拒否します。オフライン保存の可否を含め、
