@@ -399,6 +399,8 @@ export const apply = async (
     const encoding = encodingOf(s);
     if (encoding !== undefined) base.encoding = encoding;
     if (isTileSpec(s)) base.scheme = s.scheme ?? 'xyz';
+    // 提供元は作るときだけ写す。合流では先の値を変えない（m3-t5）
+    if (s.provider !== undefined) base.provider = s.provider;
     await store.createResource(recompose(base, recs));
   } else if (plan.join) {
     await store.patchResource(plan.join.resourceId, (m) => {

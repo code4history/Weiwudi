@@ -163,6 +163,12 @@ console.log(source.warnings, await source.stats());
 - サービスワーカーが `credentials` を足すのはページの要求と同じオリジンの要求だけで、ヘッダの資格情報を足した要求は
   `redirect: 'error'` で出します。秘密トークン（クエリの `sk.`・`sk.eyJ…` のパスの区画）は拒否し、同じ資格情報の項目に
   違う値を持つミラーは `attribute-invalid` で拒否します。
+- `mapbox://` の URL は標準で `https://api.mapbox.com/…` へ解決します（アクセストークンは
+  `credentials: { query: { access_token } }` で渡します）。オフライン保存の可否を含め、提供元の利用規約の確認は
+  利用者の責任です。**第三者のスタイルの中の `mapbox://` は対象外です**。解決するのは、利用者が `mapbox://` か
+  Mapbox の `https` の URL で登録したスタイルの中だけです（第三者のスタイルへ利用者の Mapbox のトークンを使わせません）。
+  ほかの提供元は、サービスワーカーで `addProvider` を使って足せます
+  （[サービスワーカーの API](docs/api/sw.ja.md#addproviderprovider-weiwudiprovider-void)）。
 - 失敗は `WeiwudiError`（`sw-not-controlling`・`sw-outdated`・`source-not-found` など）で reject します。
   既存の資源と合流できない資源があっても `register()` は失敗せず、`source.warnings` に書きます。
 - サービスワーカーでは **Weiwudi の import を先に書き**（`import '@c4h/weiwudi/sw'` か `importScripts` の行）、

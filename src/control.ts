@@ -153,7 +153,8 @@ export function createControl(ctx: Context): Control {
   };
 
   const register = (body: unknown) => serial(async () => {
-    const spec = normalizeSpec(body);
+    // 提供元の評価の順（利用者が先・標準の mapbox が後）で解決してから検査する（m3-t5・X8）
+    const spec = normalizeSpec(body, ctx.providers());
     const store = await ctx.store();
     const r = await applyRegister(store, spec);
     const ids = (await resourcesOf(store, r.source.id)).map((m) => m.id);

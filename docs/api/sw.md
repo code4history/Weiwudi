@@ -9,17 +9,21 @@ side-effect import keeps working as before:
 import '@c4h/weiwudi/sw';
 ```
 
-It also has named exports for hooking into tile fetching and caching.
+It also has named exports for hooking into tile fetching and caching, and for
+adding URL providers.
 
 | Export | Kind |
 |---|---|
 | `addPlugin(plugin)` | function |
+| `addProvider(provider)` | function |
 | `WeiwudiPlugin` | type |
+| `WeiwudiProvider` | type |
+| `Credentials` | type |
 | `ResourceInfo` | type |
 | `ResourceType` | type |
 
 With the UMD build (`weiwudi-sw.umd.js` loaded by `importScripts`), the same
-function is `self.Weiwudi_SW.addPlugin`.
+functions are `self.Weiwudi_SW.addPlugin` and `self.Weiwudi_SW.addProvider`.
 
 ## `addPlugin(plugin: WeiwudiPlugin): void`
 
@@ -147,3 +151,93 @@ interface ResourceInfo {
 
 `ResourceType` and the fields of `ResourceInfo` may gain values in a minor
 release. Put a `default` branch in a `switch` over `type`.
+
+## `addProvider(provider: WeiwudiProvider): void`
+
+Registers a URL provider. A provider turns its own URL scheme (such as
+`mapbox://`) into `https` URLs when a source is registered, and adds the
+registered credentials just before a request goes upstream. Call it at the top
+of the service worker script, like `addPlugin`. The registration is not
+persisted.
+
+- Adding the same object twice has no effect (the second call is ignored).
+- A value that is not an object, or that lacks `id`, `matches`, `resolve` or
+  `applyCredentials`, throws a `TypeError`.
+- It applies to sources registered after it returns. A source keeps the
+  provider `id` it was registered with. If no provider with that `id` is
+  registered when a request is handled (for example, after the service worker
+  restarted and the script did not call `addProvider`), credentials are added
+  the generic way.
+
+**Order.** Providers you add are tried first, in the order you added them.
+The built-in `mapbox` provider is tried last. The first provider whose
+`matches` returns `true` for the URL is used, so a provider you add can replace
+the built-in one for the same URLs. All mirrors of one source must match the
+same provider (or none): mixing them is `attribute-invalid`.
+
+```js
+import { addProvider } from '@c4h/weiwudi/sw';
+
+addProvider({
+  id: 'example',
+  matches: (url) => url.startsWith('example://') || url.startsWith('https://tiles.example.com/'),
+  resolve: (url) => url.replace(/^example:\/\//, 'https://tiles.example.com/'),
+  applyCredentials: (url, c) => {
+    const key = c.query?.key;
+    if (key !== undefined && !url.searchParams.has('key')) url.searchParams.set('key', key);
+  },
+  credentialParams: ['key'],
+});
+```
+
+## `WeiwudiProvider`
+
+```ts
+type Credentials = { query?: Record<string, string>; headers?: Record<string, string> };
+
+interface WeiwudiProvider {
+  id: string;                                         // stored on the resource
+  matches(url: string): boolean;                      // its own scheme and its https URLs
+  resolve(url: string): string;                       // an https URL without credentials
+  applyCredentials(url: URL, c: Credentials): void;   // called just before the request goes upstream
+  rewriteStyle?(style: unknown): unknown;             // its own scheme inside a style, to https
+  validateCredentials?(c: Credentials): void;         // throw to reject the registration
+  credentialParams?: string[];                        // query names treated as credentials
+}
+```
+
+- `resolve` runs when a source is registered. The URL it returns is checked
+  like any other URL template, and becomes the source's `url` and the
+  resource's templates. Return `https` URLs unchanged. Throw a
+  `WeiwudiError` with the code `unsupported-template` for a form you cannot
+  resolve.
+- `applyCredentials` changes `url` in place. Only the query is taken from it:
+  header credentials are always added the generic way. If it throws, or changes
+  the origin of `url`, no query credentials are added. The rules for credentials
+  still apply: nothing is added when a plugin's `requestWillFetch` changed the
+  origin of the request, and a request that got a header credential is sent
+  with `redirect: 'error'`.
+- `validateCredentials` receives the credentials of the registration (the
+  `credentials` option and those moved out of the URL query). The generic check
+  for secret tokens (`sk.`) runs as well.
+- `credentialParams` is added to the source's `credentialParams`.
+- `rewriteStyle` must return a new object and leave its input unchanged.
+
+### The built-in `mapbox` provider
+
+`mapbox://` URLs are resolved without any setup. It matches `mapbox://` URLs and
+`https` URLs on `api.mapbox.com` and `*.tiles.mapbox.com`.
+
+| Registered URL | Resolved to |
+|---|---|
+| `mapbox://styles/{user}/{style}` (also `…/draft`) | `https://api.mapbox.com/styles/v1/{user}/{style}` |
+| `mapbox://sprites/{user}/{style}` (also `…/{hash}`) | `https://api.mapbox.com/styles/v1/{user}/{style}/sprite` |
+| `mapbox://fonts/{user}/{fontstack}/{range}.pbf` | `https://api.mapbox.com/fonts/v1/{user}/{fontstack}/{range}.pbf` |
+| `mapbox://tiles/{id}/{z}/{x}/{y}[@2x].{format}` | `https://api.mapbox.com/v4/{id}/{z}/{x}/{y}[@2x].{format}` |
+| `mapbox://{id}[,{id}…]` (a source `url`) | `https://api.mapbox.com/v4/{ids}.json?secure` |
+
+Register the access token as `credentials: { query: { access_token } }` (or in
+the URL query; it is moved out). A secret token (`sk.`) is rejected with
+`credential-rejected`. Checking the provider's terms of service, including
+whether offline storage is allowed, is your responsibility.
+

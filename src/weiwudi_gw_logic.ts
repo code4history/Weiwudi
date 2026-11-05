@@ -9,6 +9,9 @@ import { createControl } from './control';
 import { handleLegacy } from './legacy';
 import { installHook } from './hook';
 import { credentialSourceFor } from './registry';
+import { getProviders } from './plugins';
+import { createMapboxProvider } from './providers/mapbox';
+import { appendQueryCredentials } from './upstream';
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -16,7 +19,9 @@ declare const self: ServiceWorkerGlobalScope;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function Weiwudi_Internal(registerRoute: (capture: RegExp | RouteMatchCallback, handler: RouteHandlerCallback, method?: any) => unknown) {
   "use strict";
-  const ctx = createContext();
+  // 提供元は利用者のもの（addProvider の登録順）を先に、標準の mapbox を後に評価する（m3-t5・R13）
+  const mapbox = createMapboxProvider(appendQueryCredentials);
+  const ctx = createContext({ providers: () => [...getProviders(), mapbox] });
 
   // 初回ナビゲーションをリロードせずに SW の制御下へ置くため、install で skipWaiting・
   // activate で clients.claim を実行する（#30）

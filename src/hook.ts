@@ -12,11 +12,13 @@
 // - 規則の順: 固定値のクエリ項目が多いもの → 座標のクエリ項目が多いもの → 早く登録された Source の Resource →
 //   Resource の id → テンプレートの順（Ruling）。同じ要求に当たる別の照合の形は warnings に出す
 // - 資格情報は、要求のオリジンをテンプレートに持つ Source だけから credentialSourceFor で選ぶ（別ホストへ送らない。I2）
+// - Resource の provider の提供元を ctx.providers() から引いて upstream へ渡す（m3-t5）
 import type { RouteHandlerCallback, RouteHandlerCallbackOptions, RouteMatchCallback } from 'workbox-core';
 import type { Context, CredentialSourcePicker, LoadedTable, TableState } from './context';
 import { passThrough, serve } from './core';
 import { createUpstream, hasCredentials, isAuthenticated, isStorable } from './upstream';
 import type { Credentials, ResourceMeta, ResourceType } from './store';
+import type { WeiwudiProvider } from './plugins';
 import { isLegacyRecord, templatesOf } from './store';
 import { LEGACY_PREFIX, PSEUDO_HOST } from './constants';
 import { MatchTable, compileTemplate, entryKey, type CompiledTemplate, type MatchResult, type MatchRule } from './url_pattern';
@@ -217,6 +219,10 @@ const credentialsFor = async (ctx: Context, loaded: LoadedTable | undefined, res
   return hasCredentials(c) ? c : undefined;
 };
 
+/** Resource の provider の提供元（評価の順で最初に id が同じもの）。登録表に無ければ undefined（汎用の足し方。m3-t5） */
+const providerOf = (ctx: Context, resource: ResourceMeta): WeiwudiProvider | undefined =>
+  resource.provider === undefined ? undefined : ctx.providers().find((p) => p.id === resource.provider);
+
 /** 照合した要求を配信する。store の失敗などで配信できなければ素通し（要求を止めない） */
 const serveHit = async (ctx: Context, request: Request, url: URL, hit: TableHit, loaded: LoadedTable | undefined): Promise<Response> => {
   // Range つきは serve に入れない（範囲外の判定より前。仕様 §11）
@@ -244,7 +250,7 @@ const serveHit = async (ctx: Context, request: Request, url: URL, hit: TableHit,
     ...(resource.type === 'glyph' && m.range !== undefined ? { part: m.range } : {}),
     request,
     storable: isStorable(request, resource.policy),
-    upstream: createUpstream(ctx, { resourceId: resource.id, original: request, credentials, now }),
+    upstream: createUpstream(ctx, { resourceId: resource.id, original: request, credentials, provider: providerOf(ctx, resource), now }),
   };
   try {
     return await serve(ctx, input, now);

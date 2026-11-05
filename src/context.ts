@@ -4,6 +4,7 @@
 import { openStore, type ResourceMeta, type SourceRecord, type Store } from './store';
 import type { TileFailure } from './errors';
 import type { MatchTable } from './url_pattern';
+import type { WeiwudiProvider } from './plugins';
 
 /** 動いているジョブ（1 度に 1 つ。現行の fetchAllBlocker。仕様 §7.2） */
 export interface JobState {
@@ -66,10 +67,25 @@ export interface Context {
   table: TableState;
   /** Resource の id → CORS 非対応の候補の連続数（仕様 §4.5-3。メモリだけ・保存しない） */
   corslessStreak: Map<string, number>;
+  /**
+   * 提供元の一覧（評価の順。利用者の提供元が先、標準の mapbox が後。m3-t5・R13）。呼ぶたびに今の登録表から作る。
+   * 配線（weiwudi_gw_logic）が渡す。渡さなければ空
+   */
+  providers(): readonly WeiwudiProvider[];
 }
 
-/** open は試験の差し替え用。既定は store.openStore */
-export function createContext(open: () => Promise<Store> = openStore): Context {
+export interface ContextOptions {
+  /** 試験の差し替え用。既定は store.openStore */
+  open?: () => Promise<Store>;
+  /** 提供元の一覧を返す関数（既定は空） */
+  providers?: () => readonly WeiwudiProvider[];
+}
+
+/** 引数は open の関数（試験の差し替え用）か ContextOptions */
+export function createContext(options: ContextOptions | (() => Promise<Store>) = {}): Context {
+  const opts: ContextOptions = typeof options === 'function' ? { open: options } : options;
+  const open = opts.open ?? openStore;
+  const providers = opts.providers ?? (() => []);
   let opening: Promise<Store> | undefined;
   return {
     store: () => {
@@ -86,5 +102,6 @@ export function createContext(open: () => Promise<Store> = openStore): Context {
     inflight: new Map(),
     table: { generation: 0, failures: 0, retryAt: 0 },
     corslessStreak: new Map(),
+    providers: () => providers(),
   };
 }

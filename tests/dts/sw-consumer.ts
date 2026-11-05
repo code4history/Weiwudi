@@ -1,7 +1,9 @@
 // 配布の dist/weiwudi_gw.d.ts（@c4h/weiwudi/sw の型）を利用者の立場で使う（m2-t4・第 2 回 D3）。
 // `node_modules/.bin/tsc -p tests/dts/tsconfig.json` で型検査する（build の後）。
 // 名前があるだけでは通らない: 形が違えば代入や Equals の検査で型エラーになる。
-import { addPlugin, type ResourceInfo, type ResourceType, type WeiwudiPlugin } from '../../dist/weiwudi_gw';
+import {
+  addPlugin, addProvider, type Credentials, type ResourceInfo, type ResourceType, type WeiwudiPlugin, type WeiwudiProvider,
+} from '../../dist/weiwudi_gw';
 
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
 const assertType = <T extends true>(_v?: T): void => undefined;
@@ -77,3 +79,40 @@ assertType<Equals<ReturnType<FDF>, Promise<void>>>();
 // @ts-expect-error 知らないフックの名前は書けない（余分な項目）
 const wrong: WeiwudiPlugin = { resourceWillRegister: async () => undefined };
 void wrong;
+
+// ---- 提供元（m3-t5・#40・仕様 §10） ----
+
+// addProvider は WeiwudiProvider を受けて void
+assertType<Equals<typeof addProvider, (provider: WeiwudiProvider) => void>>();
+assertType<Equals<Credentials, { query?: Record<string, string>; headers?: Record<string, string> }>>();
+
+// 必須の 4 項目と省略可の 3 項目を実装する値
+const myProvider: WeiwudiProvider = {
+  id: 'example',
+  matches: (url: string) => url.startsWith('example://'),
+  resolve: (url: string) => url.replace(/^example:\/\//, 'https://tiles.example.com/'),
+  applyCredentials: (url: URL, c: Credentials) => {
+    const key = c.query?.key;
+    if (key !== undefined && !url.searchParams.has('key')) url.searchParams.set('key', key);
+  },
+  rewriteStyle: (style: unknown) => style,
+  validateCredentials: (c: Credentials) => {
+    void c;
+  },
+  credentialParams: ['key'],
+};
+addProvider(myProvider);
+
+// 省略可の項目を持たない値
+const minimal: WeiwudiProvider = {
+  id: 'min', matches: () => false, resolve: (u) => u, applyCredentials: () => undefined,
+};
+addProvider(minimal);
+
+type AC = WeiwudiProvider['applyCredentials'];
+assertType<Equals<Parameters<AC>, [url: URL, c: Credentials]>>();
+assertType<Equals<ReturnType<WeiwudiProvider['resolve']>, string>>();
+
+// @ts-expect-error id は必須
+const noId: WeiwudiProvider = { matches: () => false, resolve: (u: string) => u, applyCredentials: () => undefined };
+void noId;
