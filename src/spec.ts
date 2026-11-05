@@ -223,10 +223,13 @@ const parseCredentialParams = (v: unknown, explicitNames: readonly string[], fro
 
 /**
  * 型ごとの字句の許可（m3-t2）。tile は TILE_TOKENS で座標が要る。glyph は {fontstack}・{range} の両方が要る。
- * sprite の内部の字句 {spriteSuffix} は m3-t6 で足す（登録の入力では受けない）。style・tilejson・data は字句なし
+ * sprite は内部の字句 {spriteSuffix} を受ける（m3-t6・R6。スタイルの子だけが sprite になり、利用者の登録は tile なので受けない）。
+ * style・tilejson・data は字句なし
  */
 const checkTokens = (type: ResourceType, compiled: ReturnType<typeof compileTemplate>, index: number): void => {
-  const allowed: readonly TokenName[] = type === 'tile' ? TILE_TOKENS : type === 'glyph' ? ['fontstack', 'range'] : [];
+  const allowed: readonly TokenName[] = type === 'tile' ? TILE_TOKENS
+    : type === 'glyph' ? ['fontstack', 'range']
+      : type === 'sprite' ? ['spriteSuffix'] : [];
   for (const tok of compiled.tokens) {
     if (allowed.indexOf(tok) >= 0) continue;
     throw unsupportedTemplate(index, type === 'tile' ? `{${tok}} is not a tile token` : `{${tok}} is not allowed in a ${type} URL`);
