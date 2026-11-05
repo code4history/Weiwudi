@@ -103,3 +103,18 @@ Ruling: 第 2 回の反映で事前点検を合格とし、再点検は置かな
 
 - 単体試験 1075 passed・typecheck・build 0・e2e 35 passed
 - 運用の記録: e2e は build してから走らせる。public/weiwudi-sw.js は build で作られ、commit されている版は古い。build しないと 18 件落ちる（分岐点でも同じ）
+
+## m3-t5 提供元の登録表と標準の mapbox://（#40）
+
+- PR: https://github.com/code4history/Weiwudi/pull/89 （合流 8227414）
+- 実測（t5 の枝 55f198c）: 単体試験 1165 passed・typecheck・build・eslint 0・e2e 35 passed・check-dts と tests/dts の tsc 0・CI 全緑
+- C-O3（mapbox:// の解決の形）: mapbox-gl 3.27.0 の normalizeStyleURL などの解決の形（配布物の 55811〜55870 行）と照らした。styles・glyphs・source は一致、sprite は基底の URL まで、tiles は字句のまま
+- F3（BeatBox との違い）: `?secure` を付けない・token を URL に入れない（applyCredentials で上流へ出す直前に足す）・`mapbox://a.b` と `tiles/{id}`・draft と 3 区画の sprite を扱う
+- L1（Claude）: 合流可。Minor 3（resolve の契約の文言・利用者の提供元の例外の文面・ミラーの提供元の比較）
+- L2（Codex・約 22 分で最終報告）: 合流不可・必須 3。いずれも直した（55f198c）
+  - 提供元の違う Source が 1 つの Resource にまとまる → conflictOf に provider を足し resource-conflict にした
+  - 提供元の id の重複 → addProvider で TypeError。id 'mapbox' は標準の差し替え（文書に記載）
+  - mapbox.ts の頭の注記が一致の範囲を言い過ぎ → 限定に書き直した
+- 対照: 直しの各項目を外すと試験が落ちることを実装担当が確かめた（文書だけの直しを除く）
+- Rulings（orchestrator）: L2 の必須 3 件は直してから合流。再点検は対照の実測で足りるとし、L2 は回し直さない
+- 申し送り（t7）: tiles の @2x・webp・raster の前置、secure の付く位置、スタイルの imports
