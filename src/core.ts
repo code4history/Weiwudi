@@ -13,7 +13,7 @@
 // - 保存に失敗しても配信は続け、x-weiwudi-error に quota か storage を付ける（#22）
 // - store の読み出しの失敗（接続・Resource・Entry）は reject で返す（呼び出し側が旧 API の文面などへ直す）
 import type { Context } from './context';
-import { isChildRecord, storedSpecOf, styleSpecOf, toResourceInfo, type EntryMeta, type EvictionScope, type ResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
+import { isChildRecord, storedSpecOf, styleSpecOf, toResourceInfo, type EntryBody, type EntryMeta, type EvictionScope, type ResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
 import { getPlugins, type WeiwudiPlugin } from './plugins';
 import { isInTileBox, scaleTileBox } from './tile_math';
 import { WeiwudiError, type TileFailure } from './errors';
@@ -46,6 +46,11 @@ export interface ServeInput {
   storable: boolean;
   /** style・tilejson は 200 の text/html を失敗にしない */
   isStyleLike?: boolean;
+  /**
+   * グリフの範囲（'0-255' など。仕様 §11）。あれば key（fontstack まで）のレコードの中の、この範囲の部分を Entry として扱う。
+   * 鮮度と削除期限は部分の fetchedAt で見て、保存は store.putGlyphPart で部分を足す
+   */
+  part?: string;
 }
 
 /** x-weiwudi-status の値（公開の契約。仕様 §6） */
@@ -300,12 +305,14 @@ export function serve(ctx: Context, input: ServeInput, now: () => number): Promi
   const plugins = getPlugins();
   // 認証付き（保存しない）要求はまとめない。匿名の要求と応答を共有しない（PR #75 L1 M1）
   if (!input.storable) return serveOnce(ctx, input, now(), plugins);
-  const shared = ctx.inflight.get(input.key);
+  // グリフは範囲ごとにまとめる（同じ fontstack の別の範囲を 1 本にしない。仕様 §11）
+  const flightKey = input.part === undefined ? input.key : `${input.key}\0${input.part}`;
+  const shared = ctx.inflight.get(flightKey);
   if (shared) return shared.then((r) => r.clone());
   const p = serveOnce(ctx, input, now(), plugins);
-  ctx.inflight.set(input.key, p);
+  ctx.inflight.set(flightKey, p);
   const done = () => {
-    if (ctx.inflight.get(input.key) === p) ctx.inflight.delete(input.key);
+    if (ctx.inflight.get(flightKey) === p) ctx.inflight.delete(flightKey);
   };
   p.then(done, done);
   return p.then((r) => r.clone());
@@ -338,6 +345,21 @@ interface LiveEntry {
   headers: Record<string, string>;
 }
 
+/**
+ * 保存済みのレコードを配信の Entry として見る。グリフの範囲（part）があれば、その範囲の部分だけを Entry とし
+ * （無ければ Entry 無し）、fetchedAt は部分の値・本体は blob.slice（仕様 §11）
+ */
+const liveEntryOf = (meta: EntryMeta, body: EntryBody, part: string | undefined): LiveEntry | undefined => {
+  if (part === undefined) return { meta, blob: body.blob, headers: body.headers };
+  const p = body.parts?.[part];
+  if (!p) return undefined;
+  return {
+    meta: { ...meta, fetchedAt: p.fetchedAt, size: p.length },
+    blob: body.blob.slice(p.offset, p.offset + p.length),
+    headers: body.headers,
+  };
+};
+
 const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: readonly WeiwudiPlugin[]): Promise<Response> => {
   const store = await ctx.store();
   const resource = await store.getResource(input.resourceId);
@@ -359,9 +381,10 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
   if (resource) {
     const got = await store.getEntry(input.key);
     if (got) savedPinned = got.meta.pinned;
+    const live = got && liveEntryOf(got.meta, got.body, input.part);
     const retention = resource.policy.cacheRetention;
-    if (got && !(retention !== undefined && got.meta.pinned !== 1 && t - got.meta.fetchedAt > retention)) {
-      entry = { meta: got.meta, blob: got.body.blob, headers: got.body.headers };
+    if (live && !(retention !== undefined && live.meta.pinned !== 1 && t - live.meta.fetchedAt > retention)) {
+      entry = live;
     }
   }
 
@@ -469,7 +492,8 @@ const save = async (
   // 退避の範囲の読み出しの失敗は reject で返す（store の読み出しは R3）。書き込みの失敗だけを種類に直す
   const evict = await evictScopesFor(store, resource);
   try {
-    await store.putEntry(meta, { key: input.key, blob, headers }, evict);
+    if (input.part === undefined) await store.putEntry(meta, { key: input.key, blob, headers }, evict);
+    else await store.putGlyphPart(meta, input.part, blob, headers, evict);
     return undefined;
   } catch (err) {
     return WeiwudiError.from(err).code === 'quota' ? 'quota' : 'storage';

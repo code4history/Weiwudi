@@ -852,3 +852,28 @@ describe('退避の範囲: 子 Source は親ごとに 1 要素（m3-t2）', () =
     expect(await store.hasEntries([`${OTHER}\u00000_0_0`, k('0_0_1'), k('1_0_0')])).toEqual([false, true, true]);
   });
 });
+
+describe('グリフの範囲（m3-t4・仕様 §11）', () => {
+  it('part の無い要求は putEntry、part のある要求は putGlyphPart で保存する', async () => {
+    const entrySpy = vi.spyOn(store, 'putEntry');
+    const glyphSpy = vi.spyOn(store, 'putGlyphPart');
+    await run();
+    expect(entrySpy).toHaveBeenCalledTimes(1);
+    expect(glyphSpy).not.toHaveBeenCalled();
+    await run({ key: k('glyph'), coord: undefined, part: '0-255' });
+    expect(entrySpy).toHaveBeenCalledTimes(1);
+    expect(glyphSpy).toHaveBeenCalledTimes(1);
+    expect(glyphSpy.mock.calls[0][1]).toBe('0-255');
+  });
+
+  it('parts を持たないレコードに part の要求が来たら Entry 無しとして扱い、部分の索引を持つレコードに作り直す', async () => {
+    await seed('glyph', { size: 5 });
+    const up = vi.fn<Up>(async () => ok(3));
+    const res = await run({ key: k('glyph'), coord: undefined, part: '0-255', upstream: up });
+    expect(res.headers.get('x-weiwudi-status')).toBe('miss');
+    expect(up.mock.calls[0][1].hasEntry).toBe(false);
+    const got = await store.getEntry(k('glyph'));
+    expect(got!.body.parts).toEqual({ '0-255': { offset: 0, length: 3, fetchedAt: T } });
+    expect(await store.getResource(RID)).toMatchObject({ count: 1, bytes: 3 });
+  });
+});

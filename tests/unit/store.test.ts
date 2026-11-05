@@ -675,3 +675,70 @@ describe('別の接続（仕様 §13 の :553・:563 に当たる 2 件）', () 
     expect(await s.kvGet('k')).toBe(1);
   });
 });
+
+describe('putGlyphPart（m3-t4・仕様 §11）', () => {
+  const G = 'https://g.example/{fontstack}/{range}.pbf';
+  const gmeta = (fetchedAt: number): EntryMeta => ({
+    key: key(G, 'Noto'), resourceId: G, size: 0, fetchedAt, accessedAt: fetchedAt, pinned: 0,
+  });
+  const blob = (n: number, fill: number) => new Blob([new Uint8Array(n).fill(fill)]);
+
+  it('1 つの readwrite tx で読み・作り直し・書く（transaction の spy が 1 回）', async () => {
+    const s = await open();
+    await s.createResource(resource(G, { type: 'glyph', templates: [G] }));
+    await s.putGlyphPart(gmeta(1), '0-255', blob(4, 1), { 'content-type': 'application/x-protobuf' }, []);
+    const txSpy = vi.spyOn(IDBDatabase.prototype, 'transaction');
+    const p = s.putGlyphPart(gmeta(2), '256-511', blob(3, 2), { 'content-type': 'application/x-protobuf' }, []);
+    expect(txSpy).toHaveBeenCalledTimes(1);
+    expect(txSpy.mock.calls[0][1]).toBe('readwrite');
+    expect(await p).toEqual({ saved: true });
+    expect(txSpy).toHaveBeenCalledTimes(1);
+    const got = await s.getEntry(key(G, 'Noto'));
+    expect(got!.meta).toMatchObject({ size: 7, fetchedAt: 2 });
+    expect(got!.body.parts).toEqual({
+      '0-255': { offset: 0, length: 4, fetchedAt: 1 },
+      '256-511': { offset: 4, length: 3, fetchedAt: 2 },
+    });
+    expect(new Uint8Array(await got!.body.blob.arrayBuffer())).toEqual(Uint8Array.from([1, 1, 1, 1, 2, 2, 2]));
+    expect(await s.getResource(G)).toMatchObject({ count: 1, bytes: 7 });
+  });
+
+  it('同じ範囲の差し替えは古い部分を落として詰める（空きを残さない）', async () => {
+    const s = await open();
+    await s.createResource(resource(G, { type: 'glyph', templates: [G] }));
+    await s.putGlyphPart(gmeta(1), '0-255', blob(4, 1), {}, []);
+    await s.putGlyphPart(gmeta(2), '256-511', blob(3, 2), {}, []);
+    await s.putGlyphPart(gmeta(3), '0-255', blob(2, 5), {}, []);
+    const got = await s.getEntry(key(G, 'Noto'));
+    expect(got!.body.parts).toEqual({
+      '256-511': { offset: 0, length: 3, fetchedAt: 2 },
+      '0-255': { offset: 3, length: 2, fetchedAt: 3 },
+    });
+    expect(new Uint8Array(await got!.body.blob.arrayBuffer())).toEqual(Uint8Array.from([2, 2, 2, 5, 5]));
+    expect(await s.getResource(G)).toMatchObject({ count: 1, bytes: 5 });
+    await expectCountsConsistent(s);
+  });
+
+  it('古い部分の fetchedAt で差し替えても、Entry の fetchedAt は最も新しい部分の値', async () => {
+    const s = await open();
+    await s.createResource(resource(G, { type: 'glyph', templates: [G] }));
+    await s.putGlyphPart(gmeta(9), '0-255', blob(1, 1), {}, []);
+    await s.putGlyphPart(gmeta(5), '256-511', blob(1, 1), {}, []);
+    expect((await s.getEntry(key(G, 'Noto')))!.meta.fetchedAt).toBe(9);
+  });
+
+  it('キーが resourceId で始まらなければ tx を作らずに DataError', async () => {
+    const s = await open();
+    await s.createResource(resource(G, { type: 'glyph', templates: [G] }));
+    const txSpy = vi.spyOn(IDBDatabase.prototype, 'transaction');
+    const err = await s.putGlyphPart({ ...gmeta(1), key: 'x\0Noto' }, '0-255', blob(1, 1), {}, []).catch((x: unknown) => x);
+    expect((err as DOMException).name).toBe('DataError');
+    expect(txSpy).not.toHaveBeenCalled();
+  });
+
+  it('無い Resource には書かない（saved: false）', async () => {
+    const s = await open();
+    expect(await s.putGlyphPart(gmeta(1), '0-255', blob(1, 1), {}, [])).toEqual({ saved: false });
+    expect(await rawAll('entries')).toEqual([]);
+  });
+});

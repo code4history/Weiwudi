@@ -250,6 +250,13 @@ export interface Store {
   /** entries だけ。接続があれば tx は呼び出しの中で同期に作る */
   touch(key: string, accessedAt: number): Promise<void>;
   putEntry(meta: EntryMeta, body: EntryBody, evict: EvictionScope[]): Promise<{ saved: boolean }>;
+  /**
+   * グリフの範囲 1 つを fontstack のレコードへ足す（仕様 §11）。1 つの readwrite tx で既存の本体を読み、
+   * 残す部分の slice と新しい部分から本体と parts を作り直して書く。同じ範囲の古い部分は落とす。
+   * meta の size は使わず新しい本体の大きさにし、fetchedAt は最も新しい部分の値にする（meta.fetchedAt はこの部分の値）。
+   * 退避と Resource の数の更新は putEntry と同じ
+   */
+  putGlyphPart(meta: EntryMeta, part: string, blob: Blob, headers: Record<string, string>, evict: EvictionScope[]): Promise<{ saved: boolean }>;
 
   getCredentials(sourceId: string): Promise<Credentials | undefined>;
   putCredentials(sourceId: string, c: Credentials): Promise<void>;
@@ -320,11 +327,11 @@ const entryRange = (resourceId: string): IDBKeyRange =>
  * deleteResource・clearEntries のキーの範囲から外れて数が合わなくなるので、tx を作る前に止める（何も書かない）。
  * 本体の key がメタの key と違うときも同じ。問題が無ければ undefined
  */
-const entryKeyError = (meta: EntryMeta, body: EntryBody): Promise<never> | undefined => {
+const entryKeyError = (meta: EntryMeta, bodyKey: string): Promise<never> | undefined => {
   if (!meta.key.startsWith(`${meta.resourceId}\0`)) {
     return Promise.reject(new DOMException(`Entry key does not start with the id of resource "${meta.resourceId}"`, 'DataError'));
   }
-  if (body.key !== meta.key) {
+  if (bodyKey !== meta.key) {
     return Promise.reject(new DOMException('Entry body key does not match the entry key', 'DataError'));
   }
   return undefined;
@@ -439,6 +446,71 @@ export const openStore = async (): Promise<Store> => {
     deltas.set(id, d);
   };
 
+  /**
+   * putEntry と putGlyphPart の共通の後半（C-O7）。同じ tx の中で、退避・Entry の書き込み・Resource の数の更新を行う。
+   * target は meta.resourceId の Resource、old は同じキーの保存済みの Entry（どちらも同じ tx で読んだもの）
+   */
+  const commitEntry = async (
+    t: IDBTransaction, target: ResourceMeta, old: EntryMeta | undefined,
+    meta: EntryMeta, body: EntryBody, evict: EvictionScope[],
+  ): Promise<{ saved: boolean }> => {
+    const resources = t.objectStore(S_RESOURCES);
+    const entries = t.objectStore(S_ENTRIES);
+    const bodies = t.objectStore(S_BODIES);
+
+    const newSize = meta.size;
+    // 旧 putItemWithEviction と同じ: maxBytes が 0、または単体で maxBytes を超える応答は保存しない。
+    // どれか 1 要素でも「保存しない」なら保存しない
+    const willSave = evict.every((e) => e.maxBytes > 0 && newSize <= e.maxBytes);
+    const deltas = new Map<string, Delta>();
+
+    // 退避は要素ごと（第 1 回 S4）。各要素の resourceIds の pinned = 0 の Entry を併合し、
+    // accessedAt 昇順・同値はキー昇順で、要素の予算に収まるまで消す。前の要素が消した Entry は、同じ tx の
+    // 要求が出した順に処理されるので後の getAll には現れない（二重に数えない）
+    for (const scope of evict) {
+      const ids = scope.resourceIds.filter((id, i, xs) => xs.indexOf(id) === i);
+      const lists = await Promise.all(ids.map((id) =>
+        req2p(entries.index(IX_LRU).getAll(IDBKeyRange.bound([id, 0], [id, 0, []]))) as Promise<EntryMeta[]>));
+      const candidates = ([] as EntryMeta[]).concat(...lists)
+        .filter((e) => !(willSave && e.key === meta.key))
+        .sort((a, b) => a.accessedAt - b.accessedAt || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+      let total = candidates.reduce((sum, e) => sum + e.size, 0);
+      const budget = willSave ? scope.maxBytes - newSize : scope.maxBytes;
+      for (let i = 0; total > budget && i < candidates.length; i++) {
+        const victim = candidates[i];
+        entries.delete(victim.key);
+        bodies.delete(victim.key);
+        addDelta(deltas, victim.resourceId, -1, -victim.size, 0); // 候補は pinned = 0 だけ
+        total -= victim.size;
+      }
+    }
+
+    if (willSave) {
+      // 保存するときは同じキーを候補から外したので、old は消えていない
+      if (old) {
+        addDelta(deltas, meta.resourceId, 0, newSize - old.size,
+          (meta.pinned === 1 ? newSize : 0) - (old.pinned === 1 ? old.size : 0));
+      } else {
+        addDelta(deltas, meta.resourceId, 1, newSize, meta.pinned === 1 ? newSize : 0);
+      }
+      entries.put(meta);
+      bodies.put(body);
+    }
+
+    // Entry の増減と同じ tx で各 Resource の count・bytes・pinnedBytes を直す
+    for (const [id, d] of deltas) {
+      const saved = id === target.id ? target : ((await req2p(resources.get(id))) as ResourceMeta | undefined);
+      if (!saved) continue;
+      resources.put({
+        ...saved,
+        count: saved.count + d.count,
+        bytes: saved.bytes + d.bytes,
+        pinnedBytes: saved.pinnedBytes + d.pinnedBytes,
+      });
+    }
+    return { saved: willSave };
+  };
+
   const store: Store = {
     getSource: (id) => getOne<SourceRecord>(S_SOURCES, id),
     putSource: (record) => tx([S_SOURCES], 'readwrite', (t) => {
@@ -511,67 +583,45 @@ export const openStore = async (): Promise<Store> => {
       const meta = (await req2p(s.get(key))) as EntryMeta | undefined;
       if (meta) s.put({ ...meta, accessedAt });
     }),
-    putEntry: (meta, body, evict) => entryKeyError(meta, body) ?? tx([S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t) => {
-      const resources = t.objectStore(S_RESOURCES);
-      const entries = t.objectStore(S_ENTRIES);
-      const bodies = t.objectStore(S_BODIES);
+    putEntry: (meta, body, evict) => entryKeyError(meta, body.key) ?? tx([S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t) => {
+      const target = (await req2p(t.objectStore(S_RESOURCES).get(meta.resourceId))) as ResourceMeta | undefined;
       // 消された Resource へ書き込みを残さない（第 1 回 O-7）
-      const target = (await req2p(resources.get(meta.resourceId))) as ResourceMeta | undefined;
       if (!target) return { saved: false };
-      const old = (await req2p(entries.get(meta.key))) as EntryMeta | undefined;
-
-      const newSize = meta.size;
-      // 旧 putItemWithEviction と同じ: maxBytes が 0、または単体で maxBytes を超える応答は保存しない。
-      // どれか 1 要素でも「保存しない」なら保存しない
-      const willSave = evict.every((e) => e.maxBytes > 0 && newSize <= e.maxBytes);
-      const deltas = new Map<string, Delta>();
-
-      // 退避は要素ごと（第 1 回 S4）。各要素の resourceIds の pinned = 0 の Entry を併合し、
-      // accessedAt 昇順・同値はキー昇順で、要素の予算に収まるまで消す。前の要素が消した Entry は、同じ tx の
-      // 要求が出した順に処理されるので後の getAll には現れない（二重に数えない）
-      for (const scope of evict) {
-        const ids = scope.resourceIds.filter((id, i, xs) => xs.indexOf(id) === i);
-        const lists = await Promise.all(ids.map((id) =>
-          req2p(entries.index(IX_LRU).getAll(IDBKeyRange.bound([id, 0], [id, 0, []]))) as Promise<EntryMeta[]>));
-        const candidates = ([] as EntryMeta[]).concat(...lists)
-          .filter((e) => !(willSave && e.key === meta.key))
-          .sort((a, b) => a.accessedAt - b.accessedAt || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-        let total = candidates.reduce((sum, e) => sum + e.size, 0);
-        const budget = willSave ? scope.maxBytes - newSize : scope.maxBytes;
-        for (let i = 0; total > budget && i < candidates.length; i++) {
-          const victim = candidates[i];
-          entries.delete(victim.key);
-          bodies.delete(victim.key);
-          addDelta(deltas, victim.resourceId, -1, -victim.size, 0); // 候補は pinned = 0 だけ
-          total -= victim.size;
-        }
-      }
-
-      if (willSave) {
-        // 保存するときは同じキーを候補から外したので、old は消えていない
-        if (old) {
-          addDelta(deltas, meta.resourceId, 0, newSize - old.size,
-            (meta.pinned === 1 ? newSize : 0) - (old.pinned === 1 ? old.size : 0));
-        } else {
-          addDelta(deltas, meta.resourceId, 1, newSize, meta.pinned === 1 ? newSize : 0);
-        }
-        entries.put(meta);
-        bodies.put(body);
-      }
-
-      // Entry の増減と同じ tx で各 Resource の count・bytes・pinnedBytes を直す
-      for (const [id, d] of deltas) {
-        const saved = id === target.id ? target : ((await req2p(resources.get(id))) as ResourceMeta | undefined);
-        if (!saved) continue;
-        resources.put({
-          ...saved,
-          count: saved.count + d.count,
-          bytes: saved.bytes + d.bytes,
-          pinnedBytes: saved.pinnedBytes + d.pinnedBytes,
-        });
-      }
-      return { saved: willSave };
+      const old = (await req2p(t.objectStore(S_ENTRIES).get(meta.key))) as EntryMeta | undefined;
+      return commitEntry(t, target, old, meta, body, evict);
     }),
+    putGlyphPart: (meta, part, blob, headers, evict) => entryKeyError(meta, meta.key)
+      ?? tx([S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t) => {
+        const target = (await req2p(t.objectStore(S_RESOURCES).get(meta.resourceId))) as ResourceMeta | undefined;
+        if (!target) return { saved: false };
+        const [old, oldBody] = await Promise.all([
+          req2p(t.objectStore(S_ENTRIES).get(meta.key)) as Promise<EntryMeta | undefined>,
+          req2p(t.objectStore(S_BODIES).get(meta.key)) as Promise<EntryBody | undefined>,
+        ]);
+        // 残す部分を本体の中の順に詰め直し、新しい部分を最後に足す（同じ範囲の古い部分は落とす。空きを残さない）。
+        // Blob の slice と new Blob は同期なので、tx の中で IDB 以外の Promise を待たない
+        const kept = oldBody?.parts && old
+          ? Object.entries(oldBody.parts).filter(([name]) => name !== part).sort((a, b) => a[1].offset - b[1].offset)
+          : [];
+        const pieces: Blob[] = [];
+        const parts: GlyphPartIndex = {};
+        let offset = 0;
+        for (const [name, p] of kept) {
+          pieces.push(oldBody!.blob.slice(p.offset, p.offset + p.length));
+          parts[name] = { offset, length: p.length, fetchedAt: p.fetchedAt };
+          offset += p.length;
+        }
+        pieces.push(blob);
+        parts[part] = { offset, length: blob.size, fetchedAt: meta.fetchedAt };
+        const joined = new Blob(pieces, blob.type ? { type: blob.type } : undefined);
+        const next: EntryMeta = {
+          ...meta,
+          size: joined.size,
+          // 最も新しい部分の fetchedAt（R7。新しい部分がある間はレコードを掃除の対象にしない）
+          fetchedAt: Object.values(parts).reduce((m, p) => Math.max(m, p.fetchedAt), -Infinity),
+        };
+        return commitEntry(t, target, old, next, { key: meta.key, blob: joined, headers, parts }, evict);
+      }),
 
     getCredentials: (sourceId) => tx([S_CREDENTIALS], 'readonly', async (t) => {
       const rec = (await req2p(t.objectStore(S_CREDENTIALS).get(sourceId))) as (Credentials & { sourceId: string }) | undefined;

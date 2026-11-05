@@ -240,6 +240,8 @@ const serveHit = async (ctx: Context, request: Request, url: URL, hit: TableHit,
     key: entryKey(resource.id, resource.type, m, url, resource.policy.credentialParams),
     ...(resource.type === 'tile' && m.z !== undefined && m.x !== undefined && m.y !== undefined
       ? { coord: { z: m.z, x: m.x, y: m.y } } : {}),
+    // グリフは範囲を渡す（同じ fontstack の範囲を 1 レコードへ束ねるのは core と store。仕様 §11）
+    ...(resource.type === 'glyph' && m.range !== undefined ? { part: m.range } : {}),
     request,
     storable: isStorable(request, resource.policy),
     upstream: createUpstream(ctx, { resourceId: resource.id, original: request, credentials, now }),
