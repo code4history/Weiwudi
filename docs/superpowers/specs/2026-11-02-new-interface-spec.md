@@ -46,7 +46,7 @@
 - `RegExpRoute` は別オリジンでは URL 先頭からの一致だけを受ける（`workbox-routing/RegExpRoute.js`）。`match` は同期でなければならず、Promise を返すと開発ビルドで警告される（`Router.js`）。ルートは登録順に評価する
 - `@c4h/weiwudi/sw` は副作用 import で使われる（`Maplat/src/service-worker/index.ts`・`MaplatCorePro/weiwudi-sw.ts`）。後者は `@c4h/weiwudi` を `1.0.0` に固定している
 - MapLibre 6.9.0 の `makeRequest` は `http(s)` なら Worker 内で `fetch` する。ベクタタイルの 404 は `err.status !== 404` の判定で黙って空タイルになる（`vector_tile_source.ts:254`）。`mapbox://` は解釈しない
-- MLT の復号器は `while (offset < tile.length)` なので、0 バイトの本体でも落ちない（読んだのは `@maplibre/mlt` 1.2.1。MaplatCorePro の宣言は下限で、実体の 1.3.0 は m3 で確かめる）
+- MLT の復号器は `while (offset < tile.length)` なので、0 バイトの本体でも落ちない（読んだのは `@maplibre/mlt` 1.2.1。MaplatCorePro の宣言は下限で、実体の 1.3.0 も `dist/mltDecoder.js:32` が `while (offset.get() < tile.length)` で同じことを m3 で確かめた。m3 計画 F1）
 - 現行の範囲外は「広がりの外＝透明 PNG／ズームの外＝404」である。#42 の「範囲外は 404」はズームの側だけを指す（`src/weiwudi_gw_logic.ts:425-438`）。ズームの 404 は `0cd978f` で意図して変えられたが、理由の記録は無い
 
 ## 3. 全体構成
@@ -71,23 +71,29 @@
 
 | ファイル | 役割 | 値を import してよいもの |
 |---|---|---|
+| `constants.ts` | 疑似ホスト・旧 API の前置き・既定の時間（m3） | なし（全ファイルが import してよい） |
 | `tile_math.ts` | 座標・タイル計算（#34。m1）・テンプレートの展開・タイルのキーの suffix（`tileKeySuffix`。新旧で 1 つ） | なし |
 | `errors.ts` | `WeiwudiError` と旧文面の表（#33。m1） | なし |
-| `url_pattern.ts` | テンプレートの解析・照合・正規化・キー | `tile_math`・`errors` |
-| `spec.ts` | 登録内容（`SourceSpec`）の検査と正規化 | `url_pattern`・`tile_math`・`errors` |
-| `plugins.ts`・`providers/` | 差し込み口（#36）・提供元（#40。m3） | `errors` |
-| `store.ts` | IndexedDB の全操作。型 `ResourceMeta` などの正本（#37） | `errors` |
-| `context.ts` | 実行中の状態（接続・照合表・同時要求・連続数・ジョブ）の入れ物。`Weiwudi_Internal` の呼び出しごとに 1 つ | `store`・`errors` |
-| `registry.ts` | 合流と実効方針（§5.6） | `store`・`spec`・`url_pattern`・`tile_math`・`errors` |
-| `upstream.ts` | 上流の取得と CORS・認証付きの要求（§4.5・§4.6） | `context`・`store`・`url_pattern`・`errors` |
-| `core.ts` | `serve()`・退避・ジョブ | `context`・`store`・`plugins`・`url_pattern`・`tile_math`・`errors` |
-| `hook.ts` | 照合表・ルート登録 | `core`・`upstream`・`context`・`store`・`url_pattern`・`errors` |
-| `control.ts` | `/v2/*` の処理 | `hook`・`core`・`registry`・`spec`・`context`・`store`・`tile_math`・`errors` |
-| `legacy.ts` | `/api/*` の翻訳と `MapSetting` の変換 | `core`・`context`・`store`・`tile_math`・`errors`（m4 で `migrate`） |
-| `migrate.ts` | 旧 DB からの移行（m4） | `store`・`errors` |
+| `url_pattern.ts` | テンプレートの解析・照合・正規化・キー | `tile_math`・`constants`・`errors` |
+| `spec.ts` | 登録内容（`SourceSpec`）の検査と正規化 | `url_pattern`・`tile_math`・`constants`・`errors` |
+| `style_body.ts` | スタイル・TileJSON の本体の解析と書き換え（純粋。m3） | `url_pattern`・`constants`・`errors` |
+| `plugins.ts` | 差し込み口（#36）・提供元の登録表（m3） | `constants`・`errors` |
+| `providers/` | 提供元（`mapbox.ts`。#40。m3） | `errors`・`constants`・`providers/` どうし |
+| `store.ts` | IndexedDB の全操作。型 `ResourceMeta` などの正本（#37）。`SourceRecord` を読む小さな補助の唯一の置き場 | `constants`・`errors` |
+| `context.ts` | 実行中の状態（接続・照合表・同時要求・連続数・ジョブ）の入れ物。`Weiwudi_Internal` の呼び出しごとに 1 つ | `store`・`constants`・`errors` |
+| `registry.ts` | 合流と実効方針（§5.6） | `store`・`spec`・`url_pattern`・`tile_math`・`constants`・`errors` |
+| `upstream.ts` | 上流の取得と CORS・認証付きの要求（§4.5・§4.6） | `context`・`store`・`url_pattern`・`constants`・`errors` |
+| `core.ts` | `serve()`・退避・ジョブ | `context`・`store`・`plugins`・`url_pattern`・`tile_math`・`constants`・`errors` |
+| `hook.ts` | 照合表・ルート登録 | `core`・`upstream`・`context`・`store`・`url_pattern`・`style_body`・`constants`・`errors` |
+| `style.ts` | スタイルの芋づる登録の段取り（§5.5。m3） | `hook`・`core`・`registry`・`spec`・`style_body`・`url_pattern`・`context`・`store`・`constants`・`errors` |
+| `control.ts` | `/v2/*` の処理 | `hook`・`core`・`registry`・`spec`・`style`・`context`・`store`・`tile_math`・`constants`・`errors` |
+| `legacy.ts` | `/api/*` の翻訳と `MapSetting` の変換 | `core`・`context`・`store`・`tile_math`・`constants`・`errors`（m4 で `migrate`） |
+| `migrate.ts` | 旧 DB からの移行（m4） | `store`・`constants`・`errors` |
 | `weiwudi_gw_logic.ts` | 配線だけ（`Weiwudi_Internal`） | 上の全部 |
-| `weiwudi_gw.ts`・`weiwudi_sw.ts` | SW の入口（ES・UMD） | `weiwudi_gw_logic`・`plugins` |
-| `weiwudi.ts` | ページ側 API | `errors`・`url_pattern` |
+| `weiwudi_gw.ts`・`weiwudi_sw.ts` | SW の入口（ES・UMD） | `weiwudi_gw_logic`・`plugins`・`constants` |
+| `weiwudi.ts` | ページ側 API | `errors`・`url_pattern`・`constants` |
+
+注: `constants` は `tile_math`・`errors` を除く全ファイルが import してよい（`constants.ts` 自身は何も import しない）。
 
 **依存の決まりはこの表 1 つだけ**（m2 計画は表を写さずここを指す）。値の依存は、`import … from` と `export … from` のどちらも、表の許可先だけにする（複数行の文も同じ）。`core` は `legacy` を知らない。型だけの `import type` は制限しない（`store.ts` が `TileBox` を、`weiwudi.ts` が `ResourceInfo` を使う）。`/v2/` の GET（`ping`）の振り分けは配線の `weiwudi_gw_logic.ts` で行う（`legacy` から `control` を呼ばない）。配布の `weiwudi.d.ts` に型が届くよう、m2 で `vite.config.lib.js` の `dts` の `include` を直す。
 
@@ -279,7 +285,7 @@ export interface ResourceInfo {
 
 `Source` の保存の型（`store.ts` の `SourceRecord`）は、登録内容（資格情報を除く）・登録順の連番・`warnings`（§12）・旧 API の `legacy`（`MapSetting`）を持つ。
 
-#37 の注記「参照元の URL を扱う項目は URL 処理の後」に従い、上流 URL の項目は `ResourceMeta` に置かない。`templates` が資格情報抜きの URL を持つので足りる（#14 の `httpUrl` に当たるものは m3 で要否を判定する）。
+#37 の注記「参照元の URL を扱う項目は URL 処理の後」に従い、上流 URL の項目は `ResourceMeta` に置かない。`templates` が資格情報抜きの URL を持つので足りる（#14 の `httpUrl` に当たるものは要らない（m3 計画 R16）。提供元の URL は登録の時点で https に解決し、`templates` が資格情報なしの URL を持つ）。
 
 ### 5.3 キー
 
