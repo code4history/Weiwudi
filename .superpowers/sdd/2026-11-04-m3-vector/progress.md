@@ -58,3 +58,48 @@ Ruling: 第 2 回の反映で事前点検を合格とし、再点検は置かな
     - 合流は apply(..., {throwOnConflict:false, resetCors, order: 親の order, parentId}) で行う
     - 親の children を保守する。子を書いてから children を更新するまでの間、その子は退避の範囲に入らない
     - asset を開けるときは、kind と type の組み合わせを検査する
+
+## m3-t3 資格情報の検査と行き先（I1・I2・I8・I9）
+
+- PR: https://github.com/code4history/Weiwudi/pull/87 （合流 ba82cd2）
+- 実測（t3 の枝）: 単体試験 1057 passed・typecheck・build・eslint 0・e2e 35 passed（1 件増えた）・CI 全緑
+- 対照: わざと壊した 10 通りで、試験が落ちた。M-1 の直しを外すと、単体と e2e の両方で 1 件ずつ落ちた
+- L1（Claude・セキュリティの観点）第 1 回: 合流不可。Major 1 件・Minor 2 件
+  - M-1: no-cors の取り直しにも redirect: 'error' が付く。Fetch の main fetch では network error になるので、ヘッダの資格情報 ＋ CORS の無い上流で必ず失敗する。単体の fetch の模造品はこの規則をまねないので、試験では見えなかった
+  - m-1: C-O6 の grep がコメントにしか当たっていない
+  - m-2: 台帳への記録（下に書いた）
+  - 6f42299 で直した: `addedHeader && mode !== 'no-cors'`。単体と e2e に 1 件ずつ足した
+- L2（Codex・範囲と 30 分を指定）: 約 6 分で最終報告。必須とされた 2 件は、進行役が次のとおり判定した
+  - glyph の fontstack の区画の `sk.abcdef` がキーに入る → 取らない。本物の秘密トークンは必ず sk.eyJ で始まる（L1 i-3 でも確認）。拒否を sk.eyJ に絞ったのは計画どおり
+  - クエリの資格情報だけを足した要求がリダイレクトを辿る → 計画どおり。上流を信頼する前提を、仕様 §10 と docs/api の英日に 1 文書いた（6f42299）
+  - 推奨（Bearer の剥がしの不一致・独自名の資格情報に警告を出す）は m4 へ申し送る
+- 書き換えた既存の試験:
+  - m2-checkpoint.test.ts の L-2: describe 名と 4 件の URL を sk.eyJ の形に替え、sk.abcdef が通る 1 件を足した
+  - spec.test.ts:179: 2 つ目のミラーを `access_token=pk.fromurl&sku=pk.second` に替えた。元の形は I2 で拒否になるため
+- Rulings（実装担当。いずれも承認）: I2 はミラーの間だけで比べる。「ヘッダを足した」は実際に set したときだけ。オリジンの比較は requestChanged のときだけ。I2 の detail は {attribute:'url'}
+- 申し送り:
+  - t5: applyCredentials を差し込むときも、「ヘッダを足したら redirect: 'error'（no-cors は除く）」を保つ
+  - t7: 資格情報を親と子のどちらの id で持つかを決める。TileJSON・スタイルから作るミラーで値が違うときの扱いも決める
+
+## m3-t4 グリフの結合保存（#39・仕様 §11）
+
+- PR: https://github.com/code4history/Weiwudi/pull/88 （合流 1b6ca2d）。t3 と並行で、別の worktree で作業した（作業後に撤去）
+- 実測（t4 の枝）: 単体試験 1052 passed・typecheck・build・eslint 0・e2e 34 passed・CI 全緑
+- 対照: わざと壊した 9 通りで試験が落ちた。種を固定した 100 回の試験で、count・bytes が全件の集計と一致した
+- L1（Claude）: 合流可。Critical・Major・Minor はいずれも 0
+- Rulings（実装担当。いずれも承認）:
+  - 部分を LiveEntry に置き換え、後段の処理を共有する
+  - parts の無い既存のレコードは miss として作り直す
+  - 新しい部分は末尾に足す
+  - ヘッダはレコード単位で持つ
+- 申し送り:
+  - t7: 範囲取得では「1 fontstack 分を溜めてから 1 回で書く」ために、putGlyphParts（複数の部分を一度に受ける）を足す。今は 1 範囲ごとにレコード全体を書き直す
+  - m4:
+    - 固定の値が、上流を待つ間に戻る競合がある（putEntry にも以前からある）。commitEntry で old.pinned を引き継ぐ
+    - 期限切れの部分は bytes に残る（R7）
+    - 上限を超えた結合レコードでは、新しい範囲を保存できない
+
+## 合流後の実測（vector-cache ba82cd2）
+
+- 単体試験 1075 passed・typecheck・build 0・e2e 35 passed
+- 運用の記録: e2e は build してから走らせる。public/weiwudi-sw.js は build で作られ、commit されている版は古い。build しないと 18 件落ちる（分岐点でも同じ）
