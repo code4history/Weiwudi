@@ -288,17 +288,23 @@ const composeFor = (m: ResourceMeta, recs: Lookup): Pick<ResourceMeta, 'policy' 
   return { policy: own.policy, extents: [...(own.extents ?? []), ...oldKept, ...rangeOnly], templates };
 };
 
-/** sourceIds が変わった Resource を合成し直す（方針・範囲・テンプレート）。範囲は tile の Resource だけが持つ（P1） */
-const recompose = (m: ResourceMeta, recs: Lookup): ResourceMeta => {
-  const next: ResourceMeta = { ...m, ...composeFor(m, recs) };
-  if (next.policy.cacheRetention === undefined) delete next.policy.cacheRetention;
-  if (m.type === 'tile') return next;
+/** 範囲は tile の Resource だけが持つ（P1）。tile でなければ extents を消す（空の配列も書かない。L1 m1） */
+const tileExtentsOnly = (next: ResourceMeta): ResourceMeta => {
+  if (next.type === 'tile') return next;
   delete next.extents;
   return next;
 };
 
+/** sourceIds が変わった Resource を合成し直す（方針・範囲・テンプレート） */
+const recompose = (m: ResourceMeta, recs: Lookup): ResourceMeta => {
+  const next: ResourceMeta = { ...m, ...composeFor(m, recs) };
+  if (next.policy.cacheRetention === undefined) delete next.policy.cacheRetention;
+  return tileExtentsOnly(next);
+};
+
 /** rangeOnlySourceIds だけが変わった Resource は範囲だけを計算し直す（方針は sourceIds の Source だけから作るので変わらない） */
-const recomposeExtents = (m: ResourceMeta, recs: Lookup): ResourceMeta => ({ ...m, extents: composeFor(m, recs).extents });
+const recomposeExtents = (m: ResourceMeta, recs: Lookup): ResourceMeta =>
+  tileExtentsOnly({ ...m, extents: composeFor(m, recs).extents });
 
 const setRangeOnly = (m: ResourceMeta, ids: string[]): ResourceMeta => {
   const next = { ...m };

@@ -15,8 +15,8 @@ import type { RouteHandlerCallbackOptions } from 'workbox-core';
 import type { Context } from './context';
 import { tableChanged } from './hook';
 import { applyRegister, applyRemove, applyUpdate, isExclusiveTo } from './registry';
-import { normalizeSpec, type NormalizedSpec, type StoredSpec } from './spec';
-import { isChildRecord, isLegacyRecord, toResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
+import { normalizeSpec, type NormalizedSpec } from './spec';
+import { isChildRecord, isLegacyRecord, storedSpecOf, styleSpecOf, toResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
 import { countTiles } from './tile_math';
 import { WeiwudiError } from './errors';
 import { V2_PREFIX } from './constants';
@@ -70,7 +70,9 @@ const resourcesOf = async (store: Store, id: string): Promise<ResourceMeta[]> =>
 
 /** SourceInfo（仕様 §12）。resources は toResourceInfo(meta, now, その Source の id)（rangeOnly を出す。第 3 回 O7） */
 const infoOf = async (store: Store, rec: SourceRecord): Promise<SourceInfo> => {
-  const spec = rec.spec as StoredSpec;
+  // 読み方は store の補助だけ（m2 の記録の type を補う。L1 M1）。style の親は m3-t7 まで作られない
+  const spec = storedSpecOf(rec) ?? styleSpecOf(rec);
+  if (!spec) throw notFound(rec.id);
   const now = Date.now();
   return {
     id: rec.id,
@@ -93,7 +95,7 @@ const statsOf = async (store: Store, rec: SourceRecord): Promise<SourceStats> =>
     size += m.bytes;
   }
   const stats: SourceStats = { count, size, byResource };
-  const extent = (rec.spec as StoredSpec).extent;
+  const extent = storedSpecOf(rec)?.extent;
   if (extent?.box) {
     // 範囲が決まるときだけ（仕様 §12）
     stats.total = countTiles(extent.box, extent.minZoom, extent.maxZoom);
@@ -164,7 +166,10 @@ export function createControl(ctx: Context): Control {
     const rec = await getOwn(store, id);
     const credentials = await store.getCredentials(id);
     // 保存した登録内容で合流と方針を作り直す（資格情報は credentials ストアのものを持ち越す）
-    const spec: NormalizedSpec = credentials ? { spec: rec.spec as StoredSpec, credentials } : { spec: rec.spec as StoredSpec };
+    // 保存した登録内容は storedSpecOf で読む（m2 の記録は type が無く、生のまま渡すと型違いの衝突になる。L1 M1）
+    const stored = storedSpecOf(rec);
+    if (!stored) throw notFound(id);
+    const spec: NormalizedSpec = credentials ? { spec: stored, credentials } : { spec: stored };
     const r = await applyUpdate(store, id, spec);
     // CORS の判定をやり直す（仕様 §4.5。corsOk・corslessUntil は registry が消す）
     for (const m of r.resources) ctx.corslessStreak.delete(m.id);

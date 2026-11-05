@@ -170,6 +170,18 @@ describe('store 上の合流（IndexedDB）', () => {
     expect(r?.sourceIds).toEqual(['t']);
   });
 
+  it('tile でない Resource の範囲だけの計算し直しは extents を書かない（L1 m1）', async () => {
+    const d = normalizeMember('data', [DATA], {}, { kind: 'asset', id: 'd', single: true });
+    await store.putSource(rec(d, 1));
+    await store.putSource(rec(normalizeSpec({ kind: 'raster', id: 'x', url: TILE }), 2));
+    // 範囲だけの参加者 x を持つ data の Resource（m2 の形）。x の再登録で参照が消え、範囲だけを計算し直す
+    await store.createResource(res(DATA, { type: 'data', sourceIds: ['d'], rangeOnlySourceIds: ['x'] }));
+    await applyRegister(store, normalizeSpec({ kind: 'raster', id: 'x', url: 'https://x.example/{z}/{x}/{y}.png' }));
+    const r = await store.getResource(DATA);
+    expect(r?.rangeOnlySourceIds).toBeUndefined();
+    expect(r && 'extents' in r).toBe(false);
+  });
+
   it('m2 の型の記録（type が無い spec）を読んで tile として合成できる', async () => {
     const n = normalizeSpec({ kind: 'raster', id: 'old', url: TILE, minZoom: 2, maxZoom: 4 });
     const legacyShape = { ...n.spec } as Partial<StoredSpec>;
