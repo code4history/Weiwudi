@@ -30,3 +30,31 @@ Ruling: 第 2 回の反映で事前点検を合格とし、再点検は置かな
   - StyleSpec が templates を持つので、storedSpecOf・templatesOf を kind で絞るかを t2 で決める
   - 残る一本化（gw_logic:32・core.ts:247・control の as 3 か所）は、t2 で触れるなら揃える
   - deps.test の表は m3 の全行を持つので、後のタスクでは触らない
+
+## m3-t2 registry の一般化 — 子 Source・資源の型・範囲の持ち主（P1）
+
+- PR: https://github.com/code4history/Weiwudi/pull/86 （合流 3d22f3d）
+- 実測: 単体試験 1034 passed（987→1034）・typecheck・build・eslint 0・e2e 34 passed・CI 全緑
+- 対照: わざと壊した 12 通りで試験が落ちた。初めに検出できなかった 2 通り（control で子を隠さない・glyph に z/x/y を許す）は 0a106e1 で試験を補った
+- L1（Claude）第 1 回: 合流不可。Major 1 件・Minor 1 件
+  - M1: m2 の記録（type なし）の update() が必ず resource-conflict になる。control.ts が生の rec.spec を渡していた
+  - m1: recomposeExtents が tile でない Resource に extents: [] を書く
+  - 651029f で直した。control の `as StoredSpec` は 0 件。足した試験は、それぞれ直しを外すと落ちる
+  - 直しは小さく、指摘に直し方まで書かれていたので、進行役が差分を読んで確かめて再点検は置かなかった（m3 の Ruling「再点検を省く」と同じ扱い）
+- Rulings（実装担当。いずれも承認）:
+  - storedSpecOf・templatesOf は style の親を除く
+  - tile でない指定の outOfRange は not-found に固定する
+  - raster・vector の StoredSpec は encoding を持たない
+  - evictScopesFor は StyleSpec.children を正本として読む
+  - control の isVisible で子を隠す
+  - childLogicalName は関数にする（module-state 試験のため）
+  - sprite の {spriteSuffix} は t6 で足す
+- 申し送り:
+  - t3: 資格情報を親と子のどちらの id で持つかは、まだ決めていない。hook の候補は今の templatesOf のままで子に効く
+  - t5: StoredSpec.provider は型だけ置いてある
+  - t6: sprite の {spriteSuffix} を TokenName と checkTokens に足す
+  - t7:
+    - 子は normalizeMember(type, [url], common, {kind:'child', internalId: childSourceId(...), logicalName, encoding, single}) で作る。tile の子には encoding を必ず渡す
+    - 合流は apply(..., {throwOnConflict:false, resetCors, order: 親の order, parentId}) で行う
+    - 親の children を保守する。子を書いてから children を更新するまでの間、その子は退避の範囲に入らない
+    - asset を開けるときは、kind と type の組み合わせを検査する

@@ -95,5 +95,5 @@
     "docs/superpowers/reports/2026-11-02-onboard-summary.md",
     "docs/superpowers/specs/2026-11-02-new-interface-spec.md"
   ],
-  "next_action": "m3-t2（registry の一般化）を実装する。順は t2 → t3∥t4 → t5 → t6 → t7 → t8 → t9 → t10。L2 は t3・t5・t7・t8 と区切り。t1 は PR #84 で合流済み（511e96d）"
+  "next_action": "m3-t3（資格情報）と m3-t4（グリフの結合保存）を並行で実装する。その後 t5 → t6 → t7 → t8 → t9 → t10。L2 は t3・t5・t7・t8 と区切り。t1 は #84、t2 は #86 で合流済み（3d22f3d）"
 }
