@@ -16,7 +16,7 @@ import type { Context } from './context';
 import { tableChanged } from './hook';
 import { applyRegister, applyRemove, applyUpdate, isExclusiveTo } from './registry';
 import { normalizeSpec, type NormalizedSpec, type StoredSpec } from './spec';
-import { isLegacyRecord, toResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
+import { isChildRecord, isLegacyRecord, toResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
 import { countTiles } from './tile_math';
 import { WeiwudiError } from './errors';
 import { V2_PREFIX } from './constants';
@@ -42,10 +42,13 @@ const failure = (e: unknown): Response => {
 const notFound = (id: string): WeiwudiError =>
   new WeiwudiError('source-not-found', `Source "${id}" not found`, { sourceId: id });
 
-/** 新 API の Source。無い・旧 API の記録なら source-not-found */
+/** 利用者が見る記録か（旧 API の記録とスタイルの子 Source は見せない。m3-t2） */
+const isVisible = (rec: SourceRecord): boolean => !isLegacyRecord(rec) && !isChildRecord(rec);
+
+/** 新 API の Source。無い・旧 API の記録・子 Source なら source-not-found */
 const getOwn = async (store: Store, id: string): Promise<SourceRecord> => {
   const rec = await store.getSource(id);
-  if (!rec || isLegacyRecord(rec)) throw notFound(id);
+  if (!rec || !isVisible(rec)) throw notFound(id);
   return rec;
 };
 
@@ -71,7 +74,8 @@ const infoOf = async (store: Store, rec: SourceRecord): Promise<SourceInfo> => {
   const now = Date.now();
   return {
     id: rec.id,
-    kind: spec.kind,
+    // getOwn・sources が旧 API の記録と子を除くので、kind は利用者の kind
+    kind: rec.kind as SourceInfo['kind'],
     url: Array.isArray(spec.url) ? spec.url.slice() : spec.url,
     resources: (await resourcesOf(store, rec.id)).map((m) => toResourceInfo(m, now, rec.id)),
     warnings: rec.warnings.slice(),
@@ -197,7 +201,7 @@ export function createControl(ctx: Context): Control {
 
   const sources = async () => {
     const store = await ctx.store();
-    const recs = (await store.listSources()).filter((r) => !isLegacyRecord(r));
+    const recs = (await store.listSources()).filter(isVisible);
     return Promise.all(recs.map((r) => infoOf(store, r)));
   };
 

@@ -6,7 +6,7 @@
 // - reject する値は tx.error・req.error・投げられた DOMException（Event を reject しない。仕様 §9）
 // - Entry の増減と同じ tx で Resource の count・bytes・pinnedBytes を直す
 import type { TileBox } from './tile_math';
-import type { StoredSpec } from './spec';
+import type { StoredSpec, StyleSpec } from './spec';
 import { LEGACY_PREFIX } from './constants';
 
 export const STORE_DB_NAME = 'WeiwudiStore';
@@ -139,16 +139,17 @@ export interface MapSetting {
   [key: string]: any;
 }
 
-export type SourceKind = 'style' | 'raster' | 'vector' | 'asset' | 'legacy';
+/** child はスタイルの下位資源ごとの内部の Source（m3-t2。利用者には見せない） */
+export type SourceKind = 'style' | 'raster' | 'vector' | 'asset' | 'legacy' | 'child';
 
 export interface SourceRecord {
   id: string;
   kind: SourceKind;
   /**
-   * 登録内容（資格情報を除く）。新 API は spec.ts の normalizeSpec が作る StoredSpec（t2 の R8）。
-   * 旧 API（kind === 'legacy'）は空の object（設定は legacy に持つ）
+   * 登録内容（資格情報を除く）。raster・vector・asset・child は spec.ts の normalizeMember が作る StoredSpec（m2-t2 の R8）、
+   * style は StyleSpec。旧 API（kind === 'legacy'）は空の object（設定は legacy に持つ）。読むのは storedSpecOf・styleSpecOf だけ
    */
-  spec: StoredSpec | Record<string, never>;
+  spec: StoredSpec | StyleSpec | Record<string, never>;
   /** 登録順の連番（呼び出し側が振る） */
   order: number;
   /** §12 */
@@ -156,6 +157,8 @@ export interface SourceRecord {
   createdAt: number;
   /** 旧 API の MapSetting（kind === 'legacy'） */
   legacy?: MapSetting;
+  /** 子 Source（kind === 'child'）の親（スタイルの Source）の id */
+  parentId?: string;
 }
 
 // ---- SourceRecord を読む補助（唯一の置き場。m3-t1・I5・R27） ----
@@ -163,11 +166,30 @@ export interface SourceRecord {
 /** 旧 API の記録（kind: 'legacy' か id が map: で始まる） */
 export const isLegacyRecord = (rec: SourceRecord): boolean => rec.kind === 'legacy' || rec.id.startsWith(LEGACY_PREFIX);
 
-/** 新 API の Source の登録内容。旧 API（kind: 'legacy'・spec: {}）は undefined */
-export const storedSpecOf = (rec: SourceRecord): StoredSpec | undefined =>
-  rec.kind !== 'legacy' && 'templates' in rec.spec ? (rec.spec as StoredSpec) : undefined;
+/** スタイルの下位資源の内部の Source（kind: 'child' か parentId を持つ）。子の判定はこれだけで行う */
+export const isChildRecord = (rec: SourceRecord): boolean => rec.kind === 'child' || rec.parentId !== undefined;
 
-/** 新 API の Source のテンプレート（旧 API の Source は空） */
+/**
+ * raster・vector・asset・child の Source の登録内容。旧 API（spec: {}）と style（StyleSpec）は undefined（m3-t2 の Ruling）。
+ * m2 で作った記録は type を持たないので 'tile' として読む（開発中のブラウザの DB を壊さない）
+ */
+export const storedSpecOf = (rec: SourceRecord): StoredSpec | undefined => {
+  if (rec.kind === 'legacy' || rec.kind === 'style' || !('templates' in rec.spec)) return undefined;
+  const spec = rec.spec as StoredSpec;
+  return spec.type === undefined ? { ...spec, type: 'tile' } : spec;
+};
+
+/** style の Source（親）の登録内容。children の無い記録は空の配列として読む */
+export const styleSpecOf = (rec: SourceRecord): StyleSpec | undefined => {
+  if (rec.kind !== 'style' || !('templates' in rec.spec)) return undefined;
+  const spec = rec.spec as StyleSpec;
+  return Array.isArray(spec.children) ? spec : { ...spec, children: [] };
+};
+
+/**
+ * 合流に加わる Source のテンプレート（storedSpecOf の分だけ。旧 API・style の親は空）。
+ * style のテンプレートは style の子が持つので、親を照合と資格情報の候補に入れない
+ */
 export const templatesOf = (rec: SourceRecord): readonly string[] => storedSpecOf(rec)?.templates ?? [];
 
 /** 新しく登録する Source の order（登録済みの最大 + 1。無ければ 1） */

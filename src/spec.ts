@@ -5,13 +5,14 @@
 // - 出力は入力を写さず、検査した項目だけで組み立てる（未知の項目や credentials が spec へ紛れ込まない）
 // - 資格情報は NormalizedSpec.credentials に分けて持ち、spec（SourceRecord.spec に入る）へは入れない
 // - 拒否の文面に入力の値（URL・資格情報・id）を入れない。項目の名前と番号だけを書く
-import type { Credentials, OutOfRange, ResourcePolicy, TileExtent } from './store';
+import type { Credentials, OutOfRange, ResourcePolicy, ResourceType, TileExtent } from './store';
 import type { TileBox } from './tile_math';
 import { WeiwudiError } from './errors';
 import { DAY_MS, LEGACY_PREFIX, PSEUDO_HOST } from './constants';
 import { lngLatBoundsToTileBox } from './tile_math';
 import {
   DEFAULT_CREDENTIAL_PARAMS, MAX_TILE_ZOOM, TILE_TOKENS, compileTemplate, normalizeTemplate, stripTemplateParams,
+  type TokenName,
 } from './url_pattern';
 
 // ---- 公開の型（仕様 §12。ページ側 API の型の正本。t8 で weiwudi.ts から export する） ----
@@ -40,21 +41,60 @@ export type SourceSpec = CommonPolicy & (
 
 // ---- 正規化の出力 ----
 
-/** SourceRecord.spec に入れる形（資格情報を除く。m2 は raster・vector だけ） */
+/** 資源の指定の種類（利用者の kind と、スタイルの下位資源の種類。m3-t2） */
+export type MemberKind = 'raster' | 'vector' | 'asset' | 'style' | 'tilejson' | 'glyph' | 'sprite';
+
+/**
+ * SourceRecord.spec に入れる形（資格情報を除く）。raster・vector・asset の Source と、スタイルの子 Source（kind: 'child'）。
+ * m2 の記録は type を持たない（store.ts の storedSpecOf が 'tile' として読む）
+ */
 export interface StoredSpec {
-  kind: 'raster' | 'vector';
+  kind: 'raster' | 'vector' | 'asset' | 'child';
+  /** raster・vector は 'tile'、asset は 'data'。子は下位資源の型 */
+  type: ResourceType;
   id: string;
   /** 地図ライブラリへ渡す URL。資格情報の項目だけを除き、形（文字列か配列）と順は登録のまま */
   url: string | string[];
   /** normalizeTemplate 済み（資格情報なし・重複なし・登録の順） */
   templates: string[];
-  scheme: 'xyz' | 'tms';
+  /** tile だけ（無ければ xyz） */
+  scheme?: 'xyz' | 'tms';
   tileSize?: number;
-  /** 範囲。無ければ全域 */
+  /** 範囲（tile だけ）。無ければ全域 */
   extent?: TileExtent;
+  /** 子の tile の符号化（raster・vector の Source は kind が符号化） */
+  encoding?: 'raster' | 'vector';
+  /** 子だけ: スタイルの中で子を指す名前（id の \0 の後の "<type>:" に続く部分） */
+  logicalName?: string;
   policy: ResourcePolicy;
-  /** Source 単位の上限（§7.1） */
+  /** Source 単位の上限（§7.1）。子は持たない（親の値を使う） */
   cacheMaxBytes?: number;
+  /** 提供元（m3-t5） */
+  provider?: string;
+}
+
+/** スタイルの子 Source の一覧の 1 要素。from は TileJSON の下のタイルのときの TileJSON の子の id */
+export interface StyleChild {
+  id: string;
+  logicalName: string;
+  type: ResourceType;
+  from?: string;
+}
+
+/** スタイルの Source（親）の登録内容（m3-t2 で型と保存を決め、m3-t7 が使う） */
+export interface StyleSpec {
+  kind: 'style';
+  id: string;
+  /** 地図ライブラリへ渡す https の URL（提供元の解決後・資格情報なし） */
+  url: string;
+  /** スタイル自身のテンプレート（正規化済み） */
+  templates: [string];
+  /** m3 では保存だけ。m4 の範囲取得のグリフで使う */
+  fonts?: string[];
+  policy: ResourcePolicy;
+  cacheMaxBytes?: number;
+  provider?: string;
+  children: StyleChild[];
 }
 
 export interface NormalizedSpec {
@@ -167,8 +207,24 @@ const parseCredentialParams = (v: unknown, explicitNames: readonly string[]): st
   return base;
 };
 
+/**
+ * 型ごとの字句の許可（m3-t2）。tile は TILE_TOKENS で座標が要る。glyph は {fontstack}・{range} の両方が要る。
+ * sprite の内部の字句 {spriteSuffix} は m3-t6 で足す（登録の入力では受けない）。style・tilejson・data は字句なし
+ */
+const checkTokens = (type: ResourceType, compiled: ReturnType<typeof compileTemplate>, index: number): void => {
+  const allowed: readonly TokenName[] = type === 'tile' ? TILE_TOKENS : type === 'glyph' ? ['fontstack', 'range'] : [];
+  for (const tok of compiled.tokens) {
+    if (allowed.indexOf(tok) >= 0) continue;
+    throw unsupportedTemplate(index, type === 'tile' ? `{${tok}} is not a tile token` : `{${tok}} is not allowed in a ${type} URL`);
+  }
+  if (type === 'tile' && !compiled.tile) throw unsupportedTemplate(index, 'needs {z}, {x} and {y} (or {-y} / {quadkey})');
+  if (type === 'glyph' && !(compiled.tokens.has('fontstack') && compiled.tokens.has('range'))) {
+    throw unsupportedTemplate(index, 'needs {fontstack} and {range}');
+  }
+};
+
 /** 1 つのテンプレートを検査し、正規化した形を返す */
-const checkTemplate = (t: string, index: number, credentialParams: readonly string[]): string => {
+const checkTemplate = (t: string, index: number, credentialParams: readonly string[], type: ResourceType = 'tile'): string => {
   if (/[\u0000-\u001f\u007f]/.test(t)) throw unsupportedTemplate(index, 'contains a control character');
   // フラグメントは上流へ届かず、クエリの検査と除去の外に資格情報を残す（M1）
   if (t.indexOf('#') >= 0) throw unsupportedTemplate(index, 'must not contain a fragment (#)');
@@ -203,10 +259,7 @@ const checkTemplate = (t: string, index: number, credentialParams: readonly stri
     throw e;
   }
   if (new URL(compiled.origin).hostname === PSEUDO_HOST) throw unsupportedTemplate(index, `${PSEUDO_HOST} is reserved`);
-  for (const tok of compiled.tokens) {
-    if (TILE_TOKENS.indexOf(tok) < 0) throw unsupportedTemplate(index, `{${tok}} is not a tile token`);
-  }
-  if (!compiled.tile) throw unsupportedTemplate(index, 'needs {z}, {x} and {y} (or {-y} / {quadkey})');
+  checkTokens(type, compiled, index);
   return normalized;
 };
 
@@ -278,27 +331,40 @@ const parseExtent = (o: Record<string, unknown>, sourceId: string, scheme: 'xyz'
   return extent;
 };
 
-/**
- * 登録内容を検査して正規化する（仕様 §5.1・§10・§12）。拒否は WeiwudiError:
- * - kind: style・asset は unsupported-kind（R18）、それ以外の未知の値は attribute-invalid
- * - id: map: から始まる・空・\0 を含む・文字列でない は attribute-invalid。既定は先頭のテンプレートの normalizeTemplate
- * - テンプレート: 絶対でない・http/https 以外・字句の誤り・weiwudi.example.com・座標が取れない は unsupported-template、
- *   userinfo は attribute-invalid
- * - sk. の資格情報（credentials の query・headers の値、テンプレートの全クエリ値。decode した後も）は credential-rejected
- * テンプレートに載っていた資格情報の項目は credentials.query へ移す（明示の credentials が勝つ）
- */
-export function normalizeSpec(input: unknown): NormalizedSpec {
-  if (!isPlainObject(input)) throw invalid('spec', 'must be an object');
-  const kind = parseKind(own(input, 'kind'));
-  const urlIn = own(input, 'url');
-  const urls = parseUrls(urlIn);
-  const explicit = parseCredentials(own(input, 'credentials'));
-  // 明示の credentials.query の名前も資格情報の項目として除く（テンプレートとページの要求に載っていても残さない）
-  const credentialParams = parseCredentialParams(own(input, 'credentialParams'), Object.keys(explicit?.query ?? {}));
+/** 資源の指定に共通の入力（cacheTtl などの方針・credentials・credentialParams。tile は範囲・scheme・tileSize・outOfRange も）。検査は normalizeMember が行う */
+export type CommonPolicyInput = Record<string, unknown>;
 
-  const normalized = urls.map((t, i) => checkTemplate(t, i, credentialParams));
+export interface MemberOptions {
+  kind: StoredSpec['kind'];
+  /** 利用者の id（検査する。無ければ先頭のテンプレート） */
+  id?: unknown;
+  /** 内部で作る id（子の id。\0 を含むので検査しない）。id より優先 */
+  internalId?: string;
+  /** 登録の url が文字列だった（StoredSpec.url の形を合わせる） */
+  single?: boolean;
+  /** 子の tile の符号化（raster・vector の Source は kind から決まるので要らない） */
+  encoding?: 'raster' | 'vector';
+  /** 子の論理名 */
+  logicalName?: string;
+}
+
+/**
+ * 1 つの資源の指定を検査して正規化する（仕様 §5.1・§10・§12。m3-t2）。拒否は WeiwudiError:
+ * - id（利用者の id）: map: から始まる・空・\0 を含む・文字列でない は attribute-invalid。既定は先頭のテンプレートの normalizeTemplate
+ * - テンプレート: 絶対でない・http/https 以外・字句の誤り（型ごとの許可は checkTokens）・weiwudi.example.com・
+ *   tile で座標が取れない は unsupported-template、userinfo は attribute-invalid
+ * - sk. の資格情報（credentials の query・headers の値、テンプレートの全クエリ値。decode した後も）は credential-rejected
+ * テンプレートに載っていた資格情報の項目は credentials.query へ移す（明示の credentials が勝つ）。
+ * 範囲・scheme・tileSize・outOfRange は tile だけが読む（tile でない指定は範囲を持たない。P1）
+ */
+export function normalizeMember(type: ResourceType, urls: string[], common: CommonPolicyInput, opts: MemberOptions): NormalizedSpec {
+  const explicit = parseCredentials(own(common, 'credentials'));
+  // 明示の credentials.query の名前も資格情報の項目として除く（テンプレートとページの要求に載っていても残さない）
+  const credentialParams = parseCredentialParams(own(common, 'credentialParams'), Object.keys(explicit?.query ?? {}));
+
+  const normalized = urls.map((t, i) => checkTemplate(t, i, credentialParams, type));
   const templates = normalized.filter((t, i, xs) => xs.indexOf(t) === i);
-  const id = parseId(own(input, 'id'), templates[0]);
+  const id = opts.internalId ?? parseId(opts.id, templates[0]);
 
   // テンプレートに載っていた資格情報の項目（字句を含む値は除く）。名前は小文字で 1 つにまとめ（M2）、
   // 先のミラー・先の出現が勝ち、明示の credentials がさらに勝つ。出力の名前は勝った側の綴り
@@ -319,40 +385,63 @@ export function normalizeSpec(input: unknown): NormalizedSpec {
     if (merged.size > 0) credentials.query = Object.fromEntries([...merged.values()]);
   }
 
-  const cacheTtl = own(input, 'cacheTtl');
+  const cacheTtl = own(common, 'cacheTtl');
   if (cacheTtl !== undefined && !isNonNegNumber(cacheTtl)) throw invalid('cacheTtl', 'must be a non-negative number');
-  const cacheRetention = own(input, 'cacheRetention');
+  const cacheRetention = own(common, 'cacheRetention');
   if (cacheRetention !== undefined && !isNonNegNumber(cacheRetention)) throw invalid('cacheRetention', 'must be a non-negative number');
-  const cacheMaxBytes = own(input, 'cacheMaxBytes');
+  const cacheMaxBytes = own(common, 'cacheMaxBytes');
   if (cacheMaxBytes !== undefined && !isNonNegInt(cacheMaxBytes)) throw invalid('cacheMaxBytes', 'must be a non-negative integer');
-  const cachePrivate = own(input, 'cachePrivate');
+  const cachePrivate = own(common, 'cachePrivate');
   if (cachePrivate !== undefined && typeof cachePrivate !== 'boolean') throw invalid('cachePrivate', 'must be a boolean');
-  const scheme = own(input, 'scheme');
+
+  const isTile = type === 'tile';
+  const encoding = opts.encoding ?? (opts.kind === 'raster' || opts.kind === 'vector' ? opts.kind : undefined);
+  const scheme = isTile ? own(common, 'scheme') : undefined;
   if (scheme !== undefined && scheme !== 'xyz' && scheme !== 'tms') throw invalid('scheme');
-  const tileSize = own(input, 'tileSize');
+  const tileSize = isTile ? own(common, 'tileSize') : undefined;
   if (tileSize !== undefined && !(isNonNegInt(tileSize) && tileSize > 0)) throw invalid('tileSize', 'must be a positive integer');
 
+  // tile でない資源の範囲外の応答は使われない（範囲を持たない）。合成で型の違う値が混ざらないよう not-found に揃える
   const policy: ResourcePolicy = {
     cacheTtl: cacheTtl ?? DAY_MS,
     store: cachePrivate === true,
-    outOfRange: parseOutOfRange(own(input, 'outOfRange'), kind === 'raster' ? 'transparent' : 'empty'),
+    outOfRange: isTile
+      ? parseOutOfRange(own(common, 'outOfRange'), encoding === 'vector' ? 'empty' : 'transparent')
+      : { extent: 'not-found', zoom: 'not-found' },
     credentialParams,
   };
   if (cacheRetention !== undefined) policy.cacheRetention = cacheRetention;
 
   const stripped = urls.map((t) => stripTemplateParams(t, credentialParams));
   const spec: StoredSpec = {
-    kind,
+    kind: opts.kind,
+    type,
     id,
-    url: typeof urlIn === 'string' ? stripped[0] : stripped,
+    url: opts.single ? stripped[0] : stripped,
     templates,
-    scheme: scheme ?? 'xyz',
     policy,
   };
-  if (tileSize !== undefined) spec.tileSize = tileSize;
-  const extent = parseExtent(input, id, spec.scheme);
-  if (extent) spec.extent = extent;
+  if (isTile) {
+    spec.scheme = scheme ?? 'xyz';
+    if (tileSize !== undefined) spec.tileSize = tileSize;
+    const extent = parseExtent(common, id, spec.scheme);
+    if (extent) spec.extent = extent;
+    if (opts.kind === 'child' && encoding !== undefined) spec.encoding = encoding;
+  }
+  if (opts.logicalName !== undefined) spec.logicalName = opts.logicalName;
   if (cacheMaxBytes !== undefined) spec.cacheMaxBytes = cacheMaxBytes;
 
   return credentials ? { spec, credentials } : { spec };
+}
+
+/**
+ * 利用者の登録内容を検査して正規化する（仕様 §5.1・§10・§12）。kind: style・asset は m3-t7 まで unsupported-kind（R18）、
+ * それ以外の未知の値は attribute-invalid。残りの検査は normalizeMember('tile', …)
+ */
+export function normalizeSpec(input: unknown): NormalizedSpec {
+  if (!isPlainObject(input)) throw invalid('spec', 'must be an object');
+  const kind = parseKind(own(input, 'kind'));
+  const urlIn = own(input, 'url');
+  const urls = parseUrls(urlIn);
+  return normalizeMember('tile', urls, input, { kind, id: own(input, 'id'), single: typeof urlIn === 'string' });
 }
