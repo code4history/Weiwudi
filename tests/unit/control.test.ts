@@ -425,3 +425,17 @@ describe('直列の待ち行列', () => {
   });
 });
 
+
+describe('子 Source は見せない（m3-t2）', () => {
+  it('kind: child の記録は sources() に出ず、source・stats・update・clean・remove は source-not-found', async () => {
+    const h = harness();
+    await ok(h, 'register', { kind: 'raster', id: 'a', url: TPL });
+    const store = await storeOf(h);
+    const a = (await store.getSource('a'))!;
+    const childId = 'p\u0000tile:base';
+    await store.putSource({ ...a, id: childId, kind: 'child', parentId: 'p', spec: { ...a.spec, id: childId } });
+    expect((await ok(h, 'sources')).map((s: { id: string }) => s.id)).toEqual(['a']);
+    for (const op of ['source', 'stats', 'update', 'clean', 'remove']) await fails(h, op, { id: childId }, 'source-not-found');
+    expect(await store.getSource(childId)).toBeDefined();
+  });
+});

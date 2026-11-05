@@ -365,6 +365,7 @@ describe('normalizeMember: 型ごとの字句の許可（m3-t2）', () => {
     ['glyph', 'https://g.example/{fontstack}/{z}.pbf', 'unsupported-template'],
     ['glyph', 'https://g.example/{fontstack}/0-255.pbf', 'unsupported-template'],
     ['glyph', 'https://g.example/{z}/{x}/{y}.pbf', 'unsupported-template'],
+    ['glyph', 'https://g.example/{fontstack}/{range}/{z}.pbf', 'unsupported-template'],
     ['sprite', 'https://s.example/sprite', 'accepted'],
     ['sprite', 'https://s.example/sprite{ratio}', 'unsupported-template'],
     ['style', 'https://s.example/style.json', 'accepted'],
