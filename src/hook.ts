@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 // 照合表とルート（仕様 §4.2・§4.3。m2-t7）。実 URL の要求を照合ルートと門番で受け、core.serve へ渡す。
-// 値の依存は core・upstream・context・store・url_pattern・constants・errors だけ（仕様 §3）。registry は import できないので、
+// 値の依存は core・upstream・context・store・url_pattern・style_body・constants・errors だけ（仕様 §3）。registry は import できないので、
 // 資格情報の Source の選び方（registry.credentialSourceFor）は配線（weiwudi_gw_logic.ts）が installHook に渡す。
 //
 // 決まり:
@@ -13,13 +13,16 @@
 //   Resource の id → テンプレートの順（Ruling）。同じ要求に当たる別の照合の形は warnings に出す
 // - 資格情報は、要求のオリジンをテンプレートに持つ Source だけから credentialSourceFor で選ぶ（別ホストへ送らない。I2）
 // - Resource の provider の提供元を ctx.providers() から引いて upstream へ渡す（m3-t5）
+// - ServeInput を作るのは serveResource 1 つ（照合ルート・門番・t7 の登録時の取得が共有する。C-O12）。
+//   style・tilejson は isStyleLike と transform（style_body の rewrite*）を付け、sprite のキーは {spriteSuffix} で作る（m3-t6・I3）
 import type { RouteHandlerCallback, RouteHandlerCallbackOptions, RouteMatchCallback } from 'workbox-core';
 import type { Context, CredentialSourcePicker, LoadedTable, TableState } from './context';
-import { passThrough, serve } from './core';
+import { passThrough, serve, type ServeInput } from './core';
 import { createUpstream, hasCredentials, isAuthenticated, isStorable } from './upstream';
-import type { Credentials, ResourceMeta, ResourceType } from './store';
+import type { Credentials, ResourceMeta, ResourceType, SourceRecord } from './store';
 import type { WeiwudiProvider } from './plugins';
-import { isLegacyRecord, templatesOf } from './store';
+import { isLegacyRecord, styleSpecOf, templatesOf } from './store';
+import { credentialTargetOf, rewriteStyleBody, rewriteTileJsonBody, type StripRule } from './style_body';
 import { LEGACY_PREFIX, PSEUDO_HOST } from './constants';
 import { MatchTable, compileTemplate, entryKey, type CompiledTemplate, type MatchResult, type MatchRule } from './url_pattern';
 
@@ -223,6 +226,104 @@ const credentialsFor = async (ctx: Context, loaded: LoadedTable | undefined, res
 const providerOf = (ctx: Context, resource: ResourceMeta): WeiwudiProvider | undefined =>
   resource.provider === undefined ? undefined : ctx.providers().find((p) => p.id === resource.provider);
 
+/** serveResource の任意の指定 */
+export interface ServeResourceOptions {
+  /** §6 の 2（hit）を飛ばして上流へ出す（update() の取り直し。R4） */
+  revalidate?: boolean;
+  /**
+   * この Resource に資格情報を持つ Source の id（照合表の credentialSources が要求のオリジンで選んだもの）。
+   * style・tilejson の本体の除去の親をここから引く（O-N3）。無ければ sourceIds の Source を登録順に見て、資格情報を持つ最初のもの
+   */
+  credentialSourceId?: string;
+}
+
+const byOrder = (a: SourceRecord, b: SourceRecord): number => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
+/** 資格情報を持つ Source（指定が無ければ sourceIds を登録順に見て最初のもの。credentialSourceFor と同じ順。O-N3） */
+const credentialOwnerOf = async (ctx: Context, resource: ResourceMeta, given: string | undefined): Promise<SourceRecord | undefined> => {
+  const store = await ctx.store();
+  if (given !== undefined) return store.getSource(given);
+  const recs = (await Promise.all(resource.sourceIds.map((id) => store.getSource(id))))
+    .filter((r): r is SourceRecord => r !== undefined)
+    .sort(byOrder);
+  for (const rec of recs) {
+    if (hasCredentials(await store.getCredentials(rec.id))) return rec;
+  }
+  return undefined;
+};
+
+/**
+ * 本体の資格情報の除去の規則（R32）。資格情報を持つ Source の親（スタイル）の URL のオリジンと、親の提供元の matches で
+ * credentialTargetOf を作る（t7 の子の資格情報の配り先と同じ関数。R5）。資格情報を持つ Source が無い・親が引けなければ除かない
+ */
+const stripRuleOf = async (ctx: Context, resource: ResourceMeta, credentialSourceId: string | undefined): Promise<StripRule | undefined> => {
+  const owner = await credentialOwnerOf(ctx, resource, credentialSourceId);
+  if (!owner || owner.parentId === undefined) return undefined;
+  if (!hasCredentials(await (await ctx.store()).getCredentials(owner.id))) return undefined;
+  const parentRec = await (await ctx.store()).getSource(owner.parentId);
+  const parent = parentRec ? styleSpecOf(parentRec) : undefined;
+  if (!parent) return undefined;
+  let styleOrigin: string;
+  try {
+    styleOrigin = new URL(parent.url).origin;
+  } catch (_e) {
+    return undefined;
+  }
+  const provider = parent.provider === undefined ? undefined : ctx.providers().find((p) => p.id === parent.provider);
+  return {
+    credentialParams: resource.policy.credentialParams,
+    shouldStrip: credentialTargetOf({ styleOrigin, ...(provider ? { providerMatches: (u: string) => provider.matches(u) } : {}) }),
+  };
+};
+
+/**
+ * style・tilejson の本体の書き換え（R28）。base は要求の URL（相対 URL の解決）。style には Resource の提供元の rewriteStyle を当てる。
+ * 読めない本体は style_body が投げ、core が上流の失敗として扱う（保存しない。C-S4）
+ */
+const bodyTransformOf = (
+  type: 'style' | 'tilejson', base: string, rewriteStyle: ((s: unknown) => unknown) | undefined, strip: StripRule | undefined,
+): NonNullable<ServeInput['transform']> => async (blob) => {
+  const text = await blob.text();
+  const out = type === 'style'
+    ? rewriteStyleBody(text, base, { ...(rewriteStyle ? { rewriteStyle } : {}), ...(strip ? { strip } : {}) })
+    : rewriteTileJsonBody(text, base, strip ? { strip } : {});
+  return out === text ? blob : new Blob([out], { type: blob.type });
+};
+
+/**
+ * ServeInput を作って core.serve へ渡す唯一の関数（照合ルート・門番・t7 の登録時の取得が共有する。C-O12）。
+ * credentials は足す資格情報（認証付きの要求では渡さない）。store などの失敗は reject で返す（照合ルートは素通しへ直す）
+ */
+export async function serveResource(
+  ctx: Context, resource: ResourceMeta, request: Request, url: URL, m: MatchResult,
+  credentials: Credentials | undefined, opts: ServeResourceOptions = {},
+): Promise<Response> {
+  const now = () => Date.now();
+  const provider = providerOf(ctx, resource);
+  let styleLike: Pick<ServeInput, 'isStyleLike' | 'transform'> = {};
+  if (resource.type === 'style' || resource.type === 'tilejson') {
+    const strip = await stripRuleOf(ctx, resource, opts.credentialSourceId);
+    const rewriteStyle = resource.type === 'style' && provider?.rewriteStyle
+      ? (st: unknown) => provider.rewriteStyle!(st) : undefined;
+    styleLike = { isStyleLike: true, transform: bodyTransformOf(resource.type, url.href, rewriteStyle, strip) };
+  }
+  const input: ServeInput = {
+    resourceId: resource.id,
+    // 鍵は読み直した Resource の credentialParams で作る（資格情報をキーに残さない。§10）。sprite は {spriteSuffix} の値で作る
+    key: entryKey(resource.id, resource.type, m, url, resource.policy.credentialParams),
+    ...(resource.type === 'tile' && m.z !== undefined && m.x !== undefined && m.y !== undefined
+      ? { coord: { z: m.z, x: m.x, y: m.y } } : {}),
+    // グリフは範囲を渡す（同じ fontstack の範囲を 1 レコードへ束ねるのは core と store。仕様 §11）
+    ...(resource.type === 'glyph' && m.range !== undefined ? { part: m.range } : {}),
+    ...styleLike,
+    ...(opts.revalidate === true ? { revalidate: true } : {}),
+    request,
+    storable: isStorable(request, resource.policy),
+    upstream: createUpstream(ctx, { resourceId: resource.id, original: request, credentials, provider, now }),
+  };
+  return serve(ctx, input, now);
+}
+
 /** 照合した要求を配信する。store の失敗などで配信できなければ素通し（要求を止めない） */
 const serveHit = async (ctx: Context, request: Request, url: URL, hit: TableHit, loaded: LoadedTable | undefined): Promise<Response> => {
   // Range つきは serve に入れない（範囲外の判定より前。仕様 §11）
@@ -238,22 +339,9 @@ const serveHit = async (ctx: Context, request: Request, url: URL, hit: TableHit,
   }
   // 表が古い（消された Resource）
   if (!resource) return fetch(request);
-  const { m } = hit;
-  const now = () => Date.now();
-  const input = {
-    resourceId: resource.id,
-    // 鍵は読み直した Resource の credentialParams で作る（資格情報をキーに残さない。§10）
-    key: entryKey(resource.id, resource.type, m, url, resource.policy.credentialParams),
-    ...(resource.type === 'tile' && m.z !== undefined && m.x !== undefined && m.y !== undefined
-      ? { coord: { z: m.z, x: m.x, y: m.y } } : {}),
-    // グリフは範囲を渡す（同じ fontstack の範囲を 1 レコードへ束ねるのは core と store。仕様 §11）
-    ...(resource.type === 'glyph' && m.range !== undefined ? { part: m.range } : {}),
-    request,
-    storable: isStorable(request, resource.policy),
-    upstream: createUpstream(ctx, { resourceId: resource.id, original: request, credentials, provider: providerOf(ctx, resource), now }),
-  };
+  const credentialSourceId = loaded?.credentialSources.get(resource.id)?.get(url.origin);
   try {
-    return await serve(ctx, input, now);
+    return await serveResource(ctx, resource, request, url, hit.m, credentials, credentialSourceId === undefined ? {} : { credentialSourceId });
   } catch (_e) {
     return fetch(request);
   }
