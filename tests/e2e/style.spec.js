@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
 // ページの blob Worker から、MapLibre 6.9.0 が出すのと同じ形の要求（スタイル → TileJSON → タイル・sprite@2x・
 // {fontstack}/{range}）を fetch で出す。上流は tile-server.mjs（localhost:5174。ページは localhost:5173 で別オリジン）、
 // api.mapbox.com は context.route で tile-server の /style/mapbox*.json などを返す。外部へは出ない（各テストの最後に数える）。
-// Chromium だけ（R14）
+// WebKit・Firefox でも走らせる（m3-t10・R14'）。Chromium だけで成り立つものは @chromium-only で外し、理由をその試験に書く
 const UPSTREAM = 'http://localhost:5174';
 const PAGE = '/tests/e2e/fixtures/style-page.html';
 const PSEUDO = 'weiwudi.example.com';
@@ -29,9 +29,12 @@ const MAPBOX_FONTS = 'https://api.mapbox.com/fonts/v1/u';
 const mapboxTile = (z, x, y) => `https://api.mapbox.com/v4/u.tileset/${z}/${x}/${y}.vector.pbf`;
 
 // 外へ出た要求を数える（C-O8）。localhost:5173・5174 は通す。api.mapbox.com は routeMapbox が先に受けるので
-// ここには来ない（後に足した route が先に評価される）。疑似ホストは countPseudoHits が数える
+// ここには来ない（後に足した route が先に評価される）。疑似ホストは countPseudoHits が数える。
+// 数えるのは Chromium だけ: WebKit の context.route は SW が出した要求を拾わず（O-N5）、ページの要求を SW より
+// 先に受けうるので、数が意味を持たない。ほかのエンジンでは route を置かず、空の並びを返す（expectNoLeaks は素通り）
 async function guardNetwork(context) {
     const external = [];
+    if (test.info().project.name !== 'chromium') return { external, pseudo: [] };
     await context.route('**/*', (route) => {
         const url = new URL(route.request().url());
         if (ALLOWED_HOSTS.includes(url.host)) return route.continue();
@@ -47,7 +50,7 @@ async function guardNetwork(context) {
     return { external, pseudo };
 }
 
-// 各テストの最後に呼ぶ。どちらも 0 件（C-O8。WebKit の context.route は SW の要求を拾わない。O-N5・t10）
+// 各テストの最後に呼ぶ。どちらも 0 件（C-O8。Chromium でだけ数える。guardNetwork を参照）
 function expectNoLeaks(guard) {
     expect(guard.external).toEqual([]);
     expect(guard.pseudo).toEqual([]);
@@ -156,11 +159,14 @@ test.describe('Weiwudi style (kind: style)', () => {
         expect(second.map((res) => res.wstatus)).toEqual([...registered, ...later].map(() => 'hit'));
         // 本体は上流のもの（hit でも同じ）
         expect(JSON.parse(second[0].text).sources.vt.url).toBe(TILEJSON_URL);
+        expect(JSON.parse(second[1].text)).toMatchObject({ tiles: [`${UPSTREAM}/style/tiles/{z}/{x}/{y}.pbf`], maxzoom: 14 });
         expect(second[2].text).toBe('vt:3/4/2');
+        expect(second[3].text).toBe('raster:2/1/1');
         expect(JSON.parse(second[4].text).dot.pixelRatio).toBe(2);
         expect(second[5].tail).toBe(2);
         expect(JSON.parse(second[6].text).dot.pixelRatio).toBe(1);
         expect(second[7].text).toBe(`glyph:${FONTSTACK}:0-255`);
+        expect(JSON.parse(second[8].text)).toMatchObject({ type: 'FeatureCollection' });
         // 上流へは 1 回ずつ（2 回目は保存した本体）
         for (const path of ['/style/tiles/3/4/2.pbf', '/style/sprite@2x.json', `/style/fonts/${FONTSTACK}/0-255.pbf`]) {
             expect(await upstreamLog(request, path), path).toHaveLength(1);
@@ -168,7 +174,8 @@ test.describe('Weiwudi style (kind: style)', () => {
         expectNoLeaks(guard);
     });
 
-    test('serves the style offline after registering twice', async ({ page, context }) => {
+    // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた（仕様 §2 の 7）
+    test('serves the style offline after registering twice', { tag: '@chromium-only' }, async ({ page, context }) => {
         const guard = await guardNetwork(context);
         await openPage(page);
         const spec = { kind: 'style', url: STYLE_URL };
@@ -213,7 +220,8 @@ test.describe('Weiwudi style (kind: style)', () => {
         expectNoLeaks(guard);
     });
 
-    test('keeps entries when the tilejson is unreachable on update', async ({ page, context }) => {
+    // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた（仕様 §2 の 7）
+    test('keeps entries when the tilejson is unreachable on update', { tag: '@chromium-only' }, async ({ page, context }) => {
         const guard = await guardNetwork(context);
         await openPage(page);
         const src = await register(page, { kind: 'style', url: STYLE_URL });
@@ -238,7 +246,8 @@ test.describe('Weiwudi style (kind: style)', () => {
         expectNoLeaks(guard);
     });
 
-    test('resolves mapbox urls without leaking the token', async ({ page, context }) => {
+    // WebKit の context.route は SW の要求を拾わず、SW が本物の api.mapbox.com へ出てしまう（O-N5）
+    test('resolves mapbox urls without leaking the token', { tag: '@chromium-only' }, async ({ page, context }) => {
         const guard = await guardNetwork(context);
         const seen = await routeMapbox(context);
         await openPage(page);
@@ -247,6 +256,8 @@ test.describe('Weiwudi style (kind: style)', () => {
         });
         expect(src.url).toBe(MAPBOX_STYLE);
         expect(JSON.stringify(src)).not.toContain(MAPBOX_TOKEN);
+        // 登録の戻り値（url・resources のテンプレート）に mapbox:// が残らない（t9 L1 i-1）
+        expect(JSON.stringify(src)).not.toContain('mapbox://');
         // MapLibre の Worker と同じ順: スタイル → ?secure の TileJSON → タイル・sprite@2x・{fontstack}/{range}
         const urls = [
             MAPBOX_STYLE, MAPBOX_TILEJSON, mapboxTile(5, 28, 12), `${MAPBOX_SPRITE}@2x.json`, `${MAPBOX_SPRITE}@2x.png`,
@@ -312,7 +323,8 @@ test.describe('Weiwudi style (kind: style)', () => {
         expectNoLeaks(guard);
     });
 
-    test('reports usage by provider', async ({ page, context }) => {
+    // WebKit の context.route は SW の要求を拾わず、SW が本物の api.mapbox.com へ出てしまう（O-N5）
+    test('reports usage by provider', { tag: '@chromium-only' }, async ({ page, context }) => {
         const guard = await guardNetwork(context);
         await routeMapbox(context);
         await openPage(page);
@@ -329,11 +341,11 @@ test.describe('Weiwudi style (kind: style)', () => {
         expect(sum).toEqual({ count: report.count, bytes: report.bytes });
         // 制御の POST は、blob Worker・同じオリジンの iframe・srcdoc の iframe からも通る（I6・t8 の申し送り）
         const fromWorker = await page.evaluate(() => window.inWorker('async () => control("usage", {})', null));
-        expect(fromWorker).toEqual({ ok: true, value: { ok: true, result: report } });
+        expect(fromWorker, 'from a blob worker').toEqual({ ok: true, value: { ok: true, result: report } });
         const fromIframe = await page.evaluate(() => window.inIframe('usage', {}));
-        expect(fromIframe).toEqual({ controlled: true, value: { ok: true, result: report } });
+        expect(fromIframe, 'from a same-origin iframe').toEqual({ controlled: true, value: { ok: true, result: report } });
         const fromSrcdoc = await page.evaluate(() => window.inSrcdoc('usage', {}));
-        expect(fromSrcdoc).toMatchObject({ ok: true, href: 'about:srcdoc', controlled: true, value: { ok: true, result: report } });
+        expect(fromSrcdoc, 'from a srcdoc iframe').toMatchObject({ ok: true, href: 'about:srcdoc', controlled: true, value: { ok: true, result: report } });
         expectNoLeaks(guard);
     });
 

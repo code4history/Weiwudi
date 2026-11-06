@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
 
 // 実 URL の捕捉（新 API）を実ブラウザで確かめる（m2-t9・仕様 §4）。外部へ出ない構成で、上流は tile-server.mjs
-// （localhost:5174。ページは localhost:5173 なので別オリジン）。Chromium だけ（R14）
+// （localhost:5174。ページは localhost:5173 なので別オリジン）。WebKit・Firefox でも走らせる（m3-t10・R14'。
+// Chromium だけで成り立つものは @chromium-only で外し、理由をその試験に書く）
 const UPSTREAM = 'http://localhost:5174';
 const PAGE = '/tests/e2e/fixtures/hook-page.html';
 const PSEUDO = 'weiwudi.example.com';
@@ -9,9 +10,12 @@ const PSEUDO = 'weiwudi.example.com';
 const tpl = (kind) => `${UPSTREAM}/${kind}/{z}/{x}/{y}.png`;
 const at = (kind, z, x, y) => `${UPSTREAM}/${kind}/${z}/${x}/${y}.png`;
 
-// 疑似ホストへの要求のうち、ネットワークへ出たものだけを数える（SW が受けたものはここに来ない。第 1 回 S15）
+// 疑似ホストへの要求のうち、ネットワークへ出たものだけを数える（SW が受けたものはここに来ない。第 1 回 S15）。
+// 数えるのは Chromium だけ: WebKit の context.route は SW が出した要求を拾わず、ページの要求を SW より先に
+// 受けうるので、数が意味を持たない（O-N5）。ほかのエンジンでは route を置かず、空の並びを返す
 async function countPseudoHits(context) {
     const hits = [];
+    if (test.info().project.name !== 'chromium') return hits;
     await context.route(`**://${PSEUDO}/**`, (route) => {
         hits.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
         route.abort();
@@ -172,7 +176,8 @@ test.describe('Weiwudi hook (real urls)', () => {
         expect((await upstreamLog(request, '/png/2/1/2.png')).map((e) => e.mode)).toEqual(['cors']);
     });
 
-    test('serves hooked tiles offline', async ({ page, context }) => {
+    // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた（仕様 §2 の 7）
+    test('serves hooked tiles offline', { tag: '@chromium-only' }, async ({ page, context }) => {
         await openPage(page);
         await register(page, { kind: 'raster', url: tpl('tiles') });
         expect((await getTile(page, at('tiles', 2, 3, 1))).wstatus).toBe('miss');
@@ -183,7 +188,8 @@ test.describe('Weiwudi hook (real urls)', () => {
         expect(tile.text).toBe('tile:2/3/1');
     });
 
-    test('serves hooked tiles offline after the service worker restarted', async ({ page, context }) => {
+    // CDP で SW を止める・context.setOffline を使う（どちらも Chromium だけ）
+    test('serves hooked tiles offline after the service worker restarted', { tag: '@chromium-only' }, async ({ page, context }) => {
         await openPage(page);
         await register(page, { kind: 'raster', url: tpl('tiles') });
         expect((await getTile(page, at('tiles', 2, 2, 3))).wstatus).toBe('miss');
@@ -197,7 +203,8 @@ test.describe('Weiwudi hook (real urls)', () => {
         await sw.waitFor('running');
     });
 
-    test('does not steal a consumer route while the table is loading', async ({ page, context }) => {
+    // CDP で SW を止める（Chromium だけ）
+    test('does not steal a consumer route while the table is loading', { tag: '@chromium-only' }, async ({ page, context }) => {
         await openPage(page);
         await register(page, { kind: 'raster', url: tpl('tiles') });
         await stopServiceWorker(context, page);

@@ -26,7 +26,8 @@ async function openPage(page) {
     expect(await page.evaluate(() => window.swError ?? null)).toBeNull();
 }
 
-test.describe('Weiwudi quota', () => {
+// CDP の Storage.overrideQuotaForOrigin と playwright.chromium の永続コンテキストを使うので Chromium だけ（m3-t10）
+test.describe('Weiwudi quota', { tag: '@chromium-only' }, () => {
     let userDataDir;
     let context;
     let page;
