@@ -34,14 +34,14 @@
 | 7 | `context.setOffline(true)` が SW の `fetch` まで切る | 切る | ページの `fetch` が先に失敗（SW 到達を測れない） | 未測定 |
 | 8 | SW 停止（CDP `ServiceWorker.stopAllWorkers`）後の最初の要求より先に IndexedDB は読めない（照合表は空） | 確認 | — | — |
 | 9 | Workbox 7.4.1 で、`queueMicrotask` で登録したルートは利用者のルートより後ろに付き、§4.3 の振り分けが成立する | 確認 | — | — |
-| 10 | 登録したテンプレートと同じ URL の `<script>` と iframe の navigate に照合ルートが触らない（m3-t10・`engines.spec.js`） | 確認 | 未確定（対照の `<img>` の保存が WebKit で失敗し、手前で落ちた。CI の再走待ち） | 確認 |
+| 10 | 登録したテンプレートと同じ URL の `<script>` と iframe の navigate に照合ルートが触らない（m3-t10・`engines.spec.js`） | 確認 | 未確定（対照の `<img>` の保存が Blob の制約で失敗し手前で落ちた。ArrayBuffer に替えた版の CI 待ち） | 確認 |
 | 11 | sandbox（`allow-scripts allow-same-origin`）の srcdoc の iframe が controller を継ぎ、新 API が使える（m3-t10・`engines.spec.js`） | 継ぐ | 継ぐ | 継がない（中の呼び出しは `sw-not-controlling`） |
 
 **未確認として残す点**:
 
-- Firefox は Playwright 組み込みの Firefox で SW の準備完了が返らず、測れなかった。**m2 でも測らず**、「未確認」のまま README に書く（m2 計画の R14）。m3-t10 から CI の `e2e-engines` の job で 1 回走らせ（`continue-on-error`）、結果を記録する。結果（PR #94 の CI）: SW は準備でき、WebKit と同じ 29 件がすべて通った。必須の検査にはしない
+- Firefox は Playwright 組み込みの Firefox で SW の準備完了が返らず、測れなかった。**m2 でも測らず**、「未確認」のまま README に書く（m2 計画の R14）。m3-t10 から CI の `e2e-engines` の job で 1 回走らせ（`continue-on-error`）、結果を記録する。結果（PR #94 の CI）: SW は準備でき、WebKit と同じ試験（診断を含め 30 件）がすべて通った。必須の検査にはしない
 - 上の表の WebKit の列は Playwright 1.62.1 と webkit-2336 のものである。lock の Playwright 1.64 が要求する webkit-2370（Firefox は 1555）は手元に無く、共有キャッシュを触らないため手元では `playwright install` をしない
-- m3-t10 から、WebKit は CI（GitHub の ubuntu・lock の Playwright・毎回 install）の `e2e-engines` の job で e2e を流す（R14'）。Chromium でしか成り立たない試験（CDP で SW を止めるもの・`context.setOffline` を使うもの（表の 7）・SW の要求を `context.route` で数えたり受けたりするもの（Mapbox の試験を含む））はタグ `@chromium-only` で外す。結果（PR #94 の CI・仮）: 29 件のうち 9 件が落ちた。どれも SW は要求を受ける（`miss`）が保存されない（登録時の保存も含む）。原因を切り分け中で、確定は次の CI の後。Linux の WebKit と iOS の Safari の差は残る
+- m3-t10 から、WebKit は CI（GitHub の ubuntu・lock の Playwright・毎回 install）の `e2e-engines` の job で e2e を流す（R14'）。Chromium でしか成り立たない試験（CDP で SW を止めるもの・`context.setOffline` を使うもの（表の 7）・SW の要求を `context.route` で数えたり受けたりするもの（Mapbox の試験を含む））はタグ `@chromium-only` で外す。結果（PR #94 の CI・仮）: 29 件のうち 9 件が落ちた。どれも SW は要求を受ける（`miss`）が保存されず（`x-weiwudi-error: storage`）、WebKit の非永続の保存領域が IndexedDB に Blob を put できない（`UnknownError`）ためと診断で確かめた。Blob を保存できない WebKit の制約（プライベートブラウズを含む）に合わせ、本体を ArrayBuffer で保存する（§5.2）。件数の確定は直した版の CI の後Linux の WebKit と iOS の Safari の差は残る
 - 本書の設計は実装では未走行である（走らせたのは §2 の計測だけ）
 
 コードで確かめた事実:
@@ -275,7 +275,18 @@ export interface EntryBody {
   headers: Record<string, string>;
   parts?: GlyphPartIndex;     // §11 の結合保存
 }
+
+// bodies に置く形（m3-t10）。EntryBody は Store の呼び出し側の形で、保存は本体を ArrayBuffer・型を type に分ける
+export interface StoredBody {
+  key: string;
+  data: ArrayBuffer;
+  type: string;
+  headers: Record<string, string>;
+  parts?: GlyphPartIndex;
+}
 ```
+
+本体を Blob のまま保存しない。WebKit の非永続の保存領域（Safari のプライベートブラウズ・Playwright の WebKit）は IndexedDB に Blob を put できない（`UnknownError: Error preparing Blob/File data to be stored in object store`。m3-t10 の CI で実測）。Blob との変換は `store.ts` の 1 か所で行い、Blob を持つ古いレコード（開発の途中の形）は miss として作り直す。
 
 `ResourceMeta` は保存の型で、公開しない。ページ側の API（`WeiwudiSource.resources`・`stats().byResource`）と差し込み口（§8）へは、射影した `ResourceInfo` だけを渡す。
 
@@ -599,9 +610,9 @@ type Credentials = { query?: Record<string, string>; headers?: Record<string, st
 
 **#39 の対象はグリフである。** 元の #12 は「フォントの範囲ファイルを結合キャッシュへ」であり、HTTP の Range とは別の話である。
 
-- `{fontstack}/{range}.pbf` を、fontstack ごとに **1 レコード**へ束ねる。Entry の `key` は fontstack までで、`EntryBody.parts` に `{ '<range>': { offset, length, fetchedAt } }`、`blob` に連結した本体を持つ
-- 再生は `blob.slice(offset, offset + length)`
-- 保存は同じトランザクションで読み、`new Blob(parts の slice 群と新しい分)` を作り直して書く。古い部分の差し替えで空きが残らない
+- `{fontstack}/{range}.pbf` を、fontstack ごとに **1 レコード**へ束ねる。Entry の `key` は fontstack までで、`parts` に `{ '<range>': { offset, length, fetchedAt } }`、本体に連結したバイト列を持つ（保存は ArrayBuffer。§5.2）
+- 再生は `blob.slice(offset, offset + length)`（読み出した本体の Blob から）
+- 保存は同じトランザクションで読み、残す部分の切り出しと新しい分を 1 つの ArrayBuffer に連結し直して書く（新しい分は tx の前に ArrayBuffer にする）。古い部分の差し替えで空きが残らない
 - 範囲取得のときは 1 fontstack 分を溜めてから 1 回で書く。逐次に書くと fontstack の大きさ × 範囲数の書き込みになる
 - 削除と LRU と統計は fontstack 単位。鮮度は部分ごと（`fetchedAt`）に見る
 - 試作は `consolidated.pbf` の実装を持たない（`handleFontRequest` は範囲ごとに保存）
@@ -780,7 +791,7 @@ await style.fetchRange({ bounds: [139.7, 35.6, 139.8, 35.7], minZoom: 10, maxZoo
 
 **戻した場合**（1.1.x へ）: 旧版は空の DB から動く。キャッシュは取り直しになるが壊れない。
 
-`Blob` の保存を続けるので、iOS Safari の扱いは現行と変わらない。
+新 DB は本体を ArrayBuffer で保存する（§5.2。m3-t10）。旧 DB の `Blob` は移すときに ArrayBuffer にして書く。WebKit の非永続の保存領域でも保存できる。
 
 ## 15. 試作（`origin/v1_dev`）の扱い
 

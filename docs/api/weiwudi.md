@@ -246,8 +246,10 @@ L.tileLayer(source.url as string).addTo(leafletMap);
 Chromium is tested locally and in CI. WebKit (Playwright's WebKit on Linux) is tested in CI, except the
 tests that only work on Chromium: going offline (`context.setOffline`), stopping the service worker (CDP),
 the real storage quota, and the Mapbox tests (Playwright cannot intercept requests from a service worker on
-WebKit). Linux WebKit is not the same as Safari on iOS. (Provisional: the WebKit result is updated after the
-next CI run.) Firefox is run in CI on the same tests as WebKit; all 29 passed, but it is not a required check.
+WebKit). Linux WebKit is not the same as Safari on iOS. WebKit cannot store a `Blob` in IndexedDB in a
+non-persistent session (private browsing included), so Weiwudi stores bodies as `ArrayBuffer`. (Provisional:
+the WebKit test count is updated after the next CI run.) Firefox is run in CI on the same tests as WebKit; all
+passed, but it is not a required check.
 
 A sandboxed `srcdoc` iframe (`allow-scripts allow-same-origin`) inherits the page's service worker on Chromium
 and WebKit, so it can use the API there. On Firefox it does not, and calls in it reject with `sw-not-controlling`.
