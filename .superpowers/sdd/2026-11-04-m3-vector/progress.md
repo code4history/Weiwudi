@@ -155,3 +155,22 @@ Ruling: 第 2 回の反映で事前点検を合格とし、再点検は置かな
   - t8: removeResource・usage は子を親の単位で数えるか決める。removeStyleChildren・ownersOf を使う
   - t9（e2e）: blob Worker から スタイル → `?secure` の TileJSON → タイル・sprite@2x・{fontstack}/{range} を確かめる
   - m4: 範囲取得のグリフは putGlyphParts を使い、同じ範囲が 2 つあるときの後勝ちを試験する・直列の待ち行列で上流を待つので取得の上限を検討（R34）・取り直しと除去で credentialParams がずれる件（L1 i-2）と R3 で残した子の資格情報（L1 i-3）は実害なしとして記録
+
+## m3-t8 資源単位の削除と提供元別の使用量（#38・I4・I6）
+
+- PR: https://github.com/code4history/Weiwudi/pull/92 （合流は下の merge commit）
+- 実測（t8 の枝 3ae6e2d）: 単体試験 1338 passed・typecheck・build・eslint・check-dts（weiwudi_gw・weiwudi）・tests/dts の tsc 0・e2e 35 passed・受け入れ条件の grep をすべて満たす・CI 全緑
+- 対照: 初回 18 通り・直し 11 通りで、外すと試験が落ちた
+- 書き換えた既存の試験（I6 で送り手の無い POST が sw-not-controlling になるため）: sw-harness.ts に PAGE_CLIENT を足し post の既定の送り手にした・control.test.ts の direct() の event を `{ clientId: PAGE_CLIENT_ID }` に・style.test.ts の R33 の孤児の試験で event と self を置く
+- L1（Claude）: 合流可（Minor 3）。実 Chromium の探りの e2e で、window・blob Worker・同じオリジンの iframe が通ることを確かめた
+  - m-1: srcdoc の iframe が sw-not-controlling で弾かれる → about:srcdoc・about:blank は完全一致で受ける（Ruling: clients.get は同じオリジンの client だけを返し、opaque な sandbox の iframe は制御下に入らないことを実測済み）
+  - m-2: clientId が空・event が無い POST の試験 → 足した
+  - m-3: 名指ししない Resource を消さない試験 → 足した（id の境界 a/ab も）
+  - Info: postV2 で書式に合わない code を internal に（isCodeFormat を共有）・文書の重複の削除・usage の鍵の名前空間の注記
+- L2（Codex）: 第 1 回は 30 分の枠で最終報告の前に止まった。同じスレッドを再開して最終報告だけを書かせた。合流不可（必須 2・いずれも文書）
+  - from の未知の code の説明が段落の中で食い違う → 冒頭を書き換えた
+  - removeResource の「resources の id」が実装と合わない（孤児の子も受ける）→ 書き直した
+  - 推奨（clearEntries の境界・共有の usage・送り手の検査の失敗）の試験を足した
+- Rulings（実装担当。いずれも承認）: weiwudi_gw_logic は触らない（workbox が event を渡す）・styleChildIds を style.ts に切り出す・孤児の子を持ち主に入れる・resourceId が空なら attribute-invalid・usage の鍵が引けなければ 'unknown'・送り手の検査は fail-closed で本文の前・usage は直列にしない・about: は完全一致
+- 運用の記録: Codex の job の記録は cwd ごとの台帳（clone で起動すると state/Weiwudi-*）に入る。見張るときは find で探す
+- 申し送り（t9）: 実ブラウザで blob Worker・同じオリジンの iframe・srcdoc の iframe からの制御の POST・removeResource の後の再取得・usage を確かめる。WebKit・Firefox の dedicated Worker の client は未確認（R14 で Chromium だけ）

@@ -95,5 +95,5 @@
     "docs/superpowers/reports/2026-11-02-onboard-summary.md",
     "docs/superpowers/specs/2026-11-02-new-interface-spec.md"
   ],
-  "next_action": "m3-t5（#89）・m3-t6（#90）・m3-t7（#91・840dc1c）は合流済み。m3-t8（L2 あり）を実装する。台帳の t7 の申し送りを入れる。その後 t8 → t9 → t10。L2 は t5・t7・t8 と区切り。t1 #84・t2 #86・t3 #87・t4 #88 は合流済み（ba82cd2）。e2e は build してから走らせる"
+  "next_action": "m3-t5（#89）・m3-t6（#90）・m3-t7（#91）・m3-t8（#92）は合流済み。m3-t9 を実装する。台帳の t7・t8 の申し送りを入れる。その後 t8 → t9 → t10。L2 は t5・t7・t8 と区切り。t1 #84・t2 #86・t3 #87・t4 #88 は合流済み（ba82cd2）。e2e は build してから走らせる"
 }
