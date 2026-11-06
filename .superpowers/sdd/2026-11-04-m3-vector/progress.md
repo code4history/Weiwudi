@@ -118,3 +118,19 @@ Ruling: 第 2 回の反映で事前点検を合格とし、再点検は置かな
 - 対照: 直しの各項目を外すと試験が落ちることを実装担当が確かめた（文書だけの直しを除く）
 - Rulings（orchestrator）: L2 の必須 3 件は直してから合流。再点検は対照の実測で足りるとし、L2 は回し直さない
 - 申し送り（t7）: tiles の @2x・webp・raster の前置、secure の付く位置、スタイルの imports
+
+## m3-t6 スタイル・TileJSON の本体と捕捉（I3 の前半）
+
+- PR: https://github.com/code4history/Weiwudi/pull/90 （合流 ddc563e）
+- 実測（t6 の枝 dfa2f1e）: 単体試験 1242 passed・typecheck・build・eslint 0・e2e 35 passed・受け入れ条件の grep 0・CI 全緑
+- 対照: 初回 11 通り・直し 6 通りで、外すと試験が落ちた
+- L1（Claude）: 第 1 回は合流不可（Major 1・Minor 4）。すべて直した（33f67af・dfa2f1e）
+  - Major-1: 子にならない URL（WMS の `{bbox-epsg-3857}`・`{range}` の無い glyphs）のトークンを本体から除いていた → 字句の許可の表を url_pattern.tokenRejection 1 つにし、style_body の acceptsAsChild と spec の checkTokens で共有。受けられない組は除かず、source ごと skipped
+  - Minor: revalidate が通常の要求にまとめられる（flightKey に印）・sourceIds を順に探す道の試験・skipped と tiles の重複・hit での IndexedDB の読み出し（遅延計算）
+- Rulings（実装担当。いずれも承認）: spec.ts の sprite の字句・sprite で字句を必須にしない・stripTemplateParams を相対 URL に広げる・serveResource の opts・除去は Resource 単位・skipped の reason は unsupported-source・source の組が 1 つでも受けられなければ source ごと外す・transform 内の store の失敗は上流の失敗
+- 申し送り（t7）:
+  - update() でスタイルの URL が変わるとき、serveResource の opts で除去の親を直接渡す（O-N2）
+  - 子に資格情報を配る判定は credentialTargetOf と childGroups（acceptsAsChild）を同じ組の単位で使う
+  - ミラーの間で資格情報の値が違う組（R22）と、normalizeMember だけが拒否する組（userinfo・sk.・#）を、子作りと本体の除去で揃える
+  - 親の資格情報を明示として子に配ると、テンプレートの値と違う子で 401 になりうる。扱いを決める
+  - スプライトの子は spriteTemplateOf で作る。登録時の取得は revalidate: true を使い、serveResource の reject を扱う
