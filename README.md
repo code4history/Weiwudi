@@ -164,7 +164,11 @@ L.tileLayer(source.url as string).addTo(leafletMap);
 console.log(source.warnings, await source.stats());
 ```
 
-- Only Chromium is tested. **WebKit and Firefox are not verified yet.**
+- Chromium is tested locally and in CI. **WebKit** (Playwright's WebKit on Linux) is tested in CI, except
+  the tests that only work on Chromium: going offline (`context.setOffline`), stopping the service worker
+  (CDP), the real storage quota, and the Mapbox tests (Playwright cannot intercept requests from a service
+  worker on WebKit). Linux WebKit is not the same as Safari on iOS. Firefox is run once in CI and remains
+  unconfirmed. (Provisional: this note is updated with the CI result.)
 - `kind` is `'raster'`, `'vector'`, `'style'` or `'asset'`. A style registers
   everything it refers to (TileJSON, tiles, glyphs, sprites, GeoJSON, images);
   pass `source.url` to MapLibre after `register()` resolves:

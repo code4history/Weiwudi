@@ -157,7 +157,11 @@ L.tileLayer(source.url as string).addTo(leafletMap);
 console.log(source.warnings, await source.stats());
 ```
 
-- 試験しているのは Chromium だけです。**WebKit・Firefox は未確認です。**
+- Chromium は手元と CI で試験しています。**WebKit**（Linux の Playwright の WebKit）は CI で試験しています。
+  ただし Chromium でしか成り立たない試験は除きます: オフライン（`context.setOffline`）・Service Worker の停止（CDP）・
+  実際の保存容量の上限・Mapbox の試験（WebKit では Service Worker の要求を Playwright が横取りできないため）。
+  Linux の WebKit は iOS の Safari と同じではありません。Firefox は CI で 1 回走らせていますが、確かめられていません。
+  （仮の文です。CI の結果を受けて直します）
 - `kind` は `'raster'`・`'vector'`・`'style'`・`'asset'` です。スタイルは参照する資源（TileJSON・タイル・グリフ・
   スプライト・GeoJSON・画像）をすべて登録します。`register()` の完了を待ってから `source.url` を MapLibre に渡します:
 

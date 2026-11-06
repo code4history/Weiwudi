@@ -243,7 +243,11 @@ const source = await Weiwudi.register({
 L.tileLayer(source.url as string).addTo(leafletMap);
 ```
 
-Only Chromium is tested. WebKit and Firefox are not verified yet.
+Chromium is tested locally and in CI. WebKit (Playwright's WebKit on Linux) is tested in CI, except the
+tests that only work on Chromium: going offline (`context.setOffline`), stopping the service worker (CDP),
+the real storage quota, and the Mapbox tests (Playwright cannot intercept requests from a service worker on
+WebKit). Linux WebKit is not the same as Safari on iOS. Firefox is run once in CI and remains unconfirmed.
+(Provisional: this note is updated with the CI result.)
 
 ### `Weiwudi.register(spec)`
 
