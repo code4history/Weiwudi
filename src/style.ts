@@ -371,11 +371,12 @@ export async function registerStyle(ctx: Context, input: NormalizedStyle, o: Sty
     for (const c of prevChildren) {
       if (c.from !== undefined && failedTileJson.indexOf(c.from) >= 0 && !next.some((n) => n.id === c.id)) next.push(c);
     }
-    // 前の子のうち今回の子に無いものを外す
-    for (const c of prevChildren) {
-      if (next.some((n) => n.id === c.id)) continue;
+    // 前の子のうち今回の子に無いものを外す。親の children だけでなく、parentId が親の id の孤児（前の update() が段 A の後で
+    // 止まって残した子。R33）も同じ単位で外す（照合表と資格情報を持ったまま残らない。L1 Minor-1）
+    for (const cid of await styleChildIds(store, id, prevChildren.map((c) => c.id))) {
+      if (next.some((n) => n.id === cid)) continue;
       try {
-        await applyRemove(store, c.id);
+        await applyRemove(store, cid);
       } catch (e) {
         if (!(e instanceof WeiwudiError && e.code === 'source-not-found')) throw e;
       }

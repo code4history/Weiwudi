@@ -377,6 +377,91 @@ describe('読めないスタイルと巻き戻し（R30・R33）', () => {
     expect(await store.getCredentials(SPRITE_CHILD)).toBeUndefined();
   });
 
+  describe('L1 Minor-1: update() の途中の失敗で残った孤児（Resource と資格情報を持つ）を、親の単位で扱う', () => {
+    /** スタイルと同じオリジンのタイル（親の資格情報を受け取る。R5） */
+    const SAME_A = 'https://s.example/t/a/{z}/{x}/{y}.pbf';
+    const SAME_B = 'https://s.example/t/b/{z}/{x}/{y}.pbf';
+    const TILE_A = childId('st', 'tile:a');
+    const TILE_B = childId('st', 'tile:b');
+    const STYLE_CHILD = childId('st', 'style:style');
+    const control = (ctx: ReturnType<typeof createContext>) => {
+      vi.stubGlobal('self', { location: new URL(`${SW_SELF_ORIGIN}/weiwudi-sw.js`), clients: { get: async () => PAGE_CLIENT } });
+      const c = createControl(ctx);
+      return async (op: string, body: unknown): Promise<Reply> => {
+        const url = new URL(`https://weiwudi.example.com/v2/${op}`);
+        const request = new Request(url, { method: 'POST', body: JSON.stringify(body) });
+        return (await c.post({ url, request, event: { clientId: PAGE_CLIENT_ID } } as never)).json();
+      };
+    };
+
+    /**
+     * 孤児を作る: 空のスタイルを登録した後、sources.a を足した update() が、子 a を書き終えて親の children に載せる保存
+     * （putSource('st')）で IndexedDB の失敗に当たる。子 a は Source・Resource・資格情報を持ったまま、親の children に無い（R33）
+     */
+    const orphanEnv = async () => {
+      let body: unknown = styleOf({});
+      const { store, ctx, input } = await directEnv(() => body);
+      await registerStyle(ctx, input, { mode: 'register' });
+      body = styleOf({ a: { type: 'vector', tiles: [SAME_A] } });
+      const real = store.putSource.bind(store);
+      const boom = new DOMException('disk', 'UnknownError');
+      vi.spyOn(store, 'putSource').mockImplementation(async (rec) => {
+        if (rec.id === 'st' && (rec.spec as { children: { id: string }[] }).children.some((c) => c.id === TILE_A)) throw boom;
+        return real(rec);
+      });
+      const parentSpec = (await store.getSource('st'))!.spec as NormalizedStyle['spec'];
+      await expect(registerStyle(ctx, { spec: parentSpec, credentials: input.credentials }, { mode: 'update' })).rejects.toBe(boom);
+      vi.restoreAllMocks();
+      expect((await store.getSource(TILE_A))?.parentId).toBe('st');
+      expect(((await store.getSource('st'))!.spec as NormalizedStyle['spec']).children.map((c) => c.id)).toEqual([STYLE_CHILD]);
+      expect((await store.getResource(SAME_A))?.sourceIds).toEqual([TILE_A]);
+      expect(await store.getCredentials(TILE_A)).toEqual({ query: { access_token: TOKEN } });
+      const setBody = (b: unknown) => { body = b; };
+      return { store, ctx, input, setBody };
+    };
+    it('次の update() で a が b に改名されると、孤児 a の Source・Resource・資格情報が外れる', async () => {
+      const { store, ctx, input, setBody } = await orphanEnv();
+      setBody(styleOf({ b: { type: 'vector', tiles: [SAME_B] } }));
+      const parentSpec = (await store.getSource('st'))!.spec as NormalizedStyle['spec'];
+      const out = await registerStyle(ctx, { spec: parentSpec, credentials: input.credentials }, { mode: 'update' });
+      expect((out.spec as NormalizedStyle['spec']).children.map((c) => c.id)).toEqual([STYLE_CHILD, TILE_B]);
+      expect(await store.getSource(TILE_A)).toBeUndefined();
+      expect(await store.getResource(SAME_A)).toBeUndefined();
+      expect(await store.getCredentials(TILE_A)).toBeUndefined();
+      expect((await store.getResource(SAME_B))?.sourceIds).toEqual([TILE_B]);
+      expect((await store.listSources()).map((r) => r.id).sort()).toEqual(['st', STYLE_CHILD, TILE_B].sort());
+    });
+
+    it('source().resources と stats() に孤児の Resource が出る（removeResource が名指せる範囲と同じ）', async () => {
+      const { store, ctx } = await orphanEnv();
+      const key = `${SAME_A}\u00003_1_2`;
+      await store.putEntry({ key, resourceId: SAME_A, z: 3, x: 1, y: 2, size: 3, fetchedAt: 1, accessedAt: 1, pinned: 0 },
+        { key, blob: new Blob([new Uint8Array([1, 2, 3])]), headers: {} }, []);
+      const post = control(ctx);
+      const info = await post('source', { id: 'st' });
+      expect(info.ok).toBe(true);
+      expect(info.result.resources.map((r: { id: string }) => r.id)).toEqual([STYLE, SAME_A]);
+      const stats = await post('stats', { id: 'st' });
+      expect(stats.result.byResource[SAME_A]).toEqual({ count: 1, bytes: 3 });
+      const list = await post('sources', {});
+      expect(list.result[0].resources.map((r: { id: string }) => r.id)).toEqual([STYLE, SAME_A]);
+    });
+
+    it('clean() が孤児の Resource の Entry を消す', async () => {
+      const { store, ctx } = await orphanEnv();
+      const key = `${SAME_A}\u00003_1_2`;
+      await store.putEntry({ key, resourceId: SAME_A, z: 3, x: 1, y: 2, size: 3, fetchedAt: 1, accessedAt: 1, pinned: 0 },
+        { key, blob: new Blob([new Uint8Array([1, 2, 3])]), headers: {} }, []);
+      expect((await store.getResource(SAME_A))!.count).toBe(1);
+      const post = control(ctx);
+      expect((await post('clean', { id: 'st' })).ok).toBe(true);
+      expect((await store.getResource(SAME_A))!.count).toBe(0);
+      expect(await store.getEntry(key)).toBeUndefined();
+      // Resource と孤児の記録は残る（clean は Entry だけ。外すのは update()・remove()）
+      expect((await store.getResource(SAME_A))?.sourceIds).toEqual([TILE_A]);
+    });
+  });
+
   it('既存の登録の update() で invalid-style（HTML・Entry も無い）なら、親・子・資格情報・CORS の印が呼ぶ前と同じ', async () => {
     const { h, up, store } = await setup({ [STYLE]: FULL, [TJ]: TILEJSON });
     await ok(h, 'register', { kind: 'style', id: 'st', url: STYLE, credentials: { query: { access_token: TOKEN } } });
