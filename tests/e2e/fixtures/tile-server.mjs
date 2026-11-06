@@ -10,6 +10,16 @@
 // - GET /auth/{z}/{x}/{y}.png: Cookie `weiwudi=1` があれば 200・なければ 401。どちらも CORS あり
 // - GET /html/{z}/{x}/{y}.png: 200・text/html・CORS あり
 // - GET /__log: 上の端点が受けた要求の { path, mode（sec-fetch-mode）, cookie（weiwudi=1 の有無） } の並び
+// スタイルの e2e（m3-t9・style.spec.js）の端点。どれも CORS あり。受けた要求は /__log に積む（path はデコード後）:
+// - GET /style/basic.json: スタイル（sources の url の TileJSON・tiles・geojson の data、glyphs・sprite）
+// - GET /style/tiles.json: TileJSON（tiles・bounds・minzoom・maxzoom）
+// - GET /style/tiles/{z}/{x}/{y}.pbf: 本体は `vt:{z}/{x}/{y}`（application/x-protobuf）
+// - GET /style/raster/{z}/{x}/{y}.png: 本体は `raster:{z}/{x}/{y}`（image/png）
+// - GET /style/fonts/{fontstack}/{range}.pbf: 本体は `glyph:{fontstack}:{range}`（範囲ごとに違うバイト列）
+// - GET /style/sprite{@2x?}.{json,png}: 4 つ。json は pixelRatio で、png は末尾の 1 バイトで見分ける
+// - GET /style/data.geojson: GeoJSON（FeatureCollection・点 1 つ）
+// - GET /style/mapbox.json: mapbox:// を含むスタイル（試験が context.route で api.mapbox.com の要求にこれを返す）
+// - GET /style/mapbox-tiles.json: mapbox:// のソースの TileJSON（tiles は api.mapbox.com。同上）
 //
 // 一時ディレクトリの片付け（m2-t1・第 1 回 S14・第 2 回 O19）:
 // - SIGTERM・SIGINT で一時ディレクトリを消してから process.exit(0)。exit の処理でも消す
@@ -83,6 +93,101 @@ function serveHookTile(req, pathname, res) {
     return true;
 }
 
+// スタイルの e2e の端点（m3-t9）
+const STYLE_BASE = `http://localhost:${PORT}/style`;
+const STYLE = {
+    version: 8,
+    name: 'weiwudi-e2e-basic',
+    sources: {
+        vt: { type: 'vector', url: `${STYLE_BASE}/tiles.json` },
+        raster: { type: 'raster', tiles: [`${STYLE_BASE}/raster/{z}/{x}/{y}.png`], tileSize: 256, maxzoom: 18 },
+        points: { type: 'geojson', data: `${STYLE_BASE}/data.geojson` },
+    },
+    glyphs: `${STYLE_BASE}/fonts/{fontstack}/{range}.pbf`,
+    sprite: `${STYLE_BASE}/sprite`,
+    layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#fff' } }],
+};
+const TILEJSON = {
+    tilejson: '3.0.0',
+    tiles: [`${STYLE_BASE}/tiles/{z}/{x}/{y}.pbf`],
+    bounds: [-180, -85, 180, 85],
+    minzoom: 0,
+    maxzoom: 14,
+};
+// Mapbox の API が返す形（mapbox:// のまま）。glyphs には資格情報を書いておく（保存した本体から除かれることを見る）
+const MAPBOX_TOKEN = 'pk.FAKE_E2E_TOKEN';
+const MAPBOX_STYLE = {
+    version: 8,
+    name: 'weiwudi-e2e-mapbox',
+    sources: { m: { type: 'vector', url: 'mapbox://u.tileset' } },
+    glyphs: `mapbox://fonts/u/{fontstack}/{range}.pbf?access_token=${MAPBOX_TOKEN}`,
+    sprite: 'mapbox://sprites/u/s',
+    layers: [],
+};
+const MAPBOX_TILEJSON = {
+    tilejson: '2.2.0',
+    tiles: ['https://api.mapbox.com/v4/u.tileset/{z}/{x}/{y}.vector.pbf'],
+    bounds: [-180, -85, 180, 85],
+    minzoom: 0,
+    maxzoom: 16,
+};
+const GEOJSON = {
+    type: 'FeatureCollection',
+    features: [{ type: 'Feature', properties: { name: 'e2e' }, geometry: { type: 'Point', coordinates: [139.7, 35.6] } }],
+};
+
+function serveStyle(pathname, res) {
+    if (!pathname.startsWith('/style/')) return false;
+    let path;
+    try {
+        path = decodeURIComponent(pathname);
+    } catch (_e) {
+        return false;
+    }
+    log.push({ path, mode: null, cookie: false });
+    const send = (type, body) => {
+        res.writeHead(200, { ...CORS, 'content-type': type });
+        res.end(body);
+    };
+    const json = (v) => send('application/json', JSON.stringify(v));
+    const fixed = {
+        '/style/basic.json': STYLE,
+        '/style/tiles.json': TILEJSON,
+        '/style/mapbox.json': MAPBOX_STYLE,
+        '/style/mapbox-tiles.json': MAPBOX_TILEJSON,
+    };
+    if (Object.hasOwn(fixed, path)) {
+        json(fixed[path]);
+        return true;
+    }
+    if (path === '/style/data.geojson') {
+        send('application/geo+json', JSON.stringify(GEOJSON));
+        return true;
+    }
+    const generated = [
+        [/^\/style\/tiles\/(\d+)\/(\d+)\/(\d+)\.pbf$/, 'application/x-protobuf', (m) => `vt:${m[1]}/${m[2]}/${m[3]}`],
+        [/^\/style\/raster\/(\d+)\/(\d+)\/(\d+)\.png$/, 'image/png', (m) => `raster:${m[1]}/${m[2]}/${m[3]}`],
+        [/^\/style\/fonts\/([^/]+)\/(\d+-\d+)\.pbf$/, 'application/x-protobuf', (m) => `glyph:${m[1]}:${m[2]}`],
+    ];
+    for (const [re, type, body] of generated) {
+        const g = path.match(re);
+        if (g) {
+            send(type, body(g));
+            return true;
+        }
+    }
+    const m = path.match(/^\/style\/sprite(@2x)?\.(json|png)$/);
+    if (m) {
+        const ratio = m[1] ? 2 : 1;
+        if (m[2] === 'json') json({ dot: { x: 0, y: 0, width: ratio, height: ratio, pixelRatio: ratio } });
+        else send('image/png', Buffer.concat([PNG, Buffer.from([ratio])]));
+        return true;
+    }
+    res.writeHead(404, CORS);
+    res.end('Not Found');
+    return true;
+}
+
 function serveWorkbox(pathname, res) {
     let rel;
     try {
@@ -135,6 +240,7 @@ const server = createServer((req, res) => {
         return;
     }
     if (serveHookTile(req, pathname, res)) return;
+    if (serveStyle(pathname, res)) return;
     if (pathname === '/__log') {
         // ?reset=1 で空にする（再試行で前の試行の記録が残らないように）
         if (new URL(req.url, 'http://localhost').searchParams.has('reset')) log.length = 0;
