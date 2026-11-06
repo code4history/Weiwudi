@@ -217,6 +217,7 @@ interface WeiwudiProvider {
 }
 ```
 
+- `matches` must match `https` URLs only on the provider's own hosts, because it also determines whether a style child receives its parent's credentials (R5).
 - `resolve` runs when a source is registered. The URL it returns is checked
   like any other URL template, and becomes the source's `url` and the
   resource's templates. Return `https` URLs unchanged. Throw for a form you
