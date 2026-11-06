@@ -187,3 +187,42 @@ Ruling: 第 2 回の反映で事前点検を合格とし、再点検は置かな
 - 申し送り（t10）:
   - WebKit の context.route は SW の要求を拾わない。mapbox を使う 2 件（resolves mapbox urls…・reports usage by provider）は WebKit では本物の api.mapbox.com へ出るので、testInfo.project.name で WebKit から外すか、外へ出ない仕組みに替える（expectNoLeaks を Chromium に限るだけでは足りない）
   - WebKit で context.setOffline が SW の取得に効くか、dedicated Worker・srcdoc の iframe の client が制御下に入るかは未確認
+
+## m3 の区切り（2026-11-07 の途中まで）と、止めた位置
+
+利用枠（Claude の週の枠・Codex の 5 時間の枠）が尽きたので、ここで止めた。再開はこの節の「残り」から。
+
+- 合流済み:
+  - PR #95（区切りの L1 の Minor。孤児の子を親の単位で扱う・§10 の R32）cb28c68
+  - PR #97（セキュリティ点検の L3・I1・L2。実装は Codex gpt-6-astra）91bddd9
+- 区切りのレビューの結果:
+  - L1（Claude Fable・全体を通して）: 合格（Minor 2 は #95 で直した）
+  - セキュリティ点検（Claude Fable）: 合格（Critical・High 0。Low 3: L1 リダイレクト先のオリジンは m4 へ・L2 と L3 は #97 で直した）
+  - L2（Codex gpt-6-astra・公開 API の差分 b270c65..c5712bf）: 合流不可・Major 3（すべて再現済み）
+    1. 子の URL の資格情報（`pk.CHILD`）が、本体の除去の後で親の値（`pk.PARENT`）に置き換わる（style_body.ts:277・style.ts:398）→ **未着手**
+    2. m2 で保存した Mapbox の https の登録を m3 で登録し直すと resource-conflict（registry.ts:201・spec.ts:502）→ **直さない**（Ruling: m2 の保存は未公開で、開発中の DB にしか無い。旧 API は `map:` の別 id なので衝突しない）
+    3. 子にできない glyphs・sprite が warnings なしで消える（style_body.ts:201）→ **未着手**
+    - 推奨（後で）: docs/api/sw.md:229 の applyCredentials の説明・credentialParams の既定値の列挙
+- m3-t10（PR #94・枝 m3-t10-webkit-ci・f7a1963）:
+  - CI: WebKit 29 passed・Firefox 29 passed（ArrayBuffer に替えた後）。srcdoc の iframe は WebKit が継ぎ、Firefox は継がない
+  - L1（Claude Fable）: 合流可（Minor 4）
+  - L2（Codex gpt-6-astra）: 合流不可・Major 2（再現済み）→ **未着手**
+    1. txAfter で `Promise.all([order, prep])` が prep の失敗で先の order を待たずに進み、順が崩れる（store.ts:501・513）
+    2. hasEntries がメタだけを見るので、旧 API の fetchAll が Blob を持つ古いレコードを取り直さない（store.ts:659・662・legacy.ts:156）
+  - 残りの直し: 上の 2 件・L1 の Minor 4（putGlyphParts の prep を entryKeyError の後に・parts が本体を超えたら作り直し・Blob の変換の入口の共通化と言い方・順の試験の強化）・文書の「仮」の件数の確定
+  - **clone /Users/kochizufan/zcode/weiwudi-work/Weiwudi の作業ツリーに、Codex が枠切れの前に書きかけた試験の変更がある**（tests/unit/store.test.ts・tests/unit/legacy-store-repair.test.ts。未 commit）。再開のときに中身を見て、使うか捨てるかを決める
+- 出してある PR（未合流）:
+  - #94 m3-t10（上のとおり）
+  - #96 Issue #78 の設計の下書き（Codex のレビューは並行数を下げるために取り消した。未レビュー）
+  - #98 m4 の実装計画（11 タスク・申し送り 35 件。事前点検は未着手。起点と実測値は m3 を閉じた後に書き直す）
+- 作業ツリー（~/zcode/weiwudi-work）: wv-review（このノートを書いた）・wv-m4plan・wv-i78・wv-cpfix・wv-secfix・wv-cpfix2（区切りの直し 2 用。install 済み・変更なし）。合流済みの wv-cpfix・wv-secfix は、ls-remote で確かめてから片付けてよい
+- 運用の記録:
+  - Codex の job は cwd を /Users/kochizufan/zcode/weiwudi-work にして起動する（NayutaProducts のままだと worktree に書けない）。job の記録は cwd ごとの台帳に入るので find で探す
+  - Codex の並行数は 2 まで（人間の指示）
+  - Codex の水準 2 は、Claude の水準 1 が見落とした再現できる不具合を t10 で 2 件・区切りで 3 件見つけた
+- 残り（順に）:
+  1. m3-t10 の直し（上の残り）→ CI → #94 を合流
+  2. 区切りの L2 の Major 1・3 の直し（wv-cpfix2）→ 合流
+  3. m3 を閉じる（state の m3 を completed・要約 docs/superpowers/reports/ に m3 のまとめ）
+  4. m4 の計画の事前点検（#98）→ m4 に着手
+  5. #78 の設計のレビュー（#96）
