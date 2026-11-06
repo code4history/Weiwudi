@@ -174,3 +174,16 @@ Ruling: 第 2 回の反映で事前点検を合格とし、再点検は置かな
 - Rulings（実装担当。いずれも承認）: weiwudi_gw_logic は触らない（workbox が event を渡す）・styleChildIds を style.ts に切り出す・孤児の子を持ち主に入れる・resourceId が空なら attribute-invalid・usage の鍵が引けなければ 'unknown'・送り手の検査は fail-closed で本文の前・usage は直列にしない・about: は完全一致
 - 運用の記録: Codex の job の記録は cwd ごとの台帳（clone で起動すると state/Weiwudi-*）に入る。見張るときは find で探す
 - 申し送り（t9）: 実ブラウザで blob Worker・同じオリジンの iframe・srcdoc の iframe からの制御の POST・removeResource の後の再取得・usage を確かめる。WebKit・Firefox の dedicated Worker の client は未確認（R14 で Chromium だけ）
+
+## m3-t9 スタイルの e2e
+
+- PR: https://github.com/code4history/Weiwudi/pull/93 （合流は下の merge commit）
+- 実測（t9 の枝 6070c8a）: e2e 44 passed（既存 35＋新規 9）を 3 回続けて揺れなし・単体試験 1338 passed・typecheck・build・eslint 0・受け入れ条件の grep 0・CI 全緑（CI でも e2e が走る）
+- 対照: 実装を 12 通り壊し、それぞれ試験が落ちた（「登録時も revalidate」は stale に救われて落ちず、壊し方を強めて落ちることを確かめた）
+- 計画の受け入れ条件の「既存の e2e 34 件」は t3 で 35 件になっている。t9 の後は 44 件
+- L1（Claude）: 合流可（Minor 1・Info 6）。Chromium（Playwright 1.64.0）では context.route が SW の要求も拾い、実ネットワークへ出る道は無い
+- Rulings（実装担当。いずれも承認）: 表に無い端点（/style/tiles・/style/raster・/style/mapbox-tiles.json）を足す・制御の POST の 3 経路は usage の試験に入れる（9 件を守る）・登録時に保存されるスタイル・TileJSON は 1 回目から hit・除去を確かめるため上流の本体に偽のトークン pk.FAKE_E2E_TOKEN を書く・expectNoLeaks の Chromium への限定は t10 で
+- Ruling（orchestrator）: L1 の m-1（Worker の試験で TileJSON・raster・data の本体を確かめていない）・i-1（登録の戻り値に mapbox:// が残らないこと）・i-4（3 経路の expect に印）は、同じファイルを触る t10 で直す
+- 申し送り（t10）:
+  - WebKit の context.route は SW の要求を拾わない。mapbox を使う 2 件（resolves mapbox urls…・reports usage by provider）は WebKit では本物の api.mapbox.com へ出るので、testInfo.project.name で WebKit から外すか、外へ出ない仕組みに替える（expectNoLeaks を Chromium に限るだけでは足りない）
+  - WebKit で context.setOffline が SW の取得に効くか、dedicated Worker・srcdoc の iframe の client が制御下に入るかは未確認
