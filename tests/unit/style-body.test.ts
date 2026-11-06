@@ -365,3 +365,14 @@ describe('組の判定 accepts（m3-t7・t6 の申し送り: 子作りと本体�
       .toEqual(['https://a.example/m/{z}/{x}/{y}.png', 'https://a.example/n/{z}/{x}/{y}.png']);
   });
 });
+
+describe('userinfo の組（L2 B: accepts が無くても子作りと除去で揃う）', () => {
+  const ui = 'https://user:pass@a.example/u/{z}/{x}/{y}.png?access_token=pk.T';
+  it('collectStyleRefs は userinfo の組の source を skipped にし、rewriteStyleBody・rewriteTileJsonBody はその組から除かない', () => {
+    const s = style({ sources: { u: { type: 'raster', tiles: [ui] } } });
+    expect(collectStyleRefs(s, BASE).skipped).toEqual([{ name: 'u', reason: 'unsupported-source' }]);
+    expect(JSON.parse(rewriteStyleBody(JSON.stringify(s), BASE, { strip: stripA })).sources.u.tiles).toEqual([ui]);
+    const tj = JSON.stringify({ tiles: [ui] });
+    expect(rewriteTileJsonBody(tj, TJ_BASE, { strip: stripA })).toBe(tj);
+  });
+});

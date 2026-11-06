@@ -51,12 +51,22 @@ const originOf = (url: string): string | undefined => {
   }
 };
 
+/** URL（テンプレートでよい）が userinfo（user:pass@）を持つか。読めなければ持つものとして扱う（subject に出さない） */
+const hasUserInfo = (url: string): boolean => {
+  try {
+    const u = new URL(url.replace(/\{[^{}]*\}/g, '0'));
+    return u.username !== '' || u.password !== '';
+  } catch (_e) {
+    return true;
+  }
+};
+
 /**
- * 子にしない URL の subject（C-S6・X3・R36）: クエリとフラグメントを落とした URL。パスに秘密（sk.eyJ）があれば label
- * （sources.<名前> など）
+ * 子にしない URL の subject（C-S6・X3・R36）: クエリとフラグメントを落とした URL。パスに秘密（sk.eyJ）があるか、
+ * userinfo を持てば label（sources.<名前> など。L2 A）
  */
 const subjectOf = (url: string, label: string): string => {
-  if (hasSecretPathSegment(url)) return label;
+  if (hasSecretPathSegment(url) || hasUserInfo(url)) return label;
   const cut = url.search(/[?#]/);
   return cut < 0 ? url : url.slice(0, cut);
 };
@@ -220,6 +230,8 @@ export async function registerStyle(ctx: Context, input: NormalizedStyle, o: Sty
 
   /** この回に作った子（登録の順。論理名の id で重ねない） */
   const next: StyleChild[] = [];
+  /** この回に書き始めた子の id（apply の前に入れる。apply の途中で投げた子も巻き戻す。L1 M-1） */
+  const touched: string[] = [];
   const warnings: string[] = [];
   /** 親の記録（children は前の子と今回の子の和。最後だけ今回の子） */
   const saveParent = async (children: StyleChild[], w: string[]): Promise<SourceRecord> => {
@@ -239,7 +251,12 @@ export async function registerStyle(ctx: Context, input: NormalizedStyle, o: Sty
   /** 子を 1 つ合流させて保存し、親の children に載せる */
   const applyChild = async (n: NormalizedSpec, from?: string): Promise<RegisterResult> => {
     const before = await store.getSource(n.spec.id);
-    const r = await apply(store, n, before && before.kind === 'child' ? before : undefined,
+    // 子の内部の id に子でない記録（か別の親の子）があれば止める。新規として上書きしない（巻き戻しの対象にも入れない。L2 D）
+    if (before && (before.kind !== 'child' || before.parentId !== id)) {
+      throw new WeiwudiError('internal', 'A record that is not a child of this style holds the id of a style resource');
+    }
+    if (touched.indexOf(n.spec.id) < 0) touched.push(n.spec.id);
+    const r = await apply(store, n, before,
       { throwOnConflict: false, resetCors: update, order, parentId: id });
     const child: StyleChild = { id: n.spec.id, logicalName: n.spec.logicalName ?? '', type: n.spec.type };
     if (from !== undefined) child.from = from;
@@ -384,10 +401,8 @@ export async function registerStyle(ctx: Context, input: NormalizedStyle, o: Sty
       return await stagesBC(style);
     } catch (e) {
       // 巻き戻し（R30）: 作った子を外してから親を外す。巻き戻しの失敗は飲み込む（R33）
-      for (const c of next) {
-        try { await applyRemove(store, c.id); } catch (_e) { /* 部分的な状態が残りうる */ }
-      }
-      try { await applyRemove(store, id); } catch (_e) { /* 同上 */ }
+      await removeStyleChildren(store, id, touched);
+      await removeQuietly(store, id);
       throw e;
     }
   }
@@ -403,6 +418,46 @@ export async function registerStyle(ctx: Context, input: NormalizedStyle, o: Sty
   await applyChild(styleChild);
   return stagesBC(style);
 
+}
+
+/**
+ * 1 つの Source を外す（source-not-found を含め、失敗は飲み込む）。applyRemove が投げたら記録と資格情報だけでも消す
+ * （書きかけの子の資格情報を残さない。L1 M-1）
+ */
+const removeQuietly = async (store: Store, sourceId: string): Promise<void> => {
+  try {
+    await applyRemove(store, sourceId);
+  } catch (_e) {
+    try { await store.deleteSource(sourceId); } catch (_e2) { /* 部分的な状態が残りうる（R33） */ }
+  }
+};
+
+/**
+ * スタイルの子を全部外す（巻き戻しと control の remove。L1 M-1）。対象は ids（親の children・この回に書き始めた子）と、
+ * listSources() のうち parentId が親の id の記録（親の children に載る前に途中で止まった孤児。R33 の経路も含む）。
+ * strict（control の remove）は source-not-found 以外の失敗を投げ直す（親を消す前に止め、remove() をやり直せるようにする）。
+ * strict でなければ（巻き戻し）失敗を飲み込み、記録と資格情報だけでも消す
+ */
+export async function removeStyleChildren(
+  store: Store, parentId: string, ids: readonly string[], opts: { strict?: boolean } = {},
+): Promise<void> {
+  let orphans: string[] = [];
+  try {
+    orphans = (await store.listSources()).filter((r) => r.parentId === parentId).map((r) => r.id);
+  } catch (e) {
+    if (opts.strict) throw e;
+  }
+  for (const cid of unique([...ids, ...orphans])) {
+    if (!opts.strict) {
+      await removeQuietly(store, cid);
+      continue;
+    }
+    try {
+      await applyRemove(store, cid);
+    } catch (e) {
+      if (!(e instanceof WeiwudiError && e.code === 'source-not-found')) throw e;
+    }
+  }
 }
 
 const invalidStyle = (): WeiwudiError => new WeiwudiError('invalid-style', 'The style is not readable', { type: 'style' });

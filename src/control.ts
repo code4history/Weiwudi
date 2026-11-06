@@ -18,7 +18,7 @@ import type { Context } from './context';
 import { tableChanged } from './hook';
 import { applyRegister, applyRemove, applyUpdate, isExclusiveTo } from './registry';
 import { isNormalizedStyle, normalizeSpec, type NormalizedSpec } from './spec';
-import { ownersOf, registerStyle } from './style';
+import { ownersOf, registerStyle, removeStyleChildren } from './style';
 import { isChildRecord, isLegacyRecord, storedSpecOf, styleSpecOf, toResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
 import { countTiles } from './tile_math';
 import { WeiwudiError } from './errors';
@@ -242,15 +242,8 @@ export function createControl(ctx: Context): Control {
     const rec = await getOwn(store, id);
     const before = (await resourcesOf(store, ownersOf(rec))).map((m) => m.id);
     // スタイルは子を全部外してから親を消す（親の記録が残っていれば、途中で止まっても remove() をやり直せる）
-    if (styleSpecOf(rec)) {
-      for (const child of ownersOf(rec)) {
-        try {
-          await applyRemove(store, child);
-        } catch (e) {
-          if (!(e instanceof WeiwudiError && e.code === 'source-not-found')) throw e;
-        }
-      }
-    }
+    // parentId が親の id の孤児（段の途中で止まった子。R33）も外す（L1 M-1）
+    if (styleSpecOf(rec)) await removeStyleChildren(store, id, ownersOf(rec), { strict: true });
     await applyRemove(store, id);
     for (const rid of before) {
       if (!(await store.getResource(rid))) ctx.corslessStreak.delete(rid);

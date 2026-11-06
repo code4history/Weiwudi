@@ -682,8 +682,8 @@ export interface SourceStats {
   - `resource-conflict`（§5.6）
   - `template-shadowed`（同じ要求に当たる別の照合の形が先に評価され、その Resource が捕捉されない。その Source が参照する Resource のものだけを書く。スタイルは子の Resource のもの。I10・R26: 警告のまま）
   - `fetch-failed`（スタイル: 段 A 以外の取得の失敗。subject は取れなかった子の `Resource.id`）
-  - `same-origin-skipped`（スタイル: §5.5-5。subject はクエリを落とした URL（オリジン＋パス）。パスの区画に秘密（`sk.eyJ`）があれば `sources.<名前>`）
-  - `unsupported-source`（スタイル: video・知らない type・子として受けられない URL の source。subject は `sources.<名前>`・`glyphs`・`sprite`・`imports`）
+  - `same-origin-skipped`（スタイル: §5.5-5。subject はクエリを落とした URL（オリジン＋パス）。パスの区画に秘密（`sk.eyJ`）があるか userinfo を持てば、スタイルの中の名前（`sources.<名前>`・`glyphs`・`sprite`・`sprite.<id>`））
+  - `unsupported-source`（スタイル: video・知らない type・子として受けられない URL の source。subject は `sources.<名前>`・`glyphs`・`sprite`・`sprite.<id>`（`sprite` の配列の要素）・`imports`）
 - 登録を拒否するもの: `map:` から始まる `id`・空の `id`・`\0` を含む `id`（§5.1・§10。`attribute-invalid`）・userinfo を含むテンプレート（§10。`attribute-invalid`）・`weiwudi.example.com` のテンプレート（`unsupported-template`）・その版が扱わない `kind`（`unsupported-kind`。m2 では `style`・`asset`。m3 では作られない）・`sk.` の資格情報（`credential-rejected`）・同じ id で違う `kind`（`attribute-invalid`。R37）・読めないスタイル（`invalid-style`）
 - 提供元別の使用量（#38）は `usage().byProvider`。鍵は `ResourceMeta.provider`、無ければ origin
 - `/v2/*` の要求の前に制御下かを確かめる（§4.1）

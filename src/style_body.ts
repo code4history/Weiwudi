@@ -106,11 +106,14 @@ const SLOT_TYPE: Readonly<Record<'tilejson' | 'tiles' | 'glyphs' | 'sprite' | 'd
 });
 
 /**
- * 絶対化した URL が、その型の子のテンプレートとして受けられるか（L1 Major-1）。compileTemplate が通り、字句がその型の許可の範囲
+ * 絶対化した URL が、その型の子のテンプレートとして受けられるか（L1 Major-1）。userinfo が無く、compileTemplate が通り、字句がその型の許可の範囲
  * （url_pattern.tokenRejection。spec.ts の登録の検査と同じ表）にあること。sprite は子のテンプレート（base＋{spriteSuffix}）で見る
  */
 const acceptsAsChild = (type: ResourceType, absoluteUrl: string): boolean => {
   try {
+    // userinfo（user:pass@）は登録の検査（spec.checkTemplate）と同じく受けない。accepts が無くても子作りと除去で揃う（L2 B）
+    const u = new URL(absoluteUrl.replace(/\{[^{}]*\}/g, '0'));
+    if (u.username !== '' || u.password !== '') return false;
     return tokenRejection(type, compileTemplate(type === 'sprite' ? spriteTemplateOf(absoluteUrl) : absoluteUrl)) === undefined;
   } catch (_e) {
     return false;

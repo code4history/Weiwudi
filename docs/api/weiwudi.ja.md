@@ -245,6 +245,7 @@ L.tileLayer(source.url as string).addTo(leafletMap);
 ### `Weiwudi.register(spec)`
 
 Source を登録します。同じ内容で何度呼んでも結果は同じです（冪等）。
+同じ `id` の再登録は、資格情報も含めて登録内容を置き換えます（`credentials` を省けば資格情報は消えます）。
 
 **パラメータ:** `spec`（`SourceSpec`）
 
@@ -410,8 +411,8 @@ interface SourceStats {
 | `resource-conflict` | 既存の資源と合流できなかった（`type`・`scheme`・符号化の違い、Entry があるのに `credentialParams` が広がる、2 つの資源に重なる）。既存の方針のままで、この Source の範囲だけを足す。その資源に既に属していた Source を同じ `id` で登録し直したときは範囲も足さず、資源は古い方針と、この Source の古い範囲のまま残る |
 | `template-shadowed` | 同じ要求に当たる別のテンプレートが先に評価されるので、この資源は捕捉されない |
 | `fetch-failed` | スタイル: 資源（TileJSON）が取れず、保存した Entry も無かった。subject はその資源の id |
-| `same-origin-skipped` | スタイル: 別オリジンのスタイルか TileJSON が指す、ページと同じオリジンの URL を登録しなかった。subject はクエリを落とした URL（パスに秘密トークンがあれば `sources.<名前>`） |
-| `unsupported-source` | スタイル: 登録しない source（`video`・知らない `type`・テンプレートにできない URL）。subject は `sources.<名前>`・`glyphs`・`sprite`・`imports` |
+| `same-origin-skipped` | スタイル: 別オリジンのスタイルか TileJSON が指す、ページと同じオリジンの URL を登録しなかった。subject はクエリを落とした URL。パスに秘密トークンがあるか userinfo を持てば、スタイルの中の名前（`sources.<名前>`・`glyphs`・`sprite`・`sprite.<id>`） |
+| `unsupported-source` | スタイル: 登録しない source（`video`・知らない `type`・テンプレートにできない URL）。subject は `sources.<名前>`・`glyphs`・`sprite`・`sprite.<id>`（`sprite` の配列の要素）・`imports` |
 
 知らない code は無視してください。code は minor の版で増えることがあります。
 

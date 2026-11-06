@@ -8,6 +8,7 @@ import { openStore, type ResourceMeta, type Store } from '../../src/store';
 import { createContext } from '../../src/context';
 import { normalizeSpec, type NormalizedStyle } from '../../src/spec';
 import { registerStyle } from '../../src/style';
+import { createControl } from '../../src/control';
 import { _resetPluginsForTest } from '../../src/plugins';
 
 afterEach(() => {
@@ -300,6 +301,78 @@ describe('読めないスタイルと巻き戻し（R30・R33）', () => {
     for (const id of ['st', childId('st', 'style:style'), childId('st', 'tile:vt')]) expect(await store.getCredentials(id)).toBeUndefined();
   });
 
+  /** registerStyle を直接呼ぶ環境（store を spy するため）。上流は STYLE・TJ・残りはタイル */
+  const directEnv = async (styleBody: () => unknown = () => FULL) => {
+    vi.stubGlobal('indexedDB', new IDBFactory());
+    vi.stubGlobal('IDBKeyRange', IDBKeyRange);
+    vi.stubGlobal('fetch', vi.fn(async (req: Request) => {
+      const u = new URL(req.url);
+      if (u.origin + u.pathname === STYLE) return json(styleBody());
+      if (u.origin + u.pathname === TJ) return json(TILEJSON);
+      return bin();
+    }));
+    const store = await openStore();
+    const ctx = createContext({ open: async () => store });
+    const input = normalizeSpec({ kind: 'style', id: 'st', url: STYLE, credentials: { query: { access_token: TOKEN } } }) as NormalizedStyle;
+    return { store, ctx, input };
+  };
+  const SPRITE_CHILD = childId('st', 'sprite:sprite');
+  const SPRITE_RES = `${SPRITE}{spriteSuffix}`;
+
+  it.each(['createResource', 'putCredentials'] as const)(
+    'L1 M-1: 子の apply の途中（%s）で失敗しても、書きかけの子・資格情報・親が残らない', async (method) => {
+      const { store, ctx, input } = await directEnv();
+      const boom = new DOMException('disk', 'UnknownError');
+      if (method === 'createResource') {
+        const real = store.createResource.bind(store);
+        vi.spyOn(store, 'createResource').mockImplementation(async (m) => {
+          if (m.id === SPRITE_RES) throw boom;
+          return real(m);
+        });
+      } else {
+        const real = store.putCredentials.bind(store);
+        vi.spyOn(store, 'putCredentials').mockImplementation(async (id, c) => {
+          if (id === SPRITE_CHILD) throw boom;
+          return real(id, c);
+        });
+      }
+      await expect(registerStyle(ctx, input, { mode: 'register' })).rejects.toBe(boom);
+      expect(await store.listSources()).toEqual([]);
+      expect(await store.listResources()).toEqual([]);
+      for (const id of ['st', SPRITE_CHILD, childId('st', 'style:style')]) expect(await store.getCredentials(id)).toBeUndefined();
+    },
+  );
+
+  it('L1 M-1・R33: 既存の登録の update() の途中の失敗で残った孤児（親の children に無い子）を、remove() が外す', async () => {
+    let body: unknown = styleOf({});
+    const { store, ctx, input } = await directEnv(() => body);
+    await registerStyle(ctx, input, { mode: 'register' });
+    body = FULL;
+    const real = store.createResource.bind(store);
+    const boom = new DOMException('disk', 'UnknownError');
+    vi.spyOn(store, 'createResource').mockImplementation(async (m) => {
+      if (m.id === SPRITE_RES) throw boom;
+      return real(m);
+    });
+    const parentSpec = (await store.getSource('st'))!.spec;
+    await expect(registerStyle(ctx, { spec: parentSpec as NormalizedStyle['spec'], credentials: input.credentials }, { mode: 'update' }))
+      .rejects.toBe(boom);
+    vi.restoreAllMocks();
+    // 巻き戻さない（R33）: 書きかけの子は親の children に載らないまま残る
+    const orphan = await store.getSource(SPRITE_CHILD);
+    expect(orphan?.parentId).toBe('st');
+    expect(((await store.getSource('st'))!.spec as NormalizedStyle['spec']).children.map((c) => c.id)).not.toContain(SPRITE_CHILD);
+    const control = createControl(ctx);
+    const res = await control.post({
+      url: new URL('https://weiwudi.example.com/v2/remove'),
+      request: new Request('https://weiwudi.example.com/v2/remove', { method: 'POST', body: JSON.stringify({ id: 'st' }) }),
+    } as never);
+    expect((await res.json()).ok).toBe(true);
+    expect(await store.listSources()).toEqual([]);
+    expect(await store.listResources()).toEqual([]);
+    expect(await store.getCredentials(SPRITE_CHILD)).toBeUndefined();
+  });
+
   it('既存の登録の update() で invalid-style（HTML・Entry も無い）なら、親・子・資格情報・CORS の印が呼ぶ前と同じ', async () => {
     const { h, up, store } = await setup({ [STYLE]: FULL, [TJ]: TILEJSON });
     await ok(h, 'register', { kind: 'style', id: 'st', url: STYLE, credentials: { query: { access_token: TOKEN } } });
@@ -344,6 +417,21 @@ describe('同じオリジンの検査（§5.5-5・R35・C-S2・C-S6・X3）', ()
     ]);
     expect(await store.getSource(childId('st', 'tile:api'))).toBeUndefined();
     expect(await store.getSource(childId('st', 'tile:ok'))).toBeDefined();
+  });
+
+  it('L2 A: userinfo を持つ URL は subject に出さない（TileJSON の tiles は same-origin-skipped: sources.<名前>、スタイルの参照は unsupported-source）', async () => {
+    const { h } = await setup({
+      [STYLE]: styleOf({
+        x: { type: 'vector', url: TJ },
+        u: { type: 'raster', tiles: [`http://user:pass@${new URL(SELF).host}/u/{z}/{x}/{y}.png`] },
+      }),
+      [TJ]: { tiles: [`http://user:pass@${new URL(SELF).host}/v/{z}/{x}/{y}.pbf`] },
+    });
+    const info = await ok(h, 'register', { kind: 'style', id: 'st', url: STYLE });
+    expect(info.warnings).toEqual(['same-origin-skipped: sources.x', 'unsupported-source: sources.u']);
+    const all = JSON.stringify(info.warnings);
+    expect(all).not.toContain('user');
+    expect(all).not.toContain('pass');
   });
 
   it('SW と同じオリジンのスタイルは同じオリジンの子を作る', async () => {
@@ -409,7 +497,11 @@ describe('資格情報の配り先（R5・X2・S-N1・§10）', () => {
     expect((await store.getCredentials(childId('st', 'tile:m'))) ?? {}).toEqual({});
     h.fetch.mockClear();
     await get(h, 'https://a.example/m/1/0/0.png');
-    await get(h, 'https://c.example/m/1/0/0.png');
+    // ミラーは同じ Entry を共有するので、別の座標で c.example へも出させる
+    await get(h, 'https://c.example/m/1/0/1.png');
+    // 2 つのホストへ要求が出たこと（空振りでない。L1 m-1）
+    expect(up.urls()).toHaveLength(2);
+    expect(up.urls().map((u) => new URL(u).host)).toEqual(['a.example', 'c.example']);
     expect(up.urls().join(' ')).not.toContain(TOKEN);
   });
 
@@ -532,6 +624,27 @@ describe('資格情報の配り先（R5・X2・S-N1・§10）', () => {
 });
 
 describe('衝突（P2・R10・C-O11）', () => {
+  it('R10: 新しい登録で現れた子が既存の別の Source の Resource と衝突 → 範囲だけ足し、warnings に resource-conflict', async () => {
+    const { h, store } = await setup({ [STYLE]: styleOf({ vt: { type: 'vector', tiles: [VT], minzoom: 1, maxzoom: 6 } }) });
+    await ok(h, 'register', { kind: 'raster', id: 'r', url: VT, minZoom: 0, maxZoom: 3 });
+    const info = await ok(h, 'register', { kind: 'style', id: 'st', url: STYLE });
+    expect(info.warnings).toEqual([`resource-conflict: ${VT}`]);
+    const r = (await store.getResource(VT))!;
+    expect(r.sourceIds).toEqual(['r']);
+    expect(r.rangeOnlySourceIds).toEqual([childId('st', 'tile:vt')]);
+    expect(r.extents!.map((e) => [e.sourceId, e.minZoom, e.maxZoom])).toEqual([['r', 0, 3], [childId('st', 'tile:vt'), 1, 6]]);
+    expect(r.encoding).toBe('raster');
+  });
+
+  it('L2 D: 子の内部の id に子でない記録があれば internal で止め、その記録を上書きも削除もしない', async () => {
+    const { h, store } = await setup({ [STYLE]: styleOf({ vt: { type: 'vector', tiles: [VT] } }) });
+    const foreign = { id: childId('st', 'tile:vt'), kind: 'raster' as const, spec: {} as never, order: 9, warnings: [], createdAt: 0 };
+    await store.putSource(foreign);
+    await fails(h, 'register', { kind: 'style', id: 'st', url: STYLE }, 'internal');
+    expect(await store.getSource(foreign.id)).toEqual(foreign);
+    expect(await store.getSource('st')).toBeUndefined();
+  });
+
   it('update() で新しく現れた子が他の Source の Resource と衝突 → 例外にならず warnings・範囲だけ（tile どうし）', async () => {
     const { h, up, store } = await setup({ [STYLE]: styleOf({}) });
     // 同じテンプレートを raster で登録した Source（符号化の違いで合流しない）

@@ -248,6 +248,8 @@ Only Chromium is tested. WebKit and Firefox are not verified yet.
 ### `Weiwudi.register(spec)`
 
 Register a source. Calling it again with the same spec is idempotent.
+Registering again with the same `id` replaces the spec, credentials included
+(omitting `credentials` removes them).
 
 **Parameters:** `spec` (`SourceSpec`)
 
@@ -453,8 +455,8 @@ the style.
 | `resource-conflict` | The resource could not be merged with an existing one (different `type`, `scheme` or encoding, wider `credentialParams` while entries exist, or overlapping two resources). It keeps the existing policy; only the range of this source is added. When the source already belonged to that resource (registering the same `id` again), nothing is added either: the resource keeps the old policy and the old range of this source |
 | `template-shadowed` | Another registered template matches the same requests and is evaluated first, so this resource is not captured |
 | `fetch-failed` | A style: a resource (a TileJSON) could not be fetched and had no cached entry. The subject is its resource id |
-| `same-origin-skipped` | A style: a URL of the page's origin referred to by a style or TileJSON of another origin was not registered. The subject is the URL without its query (or `sources.<name>` when its path holds a secret token) |
-| `unsupported-source` | A style: a source that is not registered (`video`, an unknown `type`, a URL that cannot be a template). The subject is `sources.<name>`, `glyphs`, `sprite` or `imports` |
+| `same-origin-skipped` | A style: a URL of the page's origin referred to by a style or TileJSON of another origin was not registered. The subject is the URL without its query, or the name in the style (`sources.<name>`, `glyphs`, `sprite`, `sprite.<id>`) when its path holds a secret token or it has user info |
+| `unsupported-source` | A style: a source that is not registered (`video`, an unknown `type`, a URL that cannot be a template). The subject is `sources.<name>`, `glyphs`, `sprite`, `sprite.<id>` (an item of a `sprite` array) or `imports` |
 
 Ignore any code you do not know: new codes may be added in a minor release.
 
