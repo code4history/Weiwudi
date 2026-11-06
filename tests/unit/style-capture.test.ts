@@ -7,7 +7,8 @@ import { createContext } from '../../src/context';
 import { apply, childSourceId } from '../../src/registry';
 import { normalizeMember, type StyleSpec } from '../../src/spec';
 import type { ResourceType, SourceRecord, Store } from '../../src/store';
-import { spriteTemplateOf } from '../../src/url_pattern';
+import { compileTemplate, matchUrl, spriteTemplateOf } from '../../src/url_pattern';
+import { serveResource } from '../../src/hook';
 import { createMapboxProvider } from '../../src/providers/mapbox';
 import { appendQueryCredentials } from '../../src/upstream';
 import { _resetPluginsForTest } from '../../src/plugins';
@@ -252,5 +253,65 @@ describe('スプライトの捕捉（R6）', () => {
     expect(entries.every((e) => e?.meta.resourceId === rid)).toBe(true);
     expect((await store.getResource(rid))!.count).toBe(4);
     expect((await get(h, 'https://a.example/sprites/s@2x.png')).headers.get('x-weiwudi-status')).toBe('hit');
+  });
+});
+
+describe('serveResource を直接呼ぶ（L1 Minor-2・Minor-4）', () => {
+  const TJ = 'https://a.example/tiles/t.json';
+  const tjBody = () => json({ tiles: [`https://a.example/{z}/{x}/{y}.pbf?access_token=${TOKEN}`] });
+
+  const prepare = async () => {
+    vi.stubGlobal('indexedDB', new (await import('fake-indexeddb')).IDBFactory());
+    vi.stubGlobal('IDBKeyRange', (await import('fake-indexeddb')).IDBKeyRange);
+    const fetchMock = vi.fn(async () => tjBody());
+    vi.stubGlobal('fetch', fetchMock);
+    const ctx = createContext({ providers: () => [mapbox] });
+    const store = await ctx.store();
+    return { ctx, store, fetchMock };
+  };
+
+  const call = async (ctx: ReturnType<typeof createContext>, rid: string) => {
+    const resource = (await (await ctx.store()).getResource(rid))!;
+    const url = new URL(TJ);
+    const m = matchUrl(compileTemplate(resource.templates[0]), url)!;
+    return serveResource(ctx, resource, new Request(TJ), url, m, undefined);
+  };
+
+  it('O-N3: credentialSourceId が無ければ sourceIds を登録順に見て、資格情報を持つ最初の Source（後の親）のオリジンで除去する', async () => {
+    const { ctx, store } = await prepare();
+    // 前の親は c.example のスタイル（その子は資格情報なし）、後の親は a.example のスタイル（その子は資格情報あり）
+    await putParent(store, 'p1', 'https://c.example/style.json');
+    await putParent(store, 'p2', STYLE_URL);
+    const s1 = normalizeMember('tilejson', [TJ], {}, { kind: 'child', internalId: childSourceId('p1', 'tilejson', 'tj'), logicalName: 'tj', single: true });
+    await apply(store, s1, undefined, { throwOnConflict: false, resetCors: false, order: 1, parentId: 'p1' });
+    const s2 = normalizeMember('tilejson', [TJ], { credentials: { query: { access_token: TOKEN } } },
+      { kind: 'child', internalId: childSourceId('p2', 'tilejson', 'tj'), logicalName: 'tj', single: true });
+    const r2 = await apply(store, s2, undefined, { throwOnConflict: false, resetCors: false, order: 2, parentId: 'p2' });
+    const rid = r2.resources[0].id;
+    expect((await store.getResource(rid))!.sourceIds).toEqual([s1.spec.id, s2.spec.id]);
+    const res = await call(ctx, rid);
+    expect(res.headers.get('x-weiwudi-status')).toBe('miss');
+    expect(JSON.parse(await res.text()).tiles).toEqual(['https://a.example/{z}/{x}/{y}.pbf']);
+  });
+
+  it('同じ構成で資格情報を持つ Source が無ければ除去しない', async () => {
+    const { ctx, store } = await prepare();
+    await putParent(store, 'p2', STYLE_URL);
+    const r = await putChild(store, 'p2', 'tilejson', 'tj', TJ);
+    const res = await call(ctx, r.resources[0].id);
+    expect(await res.text()).toContain(TOKEN);
+  });
+
+  it('Minor-4: hit では除去の規則を計算しない（Source・資格情報を IndexedDB から読まない）', async () => {
+    const { ctx, store } = await prepare();
+    await putParent(store, 'p2', STYLE_URL);
+    const r = await putChild(store, 'p2', 'tilejson', 'tj', TJ, { credentials: { query: { access_token: TOKEN } } });
+    expect((await call(ctx, r.resources[0].id)).headers.get('x-weiwudi-status')).toBe('miss');
+    const getSource = vi.spyOn(store, 'getSource');
+    const getCredentials = vi.spyOn(store, 'getCredentials');
+    const hit = await call(ctx, r.resources[0].id);
+    expect(hit.headers.get('x-weiwudi-status')).toBe('hit');
+    expect(getSource).not.toHaveBeenCalled();
+    expect(getCredentials).not.toHaveBeenCalled();
   });
 });

@@ -278,11 +278,14 @@ const stripRuleOf = async (ctx: Context, resource: ResourceMeta, credentialSourc
 
 /**
  * style・tilejson の本体の書き換え（R28）。base は要求の URL（相対 URL の解決）。style には Resource の提供元の rewriteStyle を当てる。
- * 読めない本体は style_body が投げ、core が上流の失敗として扱う（保存しない。C-S4）
+ * 除去の規則は transform の中で初めて計算する（hit では transform が呼ばれず、IndexedDB を読まない。L1 Minor-4）。
+ * 読めない本体は style_body が投げ、core が上流の失敗として扱う（保存しない。C-S4）。規則の計算の失敗も同じ扱い
  */
 const bodyTransformOf = (
-  type: 'style' | 'tilejson', base: string, rewriteStyle: ((s: unknown) => unknown) | undefined, strip: StripRule | undefined,
+  type: 'style' | 'tilejson', base: string, rewriteStyle: ((s: unknown) => unknown) | undefined,
+  stripOf: () => Promise<StripRule | undefined>,
 ): NonNullable<ServeInput['transform']> => async (blob) => {
+  const strip = await stripOf();
   const text = await blob.text();
   const out = type === 'style'
     ? rewriteStyleBody(text, base, { ...(rewriteStyle ? { rewriteStyle } : {}), ...(strip ? { strip } : {}) })
@@ -302,10 +305,10 @@ export async function serveResource(
   const provider = providerOf(ctx, resource);
   let styleLike: Pick<ServeInput, 'isStyleLike' | 'transform'> = {};
   if (resource.type === 'style' || resource.type === 'tilejson') {
-    const strip = await stripRuleOf(ctx, resource, opts.credentialSourceId);
+    const stripOf = () => stripRuleOf(ctx, resource, opts.credentialSourceId);
     const rewriteStyle = resource.type === 'style' && provider?.rewriteStyle
       ? (st: unknown) => provider.rewriteStyle!(st) : undefined;
-    styleLike = { isStyleLike: true, transform: bodyTransformOf(resource.type, url.href, rewriteStyle, strip) };
+    styleLike = { isStyleLike: true, transform: bodyTransformOf(resource.type, url.href, rewriteStyle, stripOf) };
   }
   const input: ServeInput = {
     resourceId: resource.id,

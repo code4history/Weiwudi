@@ -314,7 +314,9 @@ export function serve(ctx: Context, input: ServeInput, now: () => number): Promi
   // 認証付き（保存しない）要求はまとめない。匿名の要求と応答を共有しない（PR #75 L1 M1）
   if (!input.storable) return serveOnce(ctx, input, now(), plugins);
   // グリフは範囲ごとにまとめる（同じ fontstack の別の範囲を 1 本にしない。仕様 §11）
-  const flightKey = input.part === undefined ? input.key : `${input.key}\0${input.part}`;
+  // revalidate は hit を返す通常の要求にまとめない（印を足して別の 1 本にする。L1 Minor-1）
+  const base = input.part === undefined ? input.key : `${input.key}\0${input.part}`;
+  const flightKey = input.revalidate === true ? `${base}\0revalidate` : base;
   const shared = ctx.inflight.get(flightKey);
   if (shared) return shared.then((r) => r.clone());
   const p = serveOnce(ctx, input, now(), plugins);

@@ -968,3 +968,14 @@ describe('ServeInput.transform・revalidate（m3-t6・R28・R4・C-S4・C-S1）'
     expect(upstream).not.toHaveBeenCalled();
   });
 });
+
+describe('revalidate と同時要求のまとめ（L1 Minor-1）', () => {
+  it('通常の要求と revalidate を同時に出しても、revalidate は通常の要求の hit にまとめられず上流へ出る', async () => {
+    await seed('1_0_0', { fetchedAt: T - 10 });
+    const upstream = vi.fn<Up>(async () => ok());
+    const [normal, revalidate] = await Promise.all([run({ upstream }), run({ upstream, revalidate: true })]);
+    expect(normal.headers.get('x-weiwudi-status')).toBe('hit');
+    expect(revalidate.headers.get('x-weiwudi-status')).toBe('refresh');
+    expect(upstream).toHaveBeenCalledTimes(1);
+  });
+});
