@@ -17,7 +17,8 @@
 //   スタイルの子の Resource は親の id で名指す（持ち主は style.styleChildIds。remove() が外す孤児の子も含む。m3-t8）
 // - usage は全 Resource（旧 API の map: も）を 1 つずつ数える。子の Resource も 1 回だけ（Source ごとに数えない。R19）
 // - POST は送り手（event.clientId の client）の URL のオリジン（blob: は中のオリジン）が SW と同じときだけ受ける。
-//   違う・見つからないときは sw-not-controlling で何もしない（I6・R25）。GET の /v2/ping は見ない
+//   違う・見つからないときは sw-not-controlling で何もしない（I6・R25）。URL が about:srcdoc・about:blank の client は受ける。
+//   GET の /v2/ping は見ない
 import type { RouteHandlerCallbackOptions } from 'workbox-core';
 import type { Context } from './context';
 import { tableChanged } from './hook';
@@ -245,7 +246,11 @@ const fromOwnOrigin = async (event: unknown): Promise<boolean> => {
   } catch (_e) {
     return false;
   }
-  return !!client && originOf(client.url) === own;
+  if (!client) return false;
+  // 同じオリジンの srcdoc・about:blank の iframe は URL に origin を持たない（clients.get が返すのは SW の制御下の client だけで、
+  // sandbox の opaque な iframe は制御下に入らない。レビュー担当が Chromium で確認。m3-t8 L1 m-1）。ほかの null の origin は受けない
+  if (client.url === 'about:srcdoc' || client.url === 'about:blank') return true;
+  return originOf(client.url) === own;
 };
 
 export interface Control {

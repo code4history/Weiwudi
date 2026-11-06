@@ -416,6 +416,16 @@ describe('removeResource・usage（m3-t8・R18・R19）', () => {
     expect([u.count, u.bytes]).toEqual([3, 9]);
   });
 
+  it('SW の答えの code は書式（/^[a-z][a-z0-9-]*$/）に合えば未知でも保ち、合わなければ internal', async () => {
+    const m = await setup();
+    postReply = async () => jsonRes({ ok: false, error: { code: 'future-code', message: 'x', detail: {} } });
+    await rejectsWith(m.default.usage(), 'future-code', m);
+    for (const code of ['Bad Code', '', '1x', 3]) {
+      postReply = async () => jsonRes({ ok: false, error: { code, message: 'x', detail: {} } });
+      await rejectsWith(m.default.usage(), 'internal', m);
+    }
+  });
+
   it('usage の失敗は WeiwudiError', async () => {
     const m = await setup();
     postReply = async () => jsonRes({ ok: false, error: { code: 'storage', message: 'x', detail: {} } });

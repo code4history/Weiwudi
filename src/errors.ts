@@ -37,6 +37,9 @@ const KNOWN_CODES: ReadonlySet<string> = new Set<string>([...LEGACY_CODES, ...OT
 /** 印のある WeiwudiError が持ってよい code の書式（新しい SW の未知の code を消さない。m3-t8・I4・R24） */
 const CODE_FORMAT = /^[a-z][a-z0-9-]*$/;
 
+/** code の書式に合うか（ページ側の postV2 も SW の答えの code をこれで確かめる。m3-t8 i-1） */
+export const isCodeFormat = (code: unknown): code is string => typeof code === 'string' && CODE_FORMAT.test(code);
+
 // 別のバンドル・別のコピーの errors.ts で作られた WeiwudiError も見分けるための印（#33）
 const BRAND = Symbol.for('@c4h/weiwudi/error');
 

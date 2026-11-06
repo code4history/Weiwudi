@@ -697,7 +697,7 @@ export interface UsageReport {
 ```
 
 - `removeResource(resourceId)`（m3-t8・R18）: その Source の `sourceIds` か `rangeOnlySourceIds` にある Resource の Entry を消す（`clearEntries`）。スタイルは親の単位で判定する（持ち主は子の id と、`parentId` が親の孤児の子。`remove()` が外す範囲と同じ）。Resource の記録と捕捉は残る。他の Source と共有していても、範囲だけで参照していても消す（利用者が名指ししたため。`clean()` は共有を残す）。グリフは fontstack ごとのレコードを全部消す。無ければ `resource-not-found`。control の直列の待ち行列に通す
-- 制御の POST は、`event.clientId` の client（`self.clients.get`）の URL のオリジン（`blob:` は中のオリジン）が `self.location.origin` と同じときだけ受ける。違う・見つからないときは `{ ok: false, error: { code: 'sw-not-controlling' } }` で何もしない（m3-t8・I6・R25）。GET の `/v2/ping` は見ない
+- 制御の POST は、`event.clientId` の client（`self.clients.get`）の URL のオリジン（`blob:` は中のオリジン）が `self.location.origin` と同じときだけ受ける。違う・見つからないときは `{ ok: false, error: { code: 'sw-not-controlling' } }` で何もしない（m3-t8・I6・R25）。URL が `about:srcdoc`・`about:blank` の client（同じオリジンの iframe）は受ける。ほかの origin の無い client は受けない。ページ側は書式（`/^[a-z][a-z0-9-]*$/`）に合わない code を `internal` にする。GET の `/v2/ping` は見ない
 - `/v2/*` の要求の前に制御下かを確かめる（§4.1）
 - `/v2/ping` が `{ api: 2, version }` を返す。最初の POST の前に必ず確かめる（§4.1）。古い SW（更新待ち）に当たると 404 になるので、ページ側は `sw-outdated` を投げる。旧 `/api/ping` の `Implemented` は変えない
 - `/v2/*` の POST は `Content-Type: text/plain;charset=UTF-8`（§4.1）

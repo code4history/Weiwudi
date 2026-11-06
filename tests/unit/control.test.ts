@@ -2,7 +2,7 @@
 // context に触る試験（連続数・表の作り直しの失敗）だけは createControl を直接呼ぶ。
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createSwHarness, PAGE_CLIENT_ID, SW_SELF_ORIGIN, type SwHarness } from './sw-harness';
+import { createSwHarness, PAGE_CLIENT, PAGE_CLIENT_ID, SW_SELF_ORIGIN, type SwHarness } from './sw-harness';
 import { createContext } from '../../src/context';
 import { createControl } from '../../src/control';
 import { installHook } from '../../src/hook';
@@ -539,6 +539,22 @@ describe('removeResource（R18・#38）', () => {
     expect(await countOf('map:m')).toBe(1);
   });
 
+  it('名指ししていない Resource（別の Source のもの）の Entry と count は残す。id と Resource id の前方一致（a と ab）で取り違えない', async () => {
+    const h = harness();
+    const TPL_B = `${TPL}b`;
+    await ok(h, 'register', { kind: 'raster', id: 'a', url: TPL });
+    await ok(h, 'register', { kind: 'raster', id: 'ab', url: TPL_B });
+    await fetchTile(h);
+    await fetchTile(h, 'https://t.example/3/1/2.pngb');
+    expect([await countOf(TPL), await countOf(TPL_B)]).toEqual([1, 1]);
+    await fails(h, 'removeResource', { id: 'ab', resourceId: TPL }, 'resource-not-found');
+    await fails(h, 'removeResource', { id: 'a', resourceId: TPL_B }, 'resource-not-found');
+    expect([await countOf(TPL), await countOf(TPL_B)]).toEqual([1, 1]);
+    await ok(h, 'removeResource', { id: 'a', resourceId: TPL });
+    expect([await countOf(TPL), await countOf(TPL_B)]).toEqual([0, 1]);
+    expect(await (await storeOf(h)).getEntry(`${TPL_B}\u00003_1_2`)).toBeDefined();
+  });
+
   describe('スタイルの子の Resource（親の Source の単位）', () => {
     const STYLE = 'https://s.example/style.json';
     const VT = 'https://v.example/{z}/{x}/{y}.pbf';
@@ -567,6 +583,17 @@ describe('removeResource（R18・#38）', () => {
       const child = (await (await storeOf(h)).getResource(VT))!.sourceIds[0];
       await fails(h, 'removeResource', { id: child, resourceId: VT }, 'source-not-found');
       await get(h, 'https://v.example/3/1/2.pbf');
+    });
+
+    it('同じ Source の 2 つ目の Resource（名指ししていない子）の Entry と count は残す', async () => {
+      const h = styleHarness();
+      await ok(h, 'register', { kind: 'style', id: 'st', url: STYLE });
+      await get(h, 'https://v.example/3/1/2.pbf');
+      await get(h, 'https://g.example/fonts/A/0-255.pbf');
+      await ok(h, 'removeResource', { id: 'st', resourceId: VT });
+      expect(await countOf(VT)).toBe(0);
+      expect(await countOf(GLYPHS)).toBe(1);
+      expect(await (await storeOf(h)).getEntry(`${GLYPHS}\u0000A`)).toBeDefined();
     });
 
     it('グリフは fontstack ごとのレコードを全部消す', async () => {
@@ -631,6 +658,47 @@ describe('制御の POST の送り手（I6・R25）', () => {
     expect(r).toMatchObject({ ok: false, error: { code: 'sw-not-controlling' } });
     const r2 = await (await h.post('/v2/sources', {}, { client: { id: 'd', url: 'data:text/html,x', type: 'worker' } }))!.json();
     expect(r2.error.code).toBe('sw-not-controlling');
+  });
+
+  it('同じオリジンの srcdoc・about:blank の iframe の client（URL が about:srcdoc・about:blank）は受ける', async () => {
+    const h = harness();
+    for (const url of ['about:srcdoc', 'about:blank']) {
+      const r = await (await h.post('/v2/sources', {}, { client: { id: 'f', url, type: 'window' } }))!.json();
+      expect(r.ok).toBe(true);
+    }
+    for (const url of ['about:srcdocx', 'about:blank#x', 'about:other']) {
+      const r = await (await h.post('/v2/sources', {}, { client: { id: 'f', url, type: 'window' } }))!.json();
+      expect(r.error.code).toBe('sw-not-controlling');
+    }
+  });
+
+  it('event が無い・clientId が空の POST は、clients.get が何を返しても sw-not-controlling で何も変えない', async () => {
+    createSwHarness();
+    const ctx = createContext(openStore);
+    installHook(ctx, () => undefined, { pickCredentialSource: credentialSourceFor });
+    const control = createControl(ctx);
+    (self as unknown as { clients: { get: ReturnType<typeof vi.fn> } }).clients.get.mockResolvedValue(PAGE_CLIENT);
+    for (const event of [undefined, {}, { clientId: '' }, { clientId: 3 }]) {
+      const url = new URL('https://weiwudi.example.com/v2/register');
+      const request = new Request(url, { method: 'POST', body: JSON.stringify({ kind: 'raster', id: 's', url: TPL }) });
+      const r = await (await control.post({ url, request, event } as never)).json();
+      expect(r).toMatchObject({ ok: false, error: { code: 'sw-not-controlling' } });
+    }
+    expect(await (await openStore()).listSources()).toEqual([]);
+  });
+
+  it('self.clients.get が reject するとき・self.location.origin が読めないときは受けない', async () => {
+    const h = harness();
+    h.self.clients.get.mockImplementationOnce(() => Promise.reject(new Error('gone')));
+    const r = await (await h.post('/v2/register', { kind: 'raster', id: 's', url: TPL }))!.json();
+    expect(r.error.code).toBe('sw-not-controlling');
+    const loc = h.self.location;
+    Object.defineProperty(h.self, 'location', { configurable: true, get: () => { throw new Error('no location'); } });
+    const r2 = await (await h.post('/v2/register', { kind: 'raster', id: 's', url: TPL }))!.json();
+    expect(r2.error.code).toBe('sw-not-controlling');
+    Object.defineProperty(h.self, 'location', { configurable: true, value: loc });
+    expect(await (await storeOf(h)).listSources()).toEqual([]);
+    expect((await ok(h, 'sources'))).toEqual([]);
   });
 
   it('GET の /v2/ping は送り手を見ない（今のまま）', async () => {

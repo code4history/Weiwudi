@@ -62,6 +62,14 @@ describe('usage（R19・#38）', () => {
     });
   });
 
+  it('複数の Source が共有する Resource は 1 回だけ数える', async () => {
+    const h = harness();
+    await ok(h, 'register', { kind: 'raster', id: 'a', url: TPL });
+    await ok(h, 'register', { kind: 'raster', id: 'b', url: TPL });
+    await tile(h, 'https://t.example/3/1/2.png');
+    expect(await ok(h, 'usage')).toEqual({ count: 1, bytes: 3, byProvider: { 'https://t.example': { count: 1, bytes: 3 } } });
+  });
+
   it('旧 API の地図（map:）も数える。相対の URL は SW の場所で解決した origin', async () => {
     const h = harness();
     await h.request(`/api/add?mapID=m&type=xyz&url=${encodeURIComponent('./tiles/{z}/{x}/{y}.png')}&width=1024&height=1024`);

@@ -1,5 +1,5 @@
 "use strict";
-import { WeiwudiError, legacyMessage, type WeiwudiErrorCode } from './errors';
+import { WeiwudiError, isCodeFormat, legacyMessage, type WeiwudiErrorCode } from './errors';
 import { absolutizeTemplate } from './url_pattern';
 import { PSEUDO_HOST, V2_PREFIX } from './constants';
 import type { Credentials, OutOfRange, ResourceInfo, ResourceType } from './store';
@@ -170,9 +170,9 @@ const postV2 = async <T>(op: string, body: unknown): Promise<T> => {
     const e = reply && typeof reply.error === 'object' && reply.error !== null ? reply.error : {};
     const detail = e.detail !== null && typeof e.detail === 'object' && Object.keys(e.detail).length > 0
         ? e.detail as Record<string, unknown> : undefined;
-    // 新しい SW が増やした code もそのまま渡す（code は minor で増える）
+    // 新しい SW が増やした code もそのまま渡す（code は minor で増える）。書式に合わない code は internal（m3-t8 i-1）
     throw new WeiwudiError(
-        (typeof e.code === 'string' ? e.code : 'internal') as WeiwudiErrorCode,
+        (isCodeFormat(e.code) ? e.code : 'internal') as WeiwudiErrorCode,
         typeof e.message === 'string' ? e.message : `/v2/${op} failed`,
         detail,
     );
