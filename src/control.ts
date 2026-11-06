@@ -11,10 +11,11 @@
 // - register・update・remove の後に照合表を作り直す（hook.tableChanged）。作り直しが失敗しても登録は成功させ、
 //   表を捨てて門番に読み直させる（古い表のまま固まらない。Ruling）
 // - 照合表の影（template-shadowed）は、その Source が参照する Resource のものだけを warnings に足して保存する
-// - スタイル（kind: 'style'）の register・update は style.ts。Resource の絞り込みは「持ち主の id の一覧」（スタイルは子の id、
-//   ほかは自分。style.ownersOf）で行う（m3-t7・I3 の後半）
+// - スタイル（kind: 'style'）の register・update は style.ts。Resource の絞り込みは「持ち主の id の一覧」（ownerIdsOf）で行う。
+//   スタイルは親の単位（親の children の子と、parentId が親の id の孤児。remove() が外す範囲と同じ。style.styleChildIds）、
+//   ほかは自分（style.ownersOf）。source()・stats()・clean()・removeResource()・照合表の影で同じ単位を使う（m3-t7・m3-t8・L1 Minor-1）
 // - removeResource は Entry だけを消す（Resource の記録と捕捉は残す。共有・範囲だけの参照でも消す。R18）。
-//   スタイルの子の Resource は親の id で名指す（持ち主は style.styleChildIds。remove() が外す孤児の子も含む。m3-t8）
+//   スタイルの子の Resource は親の id で名指す（m3-t8）
 // - usage は全 Resource（旧 API の map: も）を 1 つずつ数える。子の Resource も 1 回だけ（Source ごとに数えない。R19）
 // - POST は送り手（event.clientId の client）の URL のオリジン（blob: は中のオリジン）が SW と同じときだけ受ける。
 //   違う・見つからないときは sw-not-controlling で何もしない（I6・R25）。URL が about:srcdoc・about:blank の client は受ける。
@@ -82,7 +83,14 @@ const resourceIdOf = (body: unknown): string => {
 };
 
 /**
- * 持ち主の id の一覧（スタイルは子の id、ほかは自分）が参照する Resource（sourceIds のもの・範囲だけのもの。重ねない。
+ * Resource の絞り込みに使う持ち主の id の一覧。スタイルは親の単位（親の children の子と、parentId が親の id の孤児。
+ * remove()・update() が外す範囲と同じ。style.styleChildIds）、ほかは自分（style.ownersOf）。子を集める処理は styleChildIds だけ
+ */
+const ownerIdsOf = async (store: Store, rec: SourceRecord): Promise<string[]> =>
+  styleSpecOf(rec) ? styleChildIds(store, rec.id, ownersOf(rec)) : ownersOf(rec);
+
+/**
+ * 持ち主の id の一覧（ownerIdsOf）が参照する Resource（sourceIds のもの・範囲だけのもの。重ねない。
  * sourceIds のものを先に、登録の順）
  */
 const resourcesOf = async (store: Store, owners: readonly string[]): Promise<ResourceMeta[]> => {
@@ -105,7 +113,7 @@ const infoOf = async (store: Store, rec: SourceRecord): Promise<SourceInfo> => {
   const spec = storedSpecOf(rec) ?? styleSpecOf(rec);
   if (!spec) throw notFound(rec.id);
   const now = Date.now();
-  const owners = ownersOf(rec);
+  const owners = await ownerIdsOf(store, rec);
   return {
     id: rec.id,
     // getOwn・sources が旧 API の記録と子を除くので、kind は利用者の kind
@@ -125,7 +133,7 @@ const statsOf = async (store: Store, rec: SourceRecord): Promise<SourceStats> =>
   const byResource: Record<string, { count: number; bytes: number }> = Object.create(null);
   let count = 0;
   let size = 0;
-  for (const m of await resourcesOf(store, ownersOf(rec))) {
+  for (const m of await resourcesOf(store, await ownerIdsOf(store, rec))) {
     byResource[m.id] = { count: m.count, bytes: m.bytes };
     count += m.count;
     size += m.bytes;
@@ -272,7 +280,7 @@ export function createControl(ctx: Context): Control {
 
   /** 保存の後: 照合表を作り直し、持ち主の Resource の影を warnings に足して SourceInfo を返す */
   const finish = async (store: Store, rec: SourceRecord): Promise<SourceInfo> => {
-    const ids = (await resourcesOf(store, ownersOf(rec))).map((m) => m.id);
+    const ids = (await resourcesOf(store, await ownerIdsOf(store, rec))).map((m) => m.id);
     return infoOf(store, await withShadows(store, rec, await refreshTable(ctx, ids)));
   };
 
@@ -292,10 +300,10 @@ export function createControl(ctx: Context): Control {
     const style = styleSpecOf(rec);
     if (style) {
       // スタイルは取り直して芋づるを作り直す（下位資源の衝突で例外にしない。P2・R10）
-      const before = (await resourcesOf(store, ownersOf(rec))).map((m) => m.id);
+      const before = (await resourcesOf(store, await ownerIdsOf(store, rec))).map((m) => m.id);
       const out = await registerStyle(ctx, credentials ? { spec: style, credentials } : { spec: style },
         { mode: 'update', swOrigin: swOrigin() });
-      for (const rid of [...before, ...(await resourcesOf(store, ownersOf(out))).map((m) => m.id)]) ctx.corslessStreak.delete(rid);
+      for (const rid of [...before, ...(await resourcesOf(store, await ownerIdsOf(store, out))).map((m) => m.id)]) ctx.corslessStreak.delete(rid);
       return finish(store, out);
     }
     // 保存した登録内容で合流と方針を作り直す（資格情報は credentials ストアのものを持ち越す）
@@ -311,9 +319,9 @@ export function createControl(ctx: Context): Control {
 
   const clean = (id: string) => serial(async () => {
     const store = await ctx.store();
-    const owners = ownersOf(await getOwn(store, id));
+    const owners = await ownerIdsOf(store, await getOwn(store, id));
     // 範囲なしの clean（m2）。他の Source が参照する共有・範囲だけの Resource の Entry は残す（仕様 §5.6・§7.2）。
-    // スタイルは子の Resource を、子の id の一覧で判定する
+    // スタイルは子の Resource を、親の単位の id の一覧（孤児の子も含む。L1 Minor-1）で判定する
     const done: string[] = [];
     for (const owner of owners) {
       for (const m of await store.resourcesBySource(owner)) {
@@ -328,7 +336,7 @@ export function createControl(ctx: Context): Control {
   const remove = (id: string) => serial(async () => {
     const store = await ctx.store();
     const rec = await getOwn(store, id);
-    const before = (await resourcesOf(store, ownersOf(rec))).map((m) => m.id);
+    const before = (await resourcesOf(store, await ownerIdsOf(store, rec))).map((m) => m.id);
     // スタイルは子を全部外してから親を消す（親の記録が残っていれば、途中で止まっても remove() をやり直せる）
     // parentId が親の id の孤児（段の途中で止まった子。R33）も外す（L1 M-1）
     if (styleSpecOf(rec)) await removeStyleChildren(store, id, ownersOf(rec), { strict: true });
@@ -346,7 +354,7 @@ export function createControl(ctx: Context): Control {
     const store = await ctx.store();
     const rec = await getOwn(store, id);
     // スタイルは親の単位（子と孤児の子。remove() が外す範囲と同じ）で、ほかは自分で判定する（m3-t8）
-    const owners = styleSpecOf(rec) ? await styleChildIds(store, id, ownersOf(rec)) : ownersOf(rec);
+    const owners = await ownerIdsOf(store, rec);
     const m = await store.getResource(resourceId);
     // sourceIds か rangeOnlySourceIds にあれば、共有でも範囲だけの参照でも消す（利用者が名指ししたため。R18・C-O13）
     const refers = !!m && owners.some((o) => m.sourceIds.indexOf(o) >= 0 || (m.rangeOnlySourceIds ?? []).indexOf(o) >= 0);
