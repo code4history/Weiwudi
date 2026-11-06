@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weiwudi Style Test Page</title>
+</head>
+
+<body>
+    <h1>Weiwudi Style E2E Test Page</h1>
+    <div id="status">Initializing...</div>
+
+    <script type="module">
+        import Weiwudi from '/dist/weiwudi.es.js';
+
+        // スタイルの e2e（m3-t9・style.spec.js）。SW は hook-sw.js（同じスコープ）。登録は試験の側で行う。
+        // ?child: 同じオリジンの iframe として読まれる子。SW の登録はせず、補助だけを置く
+        window.Weiwudi = Weiwudi;
+
+        // ページと Worker で共有する補助（Worker には文字列のまま渡す）
+        const LIB = `
+            const tile = async (url) => {
+                const res = await fetch(url);
+                const buf = new Uint8Array(await res.arrayBuffer());
+                return {
+                    url,
+                    status: res.status,
+                    type: res.headers.get('content-type'),
+                    wstatus: res.headers.get('x-weiwudi-status'),
+                    text: new TextDecoder().decode(buf),
+                    tail: buf.length > 0 ? buf[buf.length - 1] : null,
+                };
+            };
+            // 制御の POST（ページの Weiwudi と同じ形。https://weiwudi.example.com/v2/<op>）
+            const control = async (op, body) => {
+                const res = await fetch('https://weiwudi.example.com/v2/' + op, {
+                    method: 'POST',
+                    mode: 'cors',
+                    cache: 'no-store',
+                    headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+                    body: JSON.stringify(body),
+                });
+                return res.json();
+            };
+        `;
+        // eslint の対象外（html）。LIB を大域に評価する
+        (0, eval)(LIB + 'window.tile = tile; window.control = control;');
+
+        // blob Worker の中で fn（(arg) => Promise）を走らせ、結果を返す。fn は tile・control を使える
+        window.inWorker = (fnSource, arg) => new Promise((resolve, reject) => {
+            const src = `${LIB}
+                const run = ${fnSource};
+                run(${JSON.stringify(arg)}).then(
+                    (value) => postMessage({ ok: true, value }),
+                    (e) => postMessage({ ok: false, error: String(e && e.message || e) }));`;
+            const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+            const worker = new Worker(url);
+            const timer = setTimeout(() => reject(new Error('worker timeout')), 15000);
+            worker.onmessage = (e) => {
+                clearTimeout(timer);
+                worker.terminate();
+                URL.revokeObjectURL(url);
+                resolve(e.data);
+            };
+            worker.onerror = (e) => {
+                clearTimeout(timer);
+                reject(new Error('worker error: ' + e.message));
+            };
+        });
+
+        // 同じオリジンの iframe（この頁の ?child）から制御の POST を出す
+        window.inIframe = async (op, body) => {
+            const frame = document.createElement('iframe');
+            frame.src = location.pathname + '?child';
+            await new Promise((resolve) => {
+                frame.onload = resolve;
+                document.body.appendChild(frame);
+            });
+            await frame.contentWindow.childReady;
+            const controlled = frame.contentWindow.navigator.serviceWorker.controller !== null;
+            const value = await frame.contentWindow.control(op, body);
+            frame.remove();
+            return { controlled, value };
+        };
+
+        // srcdoc の iframe（about:srcdoc）から制御の POST を出す
+        window.inSrcdoc = (op, body) => new Promise((resolve, reject) => {
+            const frame = document.createElement('iframe');
+            const tag = 'srcdoc-' + Math.random().toString(36).slice(2);
+            const timer = setTimeout(() => reject(new Error('srcdoc timeout')), 15000);
+            const onMessage = (e) => {
+                if (!e.data || e.data.tag !== tag) return;
+                clearTimeout(timer);
+                window.removeEventListener('message', onMessage);
+                frame.remove();
+                resolve(e.data);
+            };
+            window.addEventListener('message', onMessage);
+            frame.srcdoc = `<script>${LIB}
+                control(${JSON.stringify(op)}, ${JSON.stringify(body)}).then(
+                    (value) => parent.postMessage({ tag: ${JSON.stringify(tag)}, ok: true, href: location.href,
+                        controlled: navigator.serviceWorker.controller !== null, value }, '*'),
+                    (e) => parent.postMessage({ tag: ${JSON.stringify(tag)}, ok: false, error: String(e) }, '*'));
+            <\/script>`;
+            document.body.appendChild(frame);
+        });
+
+        // 失敗を { code, message } で返す（WeiwudiError の code を試験で見る）
+        window.attempt = async (fn) => {
+            try {
+                return { ok: true, value: await fn() };
+            } catch (e) {
+                return { ok: false, code: e && e.code, message: String(e && e.message || e) };
+            }
+        };
+
+        const done = (error) => {
+            if (error) window.swError = String(error);
+            else window.swReady = true;
+            document.getElementById('status').textContent = error ? 'Error: ' + String(error) : 'Ready';
+        };
+
+        if (new URLSearchParams(location.search).has('child')) {
+            window.childReady = Promise.resolve();
+            done();
+        } else {
+            Weiwudi.registerSW('./hook-sw.js', { scope: '/tests/e2e/fixtures/' }).then(() => done(), done);
+        }
+    </script>
+</body>
+
+</html>
