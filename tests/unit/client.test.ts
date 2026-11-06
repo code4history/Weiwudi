@@ -378,3 +378,57 @@ describe('WeiwudiSource（仕様 §12）', () => {
     expect(JSON.parse(String(posts()[0].init!.body))).toEqual({ id: TPL });
   });
 });
+
+describe('removeResource・usage（m3-t8・R18・R19）', () => {
+  it('removeResource は id と resourceId を本文に POST し、undefined で解決する', async () => {
+    const m = await setup();
+    const s = await m.default.register({ kind: 'raster', url: TPL });
+    postReply = async () => jsonRes({ ok: true, result: null });
+    expect(await s.removeResource(TPL)).toBeUndefined();
+    const last = posts().pop()!;
+    expect([last.url, JSON.parse(String(last.init!.body))]).toEqual(['https://weiwudi.example.com/v2/removeResource', { id: TPL, resourceId: TPL }]);
+  });
+
+  it('removeResource の失敗は WeiwudiError（resource-not-found）。release の後は instance-released で POST しない', async () => {
+    const m = await setup();
+    const s = await m.default.register({ kind: 'raster', url: TPL });
+    postReply = async () => jsonRes({ ok: false, error: { code: 'resource-not-found', message: 'nope', detail: { sourceId: TPL, resourceId: 'x' } } });
+    const e = await s.removeResource('x').catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(m.WeiwudiError);
+    expect(e).toMatchObject({ code: 'resource-not-found', detail: { sourceId: TPL, resourceId: 'x' } });
+    s.release();
+    const n = posts().length;
+    await rejectsWith(s.removeResource('x'), 'instance-released', m);
+    expect(posts()).toHaveLength(n);
+  });
+
+  it('usage は {} を POST し、byProvider は null プロトタイプ（__proto__ の鍵も自前の項目）', async () => {
+    const m = await setup();
+    // JSON の文字列で返す（__proto__ の鍵を JSON.parse の自前の項目として届ける）
+    postReply = async () => new Response('{"ok":true,"result":{"count":3,"bytes":9,"byProvider":{"__proto__":{"count":1,"bytes":3},"mapbox":{"count":2,"bytes":6}}}}');
+    const u = await m.default.usage();
+    expect(JSON.parse(String(posts()[0].init!.body))).toEqual({});
+    expect(posts()[0].url).toBe('https://weiwudi.example.com/v2/usage');
+    expect(Object.getPrototypeOf(u.byProvider)).toBeNull();
+    expect(Object.keys(u.byProvider)).toEqual(['__proto__', 'mapbox']);
+    expect(u.byProvider['__proto__']).toEqual({ count: 1, bytes: 3 });
+    expect(u.byProvider.mapbox).toEqual({ count: 2, bytes: 6 });
+    expect([u.count, u.bytes]).toEqual([3, 9]);
+  });
+
+  it('SW の答えの code は書式（/^[a-z][a-z0-9-]*$/）に合えば未知でも保ち、合わなければ internal', async () => {
+    const m = await setup();
+    postReply = async () => jsonRes({ ok: false, error: { code: 'future-code', message: 'x', detail: {} } });
+    await rejectsWith(m.default.usage(), 'future-code', m);
+    for (const code of ['Bad Code', '', '1x', 3]) {
+      postReply = async () => jsonRes({ ok: false, error: { code, message: 'x', detail: {} } });
+      await rejectsWith(m.default.usage(), 'internal', m);
+    }
+  });
+
+  it('usage の失敗は WeiwudiError', async () => {
+    const m = await setup();
+    postReply = async () => jsonRes({ ok: false, error: { code: 'storage', message: 'x', detail: {} } });
+    await rejectsWith(m.default.usage(), 'storage', m);
+  });
+});

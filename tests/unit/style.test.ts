@@ -3,7 +3,7 @@
 // 途中の書き込みの失敗（R30）だけは registerStyle を直接呼ぶ（ハーネスの store を spy できないため）。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
-import { createSwHarness, SW_SELF_ORIGIN, type SwHarness } from './sw-harness';
+import { createSwHarness, PAGE_CLIENT, PAGE_CLIENT_ID, SW_SELF_ORIGIN, type SwHarness } from './sw-harness';
 import { openStore, type ResourceMeta, type Store } from '../../src/store';
 import { createContext } from '../../src/context';
 import { normalizeSpec, type NormalizedStyle } from '../../src/spec';
@@ -362,10 +362,14 @@ describe('読めないスタイルと巻き戻し（R30・R33）', () => {
     const orphan = await store.getSource(SPRITE_CHILD);
     expect(orphan?.parentId).toBe('st');
     expect(((await store.getSource('st'))!.spec as NormalizedStyle['spec']).children.map((c) => c.id)).not.toContain(SPRITE_CHILD);
+    // 制御の POST は SW と同じオリジンの client からだけ受ける（m3-t8・I6）。この試験はハーネスを使わないので self を置く
+    vi.stubGlobal('self', { location: new URL(`${SW_SELF_ORIGIN}/weiwudi-sw.js`), clients: { get: async () => PAGE_CLIENT } });
     const control = createControl(ctx);
     const res = await control.post({
       url: new URL('https://weiwudi.example.com/v2/remove'),
       request: new Request('https://weiwudi.example.com/v2/remove', { method: 'POST', body: JSON.stringify({ id: 'st' }) }),
+      // 送り手はハーネスのページの client（m3-t8・I6）
+      event: { clientId: PAGE_CLIENT_ID },
     } as never);
     expect((await res.json()).ok).toBe(true);
     expect(await store.listSources()).toEqual([]);

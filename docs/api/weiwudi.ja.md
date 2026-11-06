@@ -377,6 +377,26 @@ interface ResourceInfo {
 type ResourceType = 'style' | 'tilejson' | 'tile' | 'glyph' | 'sprite' | 'data';
 ```
 
+`ResourceType` の値は minor の版で増えることがあります。switch には default を置くこと。
+
+### `Weiwudi.usage()`
+
+**戻り値:** `Promise<UsageReport>`。保存した量の合計と提供元別の内訳です。
+
+```typescript
+interface UsageReport {
+  count: number;   // 全資源の Entry の件数
+  bytes: number;   // その大きさ
+  byProvider: Record<string, { count: number; bytes: number }>;
+}
+```
+
+- 全資源を 1 回ずつ数えます。`registerMap` で登録した地図の資源（保存した量なので）とスタイルの資源も入ります。
+- `byProvider` の鍵は資源の提供元（`'mapbox'` か、`addProvider` で足した提供元の `id`）で、無ければ先頭の
+  URL テンプレートの origin です（`registerMap` の相対の URL はサービスワーカーの場所で解決します）。origin が無いときは
+  `'unknown'` です。提供元の id と origin は同じ鍵の空間にあります（origin と同じ名前の提供元の id は同じ項目に足されます）。
+- `byProvider` は `null` プロトタイプです。`__proto__` のような鍵も自前の項目になります。
+
 ### `WeiwudiSource`
 
 | メンバ | 説明 |
@@ -388,6 +408,7 @@ type ResourceType = 'style' | 'tilejson' | 'tile' | 'glyph' | 'sprite' | 'data';
 | `stats()` | `Promise<SourceStats>` |
 | `update()` | 保存した登録内容で合流と方針を作り直し、CORS の判定をやり直す。自分の資源が衝突すると `resource-conflict` で reject し、何も変えない。スタイルは代わりに取り直し、`resource-conflict` では reject しない（衝突は `warnings` に書く）。スタイルが読めなければ `invalid-style` |
 | `clean()` | 保存した Entry を消す。他の Source と共有する資源の Entry は残す |
+| `removeResource(resourceId)` | この Source（スタイルは登録した資源）の資源 1 つの Entry を消す。**他の Source と共有していても、範囲だけ（`rangeOnly`）で参照していても消す**（利用者が名指ししたため）。グリフの資源は全 fontstack のレコードを消す。資源の記録と捕捉は残り、次の要求で取り直して保存する。その Source が参照しない資源の id なら `resource-not-found` で reject。スタイルで受ける id は、`remove()` が外す子（途中で止まった update が残した孤児の子も含む）の資源の id |
 | `remove()` | 登録と Entry を消し、`release()` を呼ぶ。他の Source が `sourceIds` に持つ資源の Entry は残す。`sourceIds` が空になった資源は、範囲だけ（`rangeOnly`）で参照している Source があっても Entry ごと消す |
 | `release()` | ページ側のリスナを外す。以後のメソッドは `instance-released` で reject |
 
@@ -426,6 +447,11 @@ Source の API は、まずページがこの API を持つサービスワーカ
 
 確認の成功は、制御しているワーカーごとに `controllerchange` まで覚えます。制御の要求は
 `Content-Type: text/plain;charset=UTF-8` の `POST` で、preflight を出しません。
+
+サービスワーカーが制御の `POST` を受けるのは、自分と同じオリジンの client（ページかワーカー。`blob:` のワーカーは
+URL の中のオリジン）からだけです。別オリジンの client や見つからない client からの要求には `sw-not-controlling` を返し、
+何も変えません。同じオリジンの `srcdoc`・`about:blank` の iframe（client の URL が `about:srcdoc`・`about:blank`）は
+受けます。それ以外の origin を持たない client（`data:` など）は受けません。`GET /v2/ping` は確かめません。
 
 ### タイルの応答: `x-weiwudi-status`
 
@@ -474,8 +500,9 @@ try {
 
 - `code`・`message`・`detail` を持つ `WeiwudiError`（`Error` の派生）を返します。
   どんな値を渡しても throw しません。
-- **そのまま返すのは、本物の `Error` で既知の `code` を持つものだけです**（別のコピーの
-  Weiwudi が作った `WeiwudiError` や、`name` が `'WeiwudiError'` の `Error` を含む）。
+- **そのまま返すのは本物の `Error` だけです。** 印のある `WeiwudiError`（別のコピーの Weiwudi が作ったものを含む）は、
+  `code` が書式（`/^[a-z][a-z0-9-]*$/`）に合えば、この版の知らない `code` でもそのまま返します（新しいサービスワーカーが
+  足した code を `internal` に潰しません）。印が無く `name: 'WeiwudiError'` だけで救う `Error` は、既知の `code` に限ります。
   それ以外は新しい `WeiwudiError` に作り直します。`Error.isError` の無い環境（Node 22
   など）では、本物の `Error` かどうかを `instanceof` でしか確かめられないので、
   `Object.create(WeiwudiError.prototype)` などでプロトタイプを継いで作り、既知の `code` と、
@@ -527,15 +554,15 @@ try {
 `invalid-style`（読めないスタイルの `register`・`update()`）、
 `sw-outdated`（制御しているサービスワーカーに Source の API が無い）、
 `source-not-found`（`source()` と `WeiwudiSource` のメソッドで、無い id）、
-`resource-conflict`（`update()` だけ。`register()` は `warnings` に書く）。
+`resource-conflict`（`update()` だけ。`register()` は `warnings` に書く）、
+`resource-not-found`（`removeResource()` で、その Source が参照しない資源の id）。
 Source の API は上の表の `attribute-invalid`・`sw-not-controlling`・`instance-released`・`api-not-found` も、
 独自の文面で使います。
 
 **今後の API のために予約したコード:** `opaque`。`WeiwudiErrorCode` の
 型には入っていますが、まだ作られません。`unsupported-kind` は型に残しますが、もう作られません（どの `kind` も扱います）。
 
-**code は今後の minor で増えることがあります。** `code` で `switch` するときは、
-必ず `default` を置いてください。
+`WeiwudiErrorCode` の値は minor の版で増えることがあります。switch には default を置くこと。
 
 ### タイルの応答: `x-weiwudi-error`
 

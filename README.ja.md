@@ -179,7 +179,10 @@ console.log(source.warnings, await source.stats());
   Mapbox の `https` の URL で登録したスタイルの中だけです（第三者のスタイルへ利用者の Mapbox のトークンを使わせません）。
   ほかの提供元は、サービスワーカーで `addProvider` を使って足せます
   （[サービスワーカーの API](docs/api/sw.ja.md#addproviderprovider-weiwudiprovider-void)）。
-- 失敗は `WeiwudiError`（`sw-not-controlling`・`sw-outdated`・`source-not-found` など）で reject します。
+- `source.removeResource(resourceId)` は資源 1 つの Entry を、他の Source と共有していても消します（`clean()` は共有を
+  残します）。資源の登録は残ります。`Weiwudi.usage()` は保存した量の合計と提供元別の内訳（`byProvider`。鍵は提供元か
+  origin）を返します。
+- 失敗は `WeiwudiError`（`sw-not-controlling`・`sw-outdated`・`source-not-found`・`resource-not-found` など）で reject します。
   既存の資源と合流できない資源があっても `register()` は失敗せず、`source.warnings` に書きます。
 - サービスワーカーでは **Weiwudi の import を先に書き**（`import '@c4h/weiwudi/sw'` か `importScripts` の行）、
   自分の Workbox のルートはその後に登録してください。Weiwudi より前に登録した全捕捉のルート（`/.*/` など）は、

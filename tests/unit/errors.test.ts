@@ -579,3 +579,37 @@ describe('unsupported-kind（m2-t3・第 2 回 S-2）', () => {
     expect(WeiwudiError.from(other).code).toBe('unsupported-kind');
   });
 });
+
+describe('未知の code を保つ（m3-t8・I4・R24）', () => {
+  it('印のある WeiwudiError は、未知の code でも /^[a-z][a-z0-9-]*$/ に合えばそのまま返す（別のコピーも）', async () => {
+    const e = new WeiwudiError('future-code' as WeiwudiErrorCode, 'x', { a: 1 });
+    expect(WeiwudiError.from(e)).toBe(e);
+    vi.resetModules();
+    const other = await import('../../src/errors');
+    const o = new other.WeiwudiError('newer-sw-code-2' as WeiwudiErrorCode, 'y');
+    const got = WeiwudiError.from(o);
+    expect(got).toBe(o);
+    expect(got.code).toBe('newer-sw-code-2');
+  });
+
+  it('印があっても書式に合わない code（大文字・空白・先頭の数字・空・文字列でない）は internal', () => {
+    for (const code of ['Future', 'a b', '1abc', '', '-a', 3]) {
+      const e = new WeiwudiError(code as WeiwudiErrorCode, 'x');
+      const got = WeiwudiError.from(e);
+      expect(got).not.toBe(e);
+      expect(got.code).toBe('internal');
+    }
+  });
+
+  it('印の無い name だけの救済は既知の code だけ（未知の code は internal）', () => {
+    const err = Object.assign(new Error('x'), { name: 'WeiwudiError', code: 'future-code' });
+    expect(WeiwudiError.from(err).code).toBe('internal');
+  });
+
+  it('resource-not-found は WeiwudiErrorCode にあり、印の無い別のコピーでも既知として扱う', () => {
+    const code: WeiwudiErrorCode = 'resource-not-found';
+    expect(new WeiwudiError(code, 'x').code).toBe('resource-not-found');
+    const other = Object.assign(new Error('x'), { name: 'WeiwudiError', code });
+    expect(WeiwudiError.from(other).code).toBe('resource-not-found');
+  });
+});

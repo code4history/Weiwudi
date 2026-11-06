@@ -193,8 +193,12 @@ console.log(source.warnings, await source.stats());
   so your Mapbox token is never used for someone else's style. Other providers
   can be added in the service worker with `addProvider`
   ([Service worker API](docs/api/sw.md#addproviderprovider-weiwudiprovider-void)).
+- `source.removeResource(resourceId)` deletes the cached entries of one resource
+  even when it is shared with another source (`clean()` keeps shared ones); the
+  resource stays registered. `Weiwudi.usage()` reports the stored amount in total
+  and per provider (`byProvider`, keyed by provider or origin).
 - Failures reject with `WeiwudiError` (`sw-not-controlling`, `sw-outdated`,
-  `source-not-found`, …). A resource that cannot be merged with an existing one
+  `source-not-found`, `resource-not-found`, …). A resource that cannot be merged with an existing one
   does not fail `register()`; it is reported in `source.warnings`.
 - In your service worker, **put the Weiwudi import first** (`import '@c4h/weiwudi/sw'`
   or the `importScripts` line) and register your own Workbox routes after it.

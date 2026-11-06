@@ -4,7 +4,7 @@
 import Weiwudi, {
   WeiwudiError, WeiwudiSource,
   type CommonPolicy, type Credentials, type OutOfRange, type ResourceInfo, type ResourceType,
-  type SourceInfo, type SourceSpec, type SourceStats, type TileBox,
+  type SourceInfo, type SourceSpec, type SourceStats, type TileBox, type UsageReport, type WeiwudiErrorCode,
 } from '../../dist/weiwudi';
 
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
@@ -32,6 +32,27 @@ assertType<Equals<SourceStats, {
   count: number; size: number; total?: number; percent?: number;
   byResource: Record<string, { count: number; bytes: number }>;
 }>>();
+assertType<Equals<UsageReport, {
+  count: number; bytes: number;
+  byProvider: Record<string, { count: number; bytes: number }>;
+}>>();
+
+// 閉じた union は minor で増える。利用者は default を置いた switch で受ける（m3-t8・I4・O-N6）
+const describeCode = (code: WeiwudiErrorCode): string => {
+  switch (code) {
+    case 'resource-not-found': return 'resource';
+    case 'source-not-found': return 'source';
+    default: return code;
+  }
+};
+const describeType = (type: ResourceType): string => {
+  switch (type) {
+    case 'tile': return 'tile';
+    case 'glyph': return 'glyph';
+    default: return type;
+  }
+};
+void [describeCode, describeType];
 
 // 全項目への型つきの代入
 const box: TileBox = { minX: 0, maxX: 1, minY: 0, maxY: 1 };
@@ -78,6 +99,14 @@ const use = async (): Promise<void> => {
   const styleUrl: string | string[] = st.url;
   const as: WeiwudiSource = await Weiwudi.register(asset);
   void [styleUrl, as];
+  // 資源単位の削除と使用量（m3-t8）
+  const rr: void = await src.removeResource(resources[0].id);
+  const usage: UsageReport = await Weiwudi.usage();
+  const total: number = usage.count;
+  const size: number = usage.bytes;
+  const byProvider: Record<string, { count: number; bytes: number }> = usage.byProvider;
+  const mapboxBytes: number | undefined = byProvider.mapbox?.bytes;
+  void [rr, total, size, mapboxBytes];
   try {
     await Weiwudi.register({ kind: 'style', url: 'https://a.example/broken.json' });
   } catch (e) {

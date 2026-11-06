@@ -13,17 +13,25 @@
 // - 照合表の影（template-shadowed）は、その Source が参照する Resource のものだけを warnings に足して保存する
 // - スタイル（kind: 'style'）の register・update は style.ts。Resource の絞り込みは「持ち主の id の一覧」（スタイルは子の id、
 //   ほかは自分。style.ownersOf）で行う（m3-t7・I3 の後半）
+// - removeResource は Entry だけを消す（Resource の記録と捕捉は残す。共有・範囲だけの参照でも消す。R18）。
+//   スタイルの子の Resource は親の id で名指す（持ち主は style.styleChildIds。remove() が外す孤児の子も含む。m3-t8）
+// - usage は全 Resource（旧 API の map: も）を 1 つずつ数える。子の Resource も 1 回だけ（Source ごとに数えない。R19）
+// - POST は送り手（event.clientId の client）の URL のオリジン（blob: は中のオリジン）が SW と同じときだけ受ける。
+//   違う・見つからないときは sw-not-controlling で何もしない（I6・R25）。URL が about:srcdoc・about:blank の client は受ける。
+//   GET の /v2/ping は見ない
 import type { RouteHandlerCallbackOptions } from 'workbox-core';
 import type { Context } from './context';
 import { tableChanged } from './hook';
 import { applyRegister, applyRemove, applyUpdate, isExclusiveTo } from './registry';
 import { isNormalizedStyle, normalizeSpec, type NormalizedSpec } from './spec';
-import { ownersOf, registerStyle, removeStyleChildren } from './style';
+import { ownersOf, registerStyle, removeStyleChildren, styleChildIds } from './style';
 import { isChildRecord, isLegacyRecord, storedSpecOf, styleSpecOf, toResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
 import { countTiles } from './tile_math';
 import { WeiwudiError } from './errors';
 import { V2_PREFIX } from './constants';
-import type { SourceInfo, SourceStats } from './weiwudi';
+import type { SourceInfo, SourceStats, UsageReport } from './weiwudi';
+
+declare const self: ServiceWorkerGlobalScope;
 
 /** package.json の版（vite の define と vitest の define で埋める。第 1 回 S13） */
 declare const __WEIWUDI_VERSION__: string;
@@ -60,6 +68,15 @@ const idOf = (body: unknown): string => {
   const id = body !== null && typeof body === 'object' ? (body as { id?: unknown }).id : undefined;
   if (typeof id !== 'string' || id === '') {
     throw new WeiwudiError('attribute-invalid', 'Attribute "id" must be a non-empty string', { attribute: 'id' });
+  }
+  return id;
+};
+
+/** 本文の resourceId（removeResource）。文字列でなければ attribute-invalid */
+const resourceIdOf = (body: unknown): string => {
+  const id = body !== null && typeof body === 'object' ? (body as { resourceId?: unknown }).resourceId : undefined;
+  if (typeof id !== 'string' || id === '') {
+    throw new WeiwudiError('attribute-invalid', 'Attribute "resourceId" must be a non-empty string', { attribute: 'resourceId' });
   }
   return id;
 };
@@ -165,6 +182,77 @@ const swOrigin = (): string | undefined => {
   }
 };
 
+/**
+ * usage の鍵（R19）: ResourceMeta.provider、無ければ先頭のテンプレートの origin（旧 API の相対の URL は SW の場所で解決する）。
+ * テンプレートが無い・解決できない・origin を持たない（data: など）ときは 'unknown'（Ruling）
+ */
+const providerKeyOf = (m: ResourceMeta): string => {
+  if (typeof m.provider === 'string' && m.provider !== '') return m.provider;
+  const t = m.templates[0];
+  if (typeof t !== 'string') return 'unknown';
+  let base: string | undefined;
+  try {
+    base = self.location.href;
+  } catch (_e) {
+    base = undefined;
+  }
+  try {
+    const o = new URL(t, base).origin;
+    return o === 'null' ? 'unknown' : o;
+  } catch (_e) {
+    return 'unknown';
+  }
+};
+
+/** 全 Resource の使用量（R19）。byProvider は null プロトタイプ（鍵が __proto__ でも壊れない） */
+const usageOf = async (store: Store): Promise<UsageReport> => {
+  const byProvider: Record<string, { count: number; bytes: number }> = Object.create(null);
+  let count = 0;
+  let bytes = 0;
+  for (const m of await store.listResources()) {
+    count += m.count;
+    bytes += m.bytes;
+    const key = providerKeyOf(m);
+    const slot = byProvider[key] ?? (byProvider[key] = { count: 0, bytes: 0 });
+    slot.count += m.count;
+    slot.bytes += m.bytes;
+  }
+  return { count, bytes, byProvider };
+};
+
+/** URL のオリジン（blob: は中のオリジン。WHATWG URL の origin がそう返す）。読めなければ undefined */
+const originOf = (url: unknown): string | undefined => {
+  if (typeof url !== 'string') return undefined;
+  try {
+    const o = new URL(url).origin;
+    return o === 'null' ? undefined : o;
+  } catch (_e) {
+    return undefined;
+  }
+};
+
+/**
+ * 制御の POST の送り手が SW と同じオリジンの client か（I6・R25）。event.clientId の client を self.clients.get で引き、
+ * その URL のオリジンを比べる。client・clientId・SW のオリジンのどれかが無ければ偽（fail-closed）
+ */
+const fromOwnOrigin = async (event: unknown): Promise<boolean> => {
+  const own = swOrigin();
+  if (own === undefined) return false;
+  const clientId = event !== null && typeof event === 'object' ? (event as { clientId?: unknown }).clientId : undefined;
+  if (typeof clientId !== 'string' || clientId === '') return false;
+  let client: { url?: unknown } | undefined | null;
+  try {
+    client = await self.clients.get(clientId);
+  } catch (_e) {
+    return false;
+  }
+  if (!client) return false;
+  // 同じオリジンの srcdoc・about:blank の iframe は URL に origin を持たない（clients.get が返すのは SW の制御下の client だけで、
+  // sandbox の opaque な iframe は制御下に入らない。レビュー担当が Chromium で確認。m3-t8 L1 m-1）。ほかの null の origin は受けない
+  if (client.url === 'about:srcdoc' || client.url === 'about:blank') return true;
+  return originOf(client.url) === own;
+};
+
 export interface Control {
   /** 疑似ホストの GET のうち /v2/ で始まるもの（ping。ほかは 404） */
   get(options: RouteHandlerCallbackOptions): Promise<Response>;
@@ -252,6 +340,26 @@ export function createControl(ctx: Context): Control {
     return null;
   });
 
+  const removeResource = (body: unknown) => serial(async () => {
+    const id = idOf(body);
+    const resourceId = resourceIdOf(body);
+    const store = await ctx.store();
+    const rec = await getOwn(store, id);
+    // スタイルは親の単位（子と孤児の子。remove() が外す範囲と同じ）で、ほかは自分で判定する（m3-t8）
+    const owners = styleSpecOf(rec) ? await styleChildIds(store, id, ownersOf(rec)) : ownersOf(rec);
+    const m = await store.getResource(resourceId);
+    // sourceIds か rangeOnlySourceIds にあれば、共有でも範囲だけの参照でも消す（利用者が名指ししたため。R18・C-O13）
+    const refers = !!m && owners.some((o) => m.sourceIds.indexOf(o) >= 0 || (m.rangeOnlySourceIds ?? []).indexOf(o) >= 0);
+    if (!refers) {
+      throw new WeiwudiError('resource-not-found', `Resource "${resourceId}" not found in source "${id}"`, { sourceId: id, resourceId });
+    }
+    // グリフは fontstack ごとのレコード（<id>\0<fontstack>）がキーの範囲に入るので、全部消える（#38）
+    await store.clearEntries(resourceId);
+    return null;
+  });
+
+  const usage = async () => usageOf(await ctx.store());
+
   const source = async (id: string) => {
     const store = await ctx.store();
     return infoOf(store, await getOwn(store, id));
@@ -277,6 +385,8 @@ export function createControl(ctx: Context): Control {
       case 'update': return update(idOf(body));
       case 'clean': return clean(idOf(body));
       case 'remove': return remove(idOf(body));
+      case 'removeResource': return removeResource(body);
+      case 'usage': return usage();
       default:
         throw new WeiwudiError('api-not-found', `Operation "${op}" not found`, { op });
     }
@@ -287,8 +397,12 @@ export function createControl(ctx: Context): Control {
       if (url.pathname === `${V2_PREFIX}ping`) return json({ api: CONTROL_API, version: __WEIWUDI_VERSION__ });
       return new Response('Not Found', { status: 404 });
     },
-    post: async ({ url, request }) => {
+    post: async ({ url, request, event }) => {
       try {
+        // 送り手の検査は本文を読む前（別オリジンの client の要求では何もしない。I6・R25）
+        if (!(await fromOwnOrigin(event))) {
+          throw new WeiwudiError('sw-not-controlling', 'The request did not come from a client of the service worker origin');
+        }
         const op = url.pathname.slice(V2_PREFIX.length);
         let body: unknown;
         try {
