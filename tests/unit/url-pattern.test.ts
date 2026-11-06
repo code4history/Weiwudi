@@ -2,8 +2,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_CREDENTIAL_PARAMS, MatchTable, absolutizeTemplate, compileTemplate, entryKey, matchUrl,
-  normalizeTemplate, stripParams, templatesOverlap,
+  normalizeTemplate, spriteTemplateOf, stripParams, templatesOverlap,
 } from '../../src/url_pattern';
+import { normalizeMember, normalizeSpec } from '../../src/spec';
 import { expandTileTemplate, tileKeySuffix } from '../../src/tile_math';
 import { WeiwudiError } from '../../src/errors';
 
@@ -395,5 +396,58 @@ describe('m2-t3 水準 1 の指摘', () => {
     const c = compileTemplate('https://w.example/wmts?TileMatrix={z}&TileCol={x}&TileRow={y}');
     expect(matchUrl(c, new URL('https://w.example/wmts?TileMatrix=1&TileCol=0&TileRow=1'))).not.toBeNull();
     expect(matchUrl(c, new URL('https://w.example/wmts?TileMatrix=1&TileCol=0&TileCol=1&TileRow=1'))).toBeNull();
+  });
+});
+
+describe('スプライトの内部の字句 {spriteSuffix}（m3-t6・R6・仕様 §5.3）', () => {
+  const BASE = 'https://a.example/styles/s/sprite';
+  const TPL = spriteTemplateOf(BASE);
+
+  it('スプライトのテンプレートは base ＋ {spriteSuffix} ＋ クエリ（MapLibre の要求の形。F3）', () => {
+    expect(TPL).toBe(`${BASE}{spriteSuffix}`);
+    expect(spriteTemplateOf(`${BASE}?v=1&fresh=true`)).toBe(`${BASE}{spriteSuffix}?v=1&fresh=true`);
+  });
+
+  it.each([
+    ['sprite.json', '.json'],
+    ['sprite.png', '.png'],
+    ['sprite@2x.json', '@2x.json'],
+    ['sprite@2x.png', '@2x.png'],
+  ])('%s の照合で suffix が %s、キーの suffix も同じ', (path, suffix) => {
+    const c = compileTemplate(TPL);
+    const url = new URL(`https://a.example/styles/s/${path}`);
+    const m = matchUrl(c, url);
+    expect(m?.suffix).toBe(suffix);
+    expect(entryKey('R', 'sprite', m!, url, CP)).toBe(`R\0${suffix}`);
+  });
+
+  it('キーの suffix は suffix ＋残りのクエリ（sprite@2x.png?v=1 → @2x.png?v=1）。資格情報はキーに残らない', () => {
+    const c = compileTemplate(TPL);
+    const url = new URL('https://a.example/styles/s/sprite@2x.png?v=1&access_token=pk.X');
+    const m = matchUrl(c, url)!;
+    expect(m.suffix).toBe('@2x.png');
+    expect(entryKey('R', 'sprite', m, url, CP)).toBe('R\0@2x.png?v=1');
+  });
+
+  it('json・png 以外と suffix の無い要求は当たらない', () => {
+    const c = compileTemplate(TPL);
+    for (const p of ['sprite', 'sprite.svg', 'sprite@3x.png', 'sprite@2x', 'sprite.json/x']) {
+      expect(matchUrl(c, new URL(`https://a.example/styles/s/${p}`))).toBeNull();
+    }
+  });
+
+  it('利用者の登録の入力では unsupported-template で拒否する（normalizeSpec）', () => {
+    expect(codeOf(() => normalizeSpec({ kind: 'raster', url: `https://a.example/{z}/{x}/{y}{spriteSuffix}` })))
+      .toBe('unsupported-template');
+    expect(codeOf(() => normalizeSpec({ kind: 'vector', url: TPL }))).toBe('unsupported-template');
+  });
+
+  it('スプライトの子の正規化（normalizeMember の sprite）だけが受ける（tile・glyph・data では拒否）', () => {
+    const n = normalizeMember('sprite', [TPL], {}, { kind: 'child', internalId: 'p\0sprite:sprite', single: true });
+    expect(n.spec.templates).toEqual([TPL]);
+    expect(codeOf(() => normalizeMember('glyph', ['https://a.example/{fontstack}/{range}{spriteSuffix}'], {}, { kind: 'child', internalId: 'x', single: true })))
+      .toBe('unsupported-template');
+    expect(codeOf(() => normalizeMember('data', [TPL], {}, { kind: 'child', internalId: 'x', single: true })))
+      .toBe('unsupported-template');
   });
 });

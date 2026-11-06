@@ -14,8 +14,7 @@ import { WeiwudiError } from './errors';
 import { DAY_MS, LEGACY_PREFIX, PSEUDO_HOST } from './constants';
 import { lngLatBoundsToTileBox } from './tile_math';
 import {
-  DEFAULT_CREDENTIAL_PARAMS, MAX_TILE_ZOOM, TILE_TOKENS, compileTemplate, normalizeTemplate, stripTemplateParams,
-  type TokenName,
+  DEFAULT_CREDENTIAL_PARAMS, MAX_TILE_ZOOM, compileTemplate, normalizeTemplate, stripTemplateParams, tokenRejection,
 } from './url_pattern';
 
 // ---- 公開の型（仕様 §12。ページ側 API の型の正本。t8 で weiwudi.ts から export する） ----
@@ -223,18 +222,13 @@ const parseCredentialParams = (v: unknown, explicitNames: readonly string[], fro
 
 /**
  * 型ごとの字句の許可（m3-t2）。tile は TILE_TOKENS で座標が要る。glyph は {fontstack}・{range} の両方が要る。
- * sprite の内部の字句 {spriteSuffix} は m3-t6 で足す（登録の入力では受けない）。style・tilejson・data は字句なし
+ * sprite は内部の字句 {spriteSuffix} を受ける（m3-t6・R6。スタイルの子だけが sprite になり、利用者の登録は tile なので受けない）。
+ * style・tilejson・data は字句なし
  */
 const checkTokens = (type: ResourceType, compiled: ReturnType<typeof compileTemplate>, index: number): void => {
-  const allowed: readonly TokenName[] = type === 'tile' ? TILE_TOKENS : type === 'glyph' ? ['fontstack', 'range'] : [];
-  for (const tok of compiled.tokens) {
-    if (allowed.indexOf(tok) >= 0) continue;
-    throw unsupportedTemplate(index, type === 'tile' ? `{${tok}} is not a tile token` : `{${tok}} is not allowed in a ${type} URL`);
-  }
-  if (type === 'tile' && !compiled.tile) throw unsupportedTemplate(index, 'needs {z}, {x} and {y} (or {-y} / {quadkey})');
-  if (type === 'glyph' && !(compiled.tokens.has('fontstack') && compiled.tokens.has('range'))) {
-    throw unsupportedTemplate(index, 'needs {fontstack} and {range}');
-  }
+  // 許可の表は url_pattern.tokenRejection 1 つ（style_body の子の判定と共有する。L1 Major-1）
+  const reason = tokenRejection(type, compiled);
+  if (reason !== undefined) throw unsupportedTemplate(index, reason);
 };
 
 /** 1 つのテンプレートを検査し、正規化した形を返す */

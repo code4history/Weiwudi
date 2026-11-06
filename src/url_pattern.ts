@@ -16,8 +16,14 @@ export const DEFAULT_CREDENTIAL_PARAMS: readonly string[] = Object.freeze([
 /** 照合する zoom の上限。これより大きい z の要求は照合しない（座標の計算が 2^z で溢れないため） */
 export const MAX_TILE_ZOOM = 30;
 
-/** テンプレートの字句（仕様 §4.2 の 9 つ） */
-export type TokenName = 'z' | 'x' | 'y' | '-y' | 'quadkey' | 'ratio' | 'prefix' | 'fontstack' | 'range';
+/**
+ * テンプレートの字句（仕様 §4.2 の公開の 9 つ ＋ 内部の spriteSuffix）。spriteSuffix はスタイルのスプライトの子だけが使い
+ * （`(@2x)?.json|png`。R6）、利用者の登録では spec.ts が拒否する（tile の字句でない）
+ */
+export type TokenName = 'z' | 'x' | 'y' | '-y' | 'quadkey' | 'ratio' | 'prefix' | 'fontstack' | 'range' | 'spriteSuffix';
+
+/** スプライトの内部の字句（m3-t6・R6） */
+export const SPRITE_SUFFIX_TOKEN = '{spriteSuffix}';
 
 /** タイルの字句（raster・vector のテンプレートに使えるもの） */
 export const TILE_TOKENS: readonly TokenName[] = Object.freeze(['z', 'x', 'y', '-y', 'quadkey', 'ratio', 'prefix'] as TokenName[]);
@@ -30,12 +36,31 @@ const tokenPattern = (t: TokenName): string => {
     case 'prefix': return '([0-9a-fA-F]{2})';
     case 'fontstack': return '([^/]+)';
     case 'range': return '(\\d+-\\d+)';
+    case 'spriteSuffix': return '((?:@2x)?\\.(?:json|png))';
   }
 };
 
 const isTokenName = (s: string): s is TokenName =>
   s === 'z' || s === 'x' || s === 'y' || s === '-y' || s === 'quadkey' || s === 'ratio'
-  || s === 'prefix' || s === 'fontstack' || s === 'range';
+  || s === 'prefix' || s === 'fontstack' || s === 'range' || s === 'spriteSuffix';
+
+/**
+ * 型ごとの字句の許可（m3-t2・m3-t6。spec.ts の登録の検査と style_body の「子として受けられるか」が共有する唯一の表。L1 Major-1）。
+ * tile は TILE_TOKENS で座標が要る。glyph は {fontstack}・{range} の両方が要る。sprite は内部の {spriteSuffix} を受ける。
+ * style・tilejson・data は字句なし。受けられなければ理由（文面。URL を入れない）、受けられれば undefined
+ */
+export function tokenRejection(type: ResourceType, compiled: CompiledTemplate): string | undefined {
+  const allowed: readonly TokenName[] = type === 'tile' ? TILE_TOKENS
+    : type === 'glyph' ? ['fontstack', 'range']
+      : type === 'sprite' ? ['spriteSuffix'] : [];
+  for (const tok of compiled.tokens) {
+    if (allowed.indexOf(tok) >= 0) continue;
+    return type === 'tile' ? `{${tok}} is not a tile token` : `{${tok}} is not allowed in a ${type} URL`;
+  }
+  if (type === 'tile' && !compiled.tile) return 'needs {z}, {x} and {y} (or {-y} / {quadkey})';
+  if (type === 'glyph' && !(compiled.tokens.has('fontstack') && compiled.tokens.has('range'))) return 'needs {fontstack} and {range}';
+  return undefined;
+}
 
 export interface CompiledTemplate {
   /** 元のテンプレート */
@@ -62,6 +87,8 @@ export interface MatchResult {
   /** percent-decode した値（崩れた % はそのまま） */
   fontstack?: string;
   range?: string;
+  /** {spriteSuffix} があるときだけ。'.json'・'.png'・'@2x.json'・'@2x.png'（m3-t6） */
+  suffix?: string;
   /** 照合に使ったクエリ項目の名前（キーから除く） */
   queryParams: readonly string[];
 }
@@ -144,12 +171,26 @@ export function normalizeTemplate(t: string, credentialParams: readonly string[]
   return release(joinUrl(u), held.tokens);
 }
 
-/** 文字列のテンプレートから資格情報の項目を除く（並びは変えない・字句はそのまま）。spec.ts が url の返却に使う */
+/**
+ * スプライトのテンプレート（m3-t6・R6）: スタイルの sprite の基底の URL のパスの末尾（クエリの前）に {spriteSuffix} を入れる。
+ * MapLibre はクエリの前に `@2x`・拡張子を入れて要求する（F3）。字句は文字列のまま扱う（new URL を通さない）
+ */
+export function spriteTemplateOf(base: string): string {
+  const cut = base.search(/[?#]/);
+  return cut < 0 ? `${base}${SPRITE_SUFFIX_TOKEN}` : `${base.slice(0, cut)}${SPRITE_SUFFIX_TOKEN}${base.slice(cut)}`;
+}
+
+/**
+ * 文字列のテンプレートから資格情報の項目を除く（並びは変えない・字句はそのまま）。spec.ts が url の返却に、
+ * style_body.ts が本体の除去に使う。相対 URL（スタイルの中の `tiles/{z}/{x}/{y}.pbf?key=k`）も相対の形のまま扱う（m3-t6）
+ */
 export function stripTemplateParams(t: string, params: readonly string[]): string {
   const held = hold(t);
-  const u = splitUrl(held.text);
-  if (u.query !== undefined) u.query = dropQueryPieces(u.query, lowerSet(params)).join('&');
-  return release(joinUrl(u), held.tokens);
+  // クエリは最初の ? から # の前まで（# が先にあればクエリは無い）。スキームの有無を問わない
+  const m = /^([^?#]*)(?:\?([^#]*))?(#[\s\S]*)?$/.exec(held.text);
+  if (!m || m[2] === undefined) return t;
+  const query = dropQueryPieces(m[2], lowerSet(params)).join('&');
+  return release(`${m[1]}${query !== '' ? `?${query}` : ''}${m[3] ?? ''}`, held.tokens);
 }
 
 /**
@@ -330,13 +371,15 @@ const derive = (values: readonly (readonly [TokenName, string])[]): Omit<MatchRe
   if (ratio === null) return null;
   const fontstack = same('fontstack');
   const range = same('range');
-  if (fontstack === null || range === null) return null;
+  const suffix = same('spriteSuffix');
+  if (fontstack === null || range === null || suffix === null) return null;
   if (z !== undefined) out.z = z;
   if (x !== undefined) out.x = x;
   if (y !== undefined) out.y = y;
   if (ratio !== undefined) out.ratio = ratio;
   if (fontstack !== undefined) out.fontstack = safeDecode(fontstack);
   if (range !== undefined) out.range = range;
+  if (suffix !== undefined) out.suffix = suffix;
   return out;
 };
 
@@ -396,7 +439,8 @@ const restQuery = (url: URL, used: readonly string[], credentialParams: readonly
 
 /**
  * Entry のキー（仕様 §5.3）: `<resourceId>\0<suffix>`。
- * tile は tile_math.tileKeySuffix ＋残りのクエリ・glyph は fontstack・それ以外は残りのクエリ（無ければ空）
+ * tile は tile_math.tileKeySuffix ＋残りのクエリ・glyph は fontstack・sprite は {spriteSuffix} の値 ＋残りのクエリ
+ * （仕様 §5.3 の「残りのパス」。m3-t6・R6）・それ以外は残りのクエリ（無ければ空）
  */
 export function entryKey(resourceId: string, type: ResourceType, m: MatchResult, url: URL, credentialParams: readonly string[]): string {
   if (type === 'glyph') return `${resourceId}\0${m.fontstack ?? ''}`;
@@ -407,6 +451,7 @@ export function entryKey(resourceId: string, type: ResourceType, m: MatchResult,
     }
     return `${resourceId}\0${tileKeySuffix(m.z, m.x, m.y, m.ratio)}${rest}`;
   }
+  if (type === 'sprite') return `${resourceId}\0${m.suffix ?? ''}${rest}`;
   return `${resourceId}\0${rest}`;
 }
 

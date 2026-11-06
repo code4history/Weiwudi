@@ -51,6 +51,14 @@ export interface ServeInput {
    * 鮮度と削除期限は部分の fetchedAt で見て、保存は store.putGlyphPart で部分を足す
    */
   part?: string;
+  /**
+   * 本体の書き換え（m3-t6・R28。style・tilejson の提供元の rewriteStyle と資格情報の除去）。上流が成功したとき（§6 の 3）、
+   * 差し込み口の fetchDidSucceed の後・cacheWillUpdate の前に 1 度だけ当て、保存も配信も変えた本体を使う。
+   * 投げたら上流の失敗（HTTP）として扱い（Entry があれば §6 の 4、無ければ 5）、保存しない（C-S4・C-S1）
+   */
+  transform?: (blob: Blob) => Promise<Blob>;
+  /** 真なら §6 の 2（hit）を飛ばして上流へ出す。失敗したら表の 4・6 で古い本体（m3-t6・R4。update() の取り直し） */
+  revalidate?: boolean;
 }
 
 /** x-weiwudi-status の値（公開の契約。仕様 §6） */
@@ -306,7 +314,9 @@ export function serve(ctx: Context, input: ServeInput, now: () => number): Promi
   // 認証付き（保存しない）要求はまとめない。匿名の要求と応答を共有しない（PR #75 L1 M1）
   if (!input.storable) return serveOnce(ctx, input, now(), plugins);
   // グリフは範囲ごとにまとめる（同じ fontstack の別の範囲を 1 本にしない。仕様 §11）
-  const flightKey = input.part === undefined ? input.key : `${input.key}\0${input.part}`;
+  // revalidate は hit を返す通常の要求にまとめない（印を足して別の 1 本にする。L1 Minor-1）
+  const base = input.part === undefined ? input.key : `${input.key}\0${input.part}`;
+  const flightKey = input.revalidate === true ? `${base}\0revalidate` : base;
   const shared = ctx.inflight.get(flightKey);
   if (shared) return shared.then((r) => r.clone());
   const p = serveOnce(ctx, input, now(), plugins);
@@ -399,7 +409,8 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
   };
 
   // 2 新しい Entry。認証付き（storable が偽）は hit を飛ばして必ず上流へ出し、上流の失敗のときだけ表の 4 以降で Entry を使う（§4.6。Ruling）
-  if (resource && entry && input.storable && t - entry.meta.fetchedAt <= resource.policy.cacheTtl) {
+  // revalidate（m3-t6・R4）も hit を飛ばす
+  if (resource && entry && input.storable && input.revalidate !== true && t - entry.meta.fetchedAt <= resource.policy.cacheTtl) {
     // touch は返す前に呼ぶ（tx はその場で同期に作られる）。完了は待たない（R8）
     store.touch(input.key, t).catch(() => undefined);
     const parts = await useCached(entry);
@@ -437,10 +448,18 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
     return (await stale('upstream')) ?? response;
   }
 
-  const up = await partsOf(response);
+  let up = await partsOf(response);
   // 4・5 上流が失敗（HTTP）。!ok と、スタイル・TileJSON 以外の 200 の text/html（§4.6）
   if (!response.ok || (!input.isStyleLike && response.status === 200 && isHtml(up.headers))) {
     return (await stale('upstream')) ?? synthesize(up, 'upstream-error', 'upstream');
+  }
+  // 本体の書き換え（R28）。投げたら 4・5 と同じ扱いで、保存しない（読めない本体・除去に失敗した本体を固定しない）
+  if (input.transform) {
+    try {
+      up = { ...up, body: await input.transform(up.body as Blob) };
+    } catch (_e) {
+      return (await stale('upstream')) ?? synthesize(up, 'upstream-error', 'upstream');
+    }
   }
 
   // 3 上流が成功。2xx は 200 OK として配信・保存する（旧 API の miss と同じ。hit の再生とも揃う。Ruling）

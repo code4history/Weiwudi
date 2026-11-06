@@ -877,3 +877,105 @@ describe('グリフの範囲（m3-t4・仕様 §11）', () => {
     expect(await store.getResource(RID)).toMatchObject({ count: 1, bytes: 3 });
   });
 });
+
+describe('ServeInput.transform・revalidate（m3-t6・R28・R4・C-S4・C-S1）', () => {
+  const upper = async (b: Blob) => new Blob([(await b.text()).toUpperCase()], { type: b.type });
+  const textOk = (s: string, type = 'application/json'): UpstreamResult => ({
+    kind: 'response', response: new Response(s, { status: 200, headers: { 'content-type': type } }),
+  });
+  const throwing = vi.fn(async (_b: Blob): Promise<Blob> => { throw new Error('not json'); });
+
+  it('上流が成功したとき 1 度だけ当て、保存も配信も変えた本体（hit でも同じ本体）', async () => {
+    const transform = vi.fn(upper);
+    const res = await run({ upstream: async () => textOk('abc'), transform });
+    expect(res.headers.get('x-weiwudi-status')).toBe('miss');
+    expect(await res.text()).toBe('ABC');
+    expect(transform).toHaveBeenCalledTimes(1);
+    expect(await (await store.getEntry(k('1_0_0')))!.body.blob.text()).toBe('ABC');
+    const hit = await run({ upstream: async () => textOk('zzz'), transform }, T + 1);
+    expect(hit.headers.get('x-weiwudi-status')).toBe('hit');
+    expect(await hit.text()).toBe('ABC');
+    expect(transform).toHaveBeenCalledTimes(1);
+  });
+
+  it('fetchDidSucceed の後・cacheWillUpdate の前に当てる', async () => {
+    const order: string[] = [];
+    addPlugin({
+      fetchDidSucceed: async ({ response }) => { order.push('fetchDidSucceed'); return response; },
+      cacheWillUpdate: async ({ response }) => { order.push(`cacheWillUpdate:${await response.clone().text()}`); return response; },
+    });
+    await run({ upstream: async () => textOk('abc'), transform: async (b) => { order.push('transform'); return upper(b); } });
+    expect(order).toEqual(['fetchDidSucceed', 'transform', 'cacheWillUpdate:ABC']);
+  });
+
+  it('transform が投げた・Entry あり: 古い本体・stale・x-weiwudi-error: upstream。保存しない（Entry が前のまま）', async () => {
+    await seed('1_0_0', { fetchedAt: T - TTL - 1 });
+    const before = await store.getEntry(k('1_0_0'));
+    const res = await run({ upstream: async () => textOk('<html>login</html>', 'text/html'), transform: throwing, isStyleLike: true });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-weiwudi-status')).toBe('stale');
+    expect(res.headers.get('x-weiwudi-error')).toBe('upstream');
+    expect(await bytesOf(res)).toEqual(bodyOf(5, 9));
+    const after = await store.getEntry(k('1_0_0'));
+    expect(after!.meta).toEqual(before!.meta);
+    expect(await after!.body.blob.arrayBuffer()).toEqual(await before!.body.blob.arrayBuffer());
+    expect((await store.getResource(RID))!.count).toBe(1);
+  });
+
+  it('transform が投げた・Entry なし: 上流の応答を写した合成応答・upstream-error。保存しない（entries が増えない）', async () => {
+    const res = await run({ upstream: async () => textOk('<html>login</html>', 'text/html'), transform: throwing, isStyleLike: true });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-weiwudi-status')).toBe('upstream-error');
+    expect(res.headers.get('x-weiwudi-error')).toBe('upstream');
+    expect(res.headers.get('access-control-expose-headers')).toBe(EXPOSE);
+    expect(await res.text()).toBe('<html>login</html>');
+    expect(await store.getEntry(k('1_0_0'))).toBeUndefined();
+    expect((await store.getResource(RID))!.count).toBe(0);
+  });
+
+  it('上流が失敗（HTTP）なら transform を呼ばない', async () => {
+    const transform = vi.fn(upper);
+    const res = await run({ upstream: async () => ({ kind: 'response', response: new Response('x', { status: 500 }) }), transform });
+    expect(res.headers.get('x-weiwudi-status')).toBe('upstream-error');
+    expect(transform).not.toHaveBeenCalled();
+  });
+
+  it('revalidate: 新しい Entry があっても hit を飛ばして上流へ出し、refresh で置き換える', async () => {
+    await seed('1_0_0', { fetchedAt: T - 10 });
+    const upstream = vi.fn<Up>(async () => ok());
+    const res = await run({ upstream, revalidate: true });
+    expect(upstream).toHaveBeenCalledTimes(1);
+    expect(res.headers.get('x-weiwudi-status')).toBe('refresh');
+    expect((await store.getEntry(k('1_0_0')))!.meta.fetchedAt).toBe(T);
+  });
+
+  it('revalidate で上流が失敗（HTTP・ネットワーク）なら古い本体・stale', async () => {
+    await seed('1_0_0', { fetchedAt: T - 10 });
+    const http = await run({ upstream: async () => ({ kind: 'response', response: new Response('x', { status: 500 }) }), revalidate: true });
+    expect(http.headers.get('x-weiwudi-status')).toBe('stale');
+    expect(http.headers.get('x-weiwudi-error')).toBe('upstream');
+    expect(await bytesOf(http)).toEqual(bodyOf(5, 9));
+    const net = await run({ upstream: async () => ({ kind: 'network', error: new TypeError('offline') }), revalidate: true });
+    expect(net.headers.get('x-weiwudi-status')).toBe('stale');
+    expect(net.headers.get('x-weiwudi-error')).toBe('network');
+  });
+
+  it('revalidate が無ければ新しい Entry は hit のまま（既存の挙動）', async () => {
+    await seed('1_0_0', { fetchedAt: T - 10 });
+    const upstream = vi.fn<Up>(async () => ok());
+    const res = await run({ upstream, revalidate: false });
+    expect(res.headers.get('x-weiwudi-status')).toBe('hit');
+    expect(upstream).not.toHaveBeenCalled();
+  });
+});
+
+describe('revalidate と同時要求のまとめ（L1 Minor-1）', () => {
+  it('通常の要求と revalidate を同時に出しても、revalidate は通常の要求の hit にまとめられず上流へ出る', async () => {
+    await seed('1_0_0', { fetchedAt: T - 10 });
+    const upstream = vi.fn<Up>(async () => ok());
+    const [normal, revalidate] = await Promise.all([run({ upstream }), run({ upstream, revalidate: true })]);
+    expect(normal.headers.get('x-weiwudi-status')).toBe('hit');
+    expect(revalidate.headers.get('x-weiwudi-status')).toBe('refresh');
+    expect(upstream).toHaveBeenCalledTimes(1);
+  });
+});
