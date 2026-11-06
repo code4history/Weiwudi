@@ -270,3 +270,62 @@ describe('rewriteTileJsonBody（tiles の全体が 1 つの組）', () => {
     expect(codeOf(() => rewriteTileJsonBody(text, TJ_BASE, {}))).toBe('invalid-style:tilejson');
   });
 });
+
+describe('子として受けられない組（L1 Major-1・Minor-3）', () => {
+  const body = (over: Record<string, unknown>) => JSON.stringify(style(over));
+
+  it('WMS（{bbox-epsg-3857}）の tiles は子にならないので ?key=k を除かず、その source は skipped', () => {
+    const s = style({ sources: { w: { type: 'raster', tiles: ['https://a.example/wms?bbox={bbox-epsg-3857}&key=k'] } } });
+    const out = JSON.parse(rewriteStyleBody(JSON.stringify(s), BASE, { strip: stripA }));
+    expect(out.sources.w.tiles).toEqual(['https://a.example/wms?bbox={bbox-epsg-3857}&key=k']);
+    const refs = collectStyleRefs(s, BASE);
+    expect(refs.tiles).toEqual([]);
+    expect(refs.skipped).toEqual([{ name: 'w', reason: 'unsupported-source' }]);
+  });
+
+  it('座標の取れない tiles（{z} だけ）も子にならず、除かない', () => {
+    const text = body({ sources: { z: { type: 'raster', tiles: ['https://a.example/{z}.png?key=k'] } } });
+    expect(rewriteStyleBody(text, BASE, { strip: stripA })).toBe(text);
+  });
+
+  it('{range} の無い glyphs は子にならないので ?key=k を除かず、glyphs に出ない', () => {
+    const s = style({ glyphs: 'https://a.example/fonts/{fontstack}.pbf?key=k' });
+    const out = JSON.parse(rewriteStyleBody(JSON.stringify(s), BASE, { strip: stripA }));
+    expect(out.glyphs).toBe('https://a.example/fonts/{fontstack}.pbf?key=k');
+    expect(collectStyleRefs(s, BASE).glyphs).toBeUndefined();
+  });
+
+  it('字句のある data・TileJSON の url・sprite は子にならず、除かない', () => {
+    const s = style({
+      sources: {
+        d: { type: 'geojson', data: 'https://a.example/{z}.json?key=k' },
+        u: { type: 'vector', url: 'https://a.example/{x}.json?key=k' },
+      },
+      sprite: 'https://a.example/{z}/sprite?key=k',
+    });
+    const text = JSON.stringify(s);
+    expect(rewriteStyleBody(text, BASE, { strip: stripA })).toBe(text);
+    const refs = collectStyleRefs(s, BASE);
+    expect(refs.data).toEqual([]);
+    expect(refs.tilejson).toEqual([]);
+    expect(refs.sprites).toEqual([]);
+    expect(refs.skipped.map((x) => x.name).sort()).toEqual(['d', 'u']);
+  });
+
+  it('Minor-3: 1 つの source の組のどれかが受けられなければ、その source は skipped だけに出る（tiles・tilejson に出ず、除かない）', () => {
+    const s = style({
+      sources: { v: { type: 'vector', url: 'https://a.example/t.json?key=k', tiles: ['https://a.example/wms?bbox={bbox-epsg-3857}&key=k'] } },
+    });
+    const refs = collectStyleRefs(s, BASE);
+    expect(refs.tilejson).toEqual([]);
+    expect(refs.tiles).toEqual([]);
+    expect(refs.skipped).toEqual([{ name: 'v', reason: 'unsupported-source' }]);
+    const text = JSON.stringify(s);
+    expect(rewriteStyleBody(text, BASE, { strip: stripA })).toBe(text);
+  });
+
+  it('TileJSON の tiles が子として受けられなければ除かない', () => {
+    const text = JSON.stringify({ tiles: ['https://a.example/wms?bbox={bbox-epsg-3857}&key=k'] });
+    expect(rewriteTileJsonBody(text, TJ_BASE, { strip: stripA })).toBe(text);
+  });
+});

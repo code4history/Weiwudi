@@ -3,13 +3,16 @@
 //
 // 決まり:
 // - モジュール変数を持たない
-// - 子になる URL の組（1 つの子になる URL の全部）は styleGroups 1 つで数える。collectStyleRefs（子を作る）と
+// - 子になる URL の組（1 つの子になる URL の全部）は childGroups 1 つで数える。collectStyleRefs（子を作る）と
 //   rewriteStyleBody（本体の資格情報の除去）が同じ組を使う（S-N1）
+// - 子として受けられない組（型の字句の許可に外れる・compile できない。url_pattern.tokenRejection）は子にせず、除去もしない。
+//   1 つでも外れる組を持つ source は、source ごと skipped にする（L1 Major-1・Minor-3）
 // - 除くのは、組の全部の URL で shouldStrip が真のときの、その組の URL の credentialParams の項目だけ（C-S1・X5・R32）。
 //   相対 URL は base で絶対化して判定し、書き戻すときは元の相対の形のまま項目だけを除く
 // - 読めない本体は invalid-style を投げる（入力をそのまま返さない。C-S4）。拒否の文面に本体の値を入れない
 import { WeiwudiError } from './errors';
-import { absolutizeTemplate, stripTemplateParams } from './url_pattern';
+import type { ResourceType } from './store';
+import { absolutizeTemplate, compileTemplate, spriteTemplateOf, stripTemplateParams, tokenRejection } from './url_pattern';
 
 /** スタイルが参照する下位資源（子になるもの）。URL は絶対化済み */
 export interface StyleRefs {
@@ -87,6 +90,23 @@ const rangeOf = (o: Obj): Pick<TileJsonRefs, 'scheme' | 'bounds' | 'minzoom' | '
   return out;
 };
 
+/** 組の置き場所ごとの子の Resource の型 */
+const SLOT_TYPE: Readonly<Record<'tilejson' | 'tiles' | 'glyphs' | 'sprite' | 'data', ResourceType>> = Object.freeze({
+  tilejson: 'tilejson', tiles: 'tile', glyphs: 'glyph', sprite: 'sprite', data: 'data',
+});
+
+/**
+ * 絶対化した URL が、その型の子のテンプレートとして受けられるか（L1 Major-1）。compileTemplate が通り、字句がその型の許可の範囲
+ * （url_pattern.tokenRejection。spec.ts の登録の検査と同じ表）にあること。sprite は子のテンプレート（base＋{spriteSuffix}）で見る
+ */
+const acceptsAsChild = (type: ResourceType, absoluteUrl: string): boolean => {
+  try {
+    return tokenRejection(type, compileTemplate(type === 'sprite' ? spriteTemplateOf(absoluteUrl) : absoluteUrl)) === undefined;
+  } catch (_e) {
+    return false;
+  }
+};
+
 /** 子になる URL の組の 1 つ。set は組の URL を書き戻す（style の object を直に書き換える） */
 interface Group {
   slot: 'tilejson' | 'tiles' | 'glyphs' | 'sprite' | 'data';
@@ -142,6 +162,23 @@ const styleGroups = (style: Obj & { sources: Obj }): { groups: Group[]; unsuppor
   return { groups, unsupported };
 };
 
+/** 子として受けられる組（abs は絶対化した URL）と、子にしない source の名前。source は組が 1 つでも外れたら丸ごと外す（Minor-3） */
+const childGroups = (style: Obj & { sources: Obj }, base: string): { groups: (Group & { abs: string[] })[]; skipped: string[] } => {
+  const { groups, unsupported } = styleGroups(style);
+  const skipped = unsupported.slice();
+  const ok: (Group & { abs: string[] })[] = [];
+  for (const g of groups) {
+    const abs = g.urls.map((u) => absOf(u, base));
+    if (abs.every((u): u is string => u !== undefined && acceptsAsChild(SLOT_TYPE[g.slot], u))) {
+      ok.push({ ...g, abs: abs as string[] });
+    } else if (g.name !== undefined && skipped.indexOf(g.name) < 0) {
+      // 解決できない・受けられない URL の source は子にしない（glyphs・sprite は黙って外す）
+      skipped.push(g.name);
+    }
+  }
+  return { groups: ok.filter((g) => g.name === undefined || skipped.indexOf(g.name) < 0), skipped };
+};
+
 /** JSON で、version と object の sources を持つ。外れたら invalid-style */
 export function parseStyle(text: string): unknown {
   const v = parseJson(text);
@@ -152,20 +189,12 @@ export function parseStyle(text: string): unknown {
 /** スタイルが参照する下位資源（相対 URL はスタイルの URL で解決）。スタイルの形でなければ invalid-style */
 export function collectStyleRefs(style: unknown, base: string): StyleRefs {
   if (!isStyleShape(style)) throw invalidStyle('style');
-  const refs: StyleRefs = { tilejson: [], tiles: [], sprites: [], data: [], skipped: [] };
-  const skip = (name: string) => {
-    if (!refs.skipped.some((s) => s.name === name)) refs.skipped.push({ name, reason: 'unsupported-source' });
+  const { groups, skipped } = childGroups(style, base);
+  const refs: StyleRefs = {
+    tilejson: [], tiles: [], sprites: [], data: [], skipped: skipped.map((name) => ({ name, reason: 'unsupported-source' as const })),
   };
-  const { groups, unsupported } = styleGroups(style);
-  for (const name of unsupported) skip(name);
   for (const g of groups) {
-    const urls = g.urls.map((u) => absOf(u, base));
-    if (urls.some((u) => u === undefined)) {
-      // 解決できない URL の source は子にしない（glyphs・sprite は黙って外す）
-      if (g.name !== undefined) skip(g.name);
-      continue;
-    }
-    const abs = urls as string[];
+    const { abs } = g;
     switch (g.slot) {
       case 'tilejson': refs.tilejson.push({ name: g.name!, url: abs[0] }); break;
       case 'tiles': refs.tiles.push({ name: g.name!, encoding: g.encoding!, urls: abs, ...rangeOf(g.source!) }); break;
@@ -188,12 +217,11 @@ export function collectTileJson(text: string, base: string): TileJsonRefs | unde
 }
 
 /**
- * 組の全部の URL（base で絶対化）で shouldStrip が真なら、元の形のまま credentialParams の項目を除いた URL の列。
+ * 子として受けられる組（childGroups が絶対化した abs）の全部で shouldStrip が真なら、元の形のまま credentialParams の項目を除いた URL の列。
  * 除かない・変わらないときは undefined
  */
-const strippedGroup = (urls: readonly string[], base: string, strip: StripRule): string[] | undefined => {
-  const abs = urls.map((u) => absOf(u, base));
-  if (abs.some((u) => u === undefined || !strip.shouldStrip(u))) return undefined;
+const strippedGroup = (urls: readonly string[], abs: readonly string[], strip: StripRule): string[] | undefined => {
+  if (abs.some((u) => !strip.shouldStrip(u))) return undefined;
   const out = urls.map((u) => stripTemplateParams(u, strip.credentialParams));
   return out.some((u, i) => u !== urls[i]) ? out : undefined;
 };
@@ -216,8 +244,8 @@ export function rewriteStyleBody(
     changed = true;
   }
   if (o.strip) {
-    for (const g of styleGroups(style).groups) {
-      const out = strippedGroup(g.urls, base, o.strip);
+    for (const g of childGroups(style, base).groups) {
+      const out = strippedGroup(g.urls, g.abs, o.strip);
       if (!out) continue;
       g.set(out);
       changed = true;
@@ -234,7 +262,9 @@ export function rewriteTileJsonBody(text: string, base: string, o: { strip?: Str
   const v = parseJson(text);
   if (!isObj(v) || !Array.isArray(v.tiles)) throw invalidStyle('tilejson');
   if (!o.strip || !isStringArray(v.tiles)) return text;
-  const out = strippedGroup(v.tiles, base, o.strip);
+  const abs = v.tiles.map((u) => absOf(u, base));
+  if (!abs.every((u): u is string => u !== undefined && acceptsAsChild('tile', u))) return text;
+  const out = strippedGroup(v.tiles, abs, o.strip);
   if (!out) return text;
   v.tiles = out;
   return JSON.stringify(v);

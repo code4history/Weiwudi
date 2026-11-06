@@ -44,6 +44,24 @@ const isTokenName = (s: string): s is TokenName =>
   s === 'z' || s === 'x' || s === 'y' || s === '-y' || s === 'quadkey' || s === 'ratio'
   || s === 'prefix' || s === 'fontstack' || s === 'range' || s === 'spriteSuffix';
 
+/**
+ * 型ごとの字句の許可（m3-t2・m3-t6。spec.ts の登録の検査と style_body の「子として受けられるか」が共有する唯一の表。L1 Major-1）。
+ * tile は TILE_TOKENS で座標が要る。glyph は {fontstack}・{range} の両方が要る。sprite は内部の {spriteSuffix} を受ける。
+ * style・tilejson・data は字句なし。受けられなければ理由（文面。URL を入れない）、受けられれば undefined
+ */
+export function tokenRejection(type: ResourceType, compiled: CompiledTemplate): string | undefined {
+  const allowed: readonly TokenName[] = type === 'tile' ? TILE_TOKENS
+    : type === 'glyph' ? ['fontstack', 'range']
+      : type === 'sprite' ? ['spriteSuffix'] : [];
+  for (const tok of compiled.tokens) {
+    if (allowed.indexOf(tok) >= 0) continue;
+    return type === 'tile' ? `{${tok}} is not a tile token` : `{${tok}} is not allowed in a ${type} URL`;
+  }
+  if (type === 'tile' && !compiled.tile) return 'needs {z}, {x} and {y} (or {-y} / {quadkey})';
+  if (type === 'glyph' && !(compiled.tokens.has('fontstack') && compiled.tokens.has('range'))) return 'needs {fontstack} and {range}';
+  return undefined;
+}
+
 export interface CompiledTemplate {
   /** 元のテンプレート */
   readonly template: string;
