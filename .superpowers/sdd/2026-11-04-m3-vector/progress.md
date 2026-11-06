@@ -134,3 +134,24 @@ Ruling: 第 2 回の反映で事前点検を合格とし、再点検は置かな
   - ミラーの間で資格情報の値が違う組（R22）と、normalizeMember だけが拒否する組（userinfo・sk.・#）を、子作りと本体の除去で揃える
   - 親の資格情報を明示として子に配ると、テンプレートの値と違う子で 401 になりうる。扱いを決める
   - スプライトの子は spriteTemplateOf で作る。登録時の取得は revalidate: true を使い、serveResource の reject を扱う
+
+## m3-t7 スタイルの芋づる登録と asset（仕様 §5.5・P2・I3 の後半・I10）
+
+- PR: https://github.com/code4history/Weiwudi/pull/91 （合流 840dc1c）
+- 実測（t7 の枝 faf3772）: 単体試験 1305 passed・typecheck・build・eslint・check-dts・tests/dts の tsc 0・e2e 35 passed・受け入れ条件の grep をすべて満たす・CI 全緑
+- 対照: 初回 30 通り（3 通りは試験を足して検出）・直し 6 通り。M-1 の (a)(b) は二重の守りで、両方外すと 3 件落ちる
+- 書き換えた既存の試験（style・asset を受けるようになったため）: control.test.ts:139 の unsupported-kind → 受け付けと未知の kind の attribute-invalid・spec.test.ts:34 の it.each → style・asset の受け付けと検査・spec.test.ts:397 の期待値
+- L1（Claude）: 合流不可（Major 1・Minor 1）。資格情報の漏れは見つからず
+  - M-1: registry.apply の途中で失敗すると、書きかけの子と親の資格情報が孤児で残り remove() で消せない → applyChild で apply の前に巻き戻しの対象へ入れる＋removeStyleChildren が parentId で孤児も外す（巻き戻しと remove の両方）
+  - m-1: X2 の試験が空振りしうる（実際に 1 件しか出ていなかった）→ 件数と先のホストを確かめ、別の座標で出す
+- L2（Codex）: 第 1 回はネットワーク切断で 5 時間止まり取り消し。第 2 回は約 30 分で最終報告・合流不可
+  - 直した: 巻き戻しの孤児（L1 M-1 と同じ）・warnings の subject に userinfo（到達する経路あり）・acceptsAsChild の既定の判定に userinfo の拒否・`sprite.<id>` を文書と仕様 §12 へ・子の内部 id に子でない記録や別の親の子があれば internal・R10 の新しい子の衝突の試験
+  - Rulings（orchestrator。直さない）:
+    - 再登録で credentials を省くと資格情報が消える → register は置き換えで、タイルの登録と同じ。文書に無かったので英日に 1 文ずつ足した
+    - 親の資格情報を受け取らない子の TileJSON の本体は除去しない → R32 どおり（除くと 401）
+    - 推奨のうち空の資格情報の記録・fonts の扱い・stagesBC の差分のログは入れない（実害なし・文書どおり）
+- Rulings（実装担当。いずれも承認）: 対象外のファイル（hook・context・weiwudi_gw_logic・style_body・store）への手入れ・組の判定を先に当てる・仮の id `#weiwudi-unsaved-N`・親の記録を子 1 つごとに書き直す・段 A が取れなければ invalid-style・スタイルの source の範囲が TileJSON に勝つ・imports は辿らず unsupported-source: imports・タイルの URL は字句のまま（@2x・webp・raster の前置なし）・ミラーが混ざった子は丸ごと same-origin-skipped・資格情報の無い子は何も書かない・remove は source-not-found 以外を投げ直す
+- 申し送り:
+  - t8: removeResource・usage は子を親の単位で数えるか決める。removeStyleChildren・ownersOf を使う
+  - t9（e2e）: blob Worker から スタイル → `?secure` の TileJSON → タイル・sprite@2x・{fontstack}/{range} を確かめる
+  - m4: 範囲取得のグリフは putGlyphParts を使い、同じ範囲が 2 つあるときの後勝ちを試験する・直列の待ち行列で上流を待つので取得の上限を検討（R34）・取り直しと除去で credentialParams がずれる件（L1 i-2）と R3 で残した子の資格情報（L1 i-3）は実害なしとして記録
