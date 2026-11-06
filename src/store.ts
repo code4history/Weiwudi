@@ -85,6 +85,13 @@ export interface EntryMeta {
 /** §11 の結合保存の部分の索引（範囲 → 連結した本体の中の位置） */
 export type GlyphPartIndex = Record<string, { offset: number; length: number; fetchedAt: number }>;
 
+/** putGlyphParts の 1 要素（範囲・本体・取得の時刻） */
+export interface GlyphPartInput {
+  part: string;
+  blob: Blob;
+  fetchedAt: number;
+}
+
 export interface EntryBody {
   key: string;
   blob: Blob;
@@ -257,6 +264,14 @@ export interface Store {
    * 退避と Resource の数の更新は putEntry と同じ
    */
   putGlyphPart(meta: EntryMeta, part: string, blob: Blob, headers: Record<string, string>, evict: EvictionScope[]): Promise<{ saved: boolean }>;
+  /**
+   * グリフの範囲を複数まとめて fontstack のレコードへ足す（仕様 §11 の「1 fontstack 分を溜めてから 1 回で書く」。m3-t7。
+   * 範囲取得（m4）が使う）。putGlyphPart はこれに 1 つだけ渡す形（実装は 1 つ）。同じ範囲が並びに 2 つあれば後のものが勝つ。
+   * 部分ごとの fetchedAt は parts のもの。meta.fetchedAt は使わない（最も新しい部分の値にする）。parts が空なら何も書かない
+   */
+  putGlyphParts(
+    meta: EntryMeta, parts: readonly GlyphPartInput[], headers: Record<string, string>, evict: EvictionScope[],
+  ): Promise<{ saved: boolean }>;
 
   getCredentials(sourceId: string): Promise<Credentials | undefined>;
   putCredentials(sourceId: string, c: Credentials): Promise<void>;
@@ -590,7 +605,12 @@ export const openStore = async (): Promise<Store> => {
       const old = (await req2p(t.objectStore(S_ENTRIES).get(meta.key))) as EntryMeta | undefined;
       return commitEntry(t, target, old, meta, body, evict);
     }),
-    putGlyphPart: (meta, part, blob, headers, evict) => entryKeyError(meta, meta.key)
+    putGlyphPart: (meta, part, blob, headers, evict) => store.putGlyphParts(meta, [{ part, blob, fetchedAt: meta.fetchedAt }], headers, evict),
+    putGlyphParts: (meta, input, headers, evict) => {
+      // 同じ範囲は後のものが勝つ（並びは最後に現れた順）
+      const fresh = input.filter((p, i) => input.findIndex((q, j) => j > i && q.part === p.part) < 0);
+      if (fresh.length === 0) return Promise.resolve({ saved: false });
+      return entryKeyError(meta, meta.key)
       ?? tx([S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t) => {
         const target = (await req2p(t.objectStore(S_RESOURCES).get(meta.resourceId))) as ResourceMeta | undefined;
         if (!target) return { saved: false };
@@ -600,8 +620,9 @@ export const openStore = async (): Promise<Store> => {
         ]);
         // 残す部分を本体の中の順に詰め直し、新しい部分を最後に足す（同じ範囲の古い部分は落とす。空きを残さない）。
         // Blob の slice と new Blob は同期なので、tx の中で IDB 以外の Promise を待たない
+        const replaced = new Set(fresh.map((p) => p.part));
         const kept = oldBody?.parts && old
-          ? Object.entries(oldBody.parts).filter(([name]) => name !== part).sort((a, b) => a[1].offset - b[1].offset)
+          ? Object.entries(oldBody.parts).filter(([name]) => !replaced.has(name)).sort((a, b) => a[1].offset - b[1].offset)
           : [];
         const pieces: Blob[] = [];
         const parts: GlyphPartIndex = {};
@@ -611,9 +632,13 @@ export const openStore = async (): Promise<Store> => {
           parts[name] = { offset, length: p.length, fetchedAt: p.fetchedAt };
           offset += p.length;
         }
-        pieces.push(blob);
-        parts[part] = { offset, length: blob.size, fetchedAt: meta.fetchedAt };
-        const joined = new Blob(pieces, blob.type ? { type: blob.type } : undefined);
+        for (const p of fresh) {
+          pieces.push(p.blob);
+          parts[p.part] = { offset, length: p.blob.size, fetchedAt: p.fetchedAt };
+          offset += p.blob.size;
+        }
+        const type = fresh[fresh.length - 1].blob.type;
+        const joined = new Blob(pieces, type ? { type } : undefined);
         const next: EntryMeta = {
           ...meta,
           size: joined.size,
@@ -621,7 +646,8 @@ export const openStore = async (): Promise<Store> => {
           fetchedAt: Object.values(parts).reduce((m, p) => Math.max(m, p.fetchedAt), -Infinity),
         };
         return commitEntry(t, target, old, next, { key: meta.key, blob: joined, headers, parts }, evict);
-      }),
+      });
+    },
 
     getCredentials: (sourceId) => tx([S_CREDENTIALS], 'readonly', async (t) => {
       const rec = (await req2p(t.objectStore(S_CREDENTIALS).get(sourceId))) as (Credentials & { sourceId: string }) | undefined;

@@ -336,6 +336,17 @@ export interface ResourceInfo {
 5. **別オリジンのスタイルが、ページと同じオリジンの URL を指していたら登録しない**（`warnings` に残す）。第三者のスタイルで同一オリジンの API を捕捉させないため
 6. `register()` は冪等である。`source.update()` で取り直し、参照が消えた `Resource` は `sourceIds` から外して空なら削除する
 
+**m3-t7 で決めたこと**（計画 `docs/superpowers/plans/2026-11-04-m3-vector.md` の R1〜R5・R10・R30・R33〜R35）:
+
+- 子 Source（R1）: 下位資源ごとに内部の Source（`kind: 'child'`・`parentId`・id は `${parentId}\0${type}:${論理名}`）を作り、§5.6 の規則を子ごとに当てる。子は `source()`・`sources()` に出さない。親（`kind: 'style'`）は `children`（`from` は TileJSON から作った子の出どころ）を持ち、`clean`・`remove`・`stats`・`source.resources` は子の id の一覧で Resource を集める。`stats` のスタイルは `total`・`percent` を出さない
+- 段取り（R2）: 段 A（スタイル）→ 段 B（TileJSON）→ 段 C（残り）の順に子を重ね、前の子は最後の段の後にだけ外す。取得は `hook.serveResource`（`core.serve`）だけ。新しい登録は段 A〜C のどこかで失敗したら子を外してから親を外す（R30）。既存の登録の `update()`・同じ id の再登録は、段 A（スタイルの取得と解析）が成功するまで何も書かない。段 A より後の IndexedDB の失敗は巻き戻さない（R33）
+- 取れない TileJSON（R3）: `fetch-failed` になるのは Entry が無く上流も失敗したとき（`x-weiwudi-status` が `offline-miss`・`upstream-error`）だけ。`stale` の古い本体は取れたものとして使う。取れなかった TileJSON から前回作った子は前回のまま残す
+- `update()` の取得は `revalidate`（hit を飛ばして上流へ。失敗なら古い本体）、`register()` は通常の順（R4）。`update()` は子を `resetCors: true` で合流させる
+- 資格情報（R5）: 親の資格情報は、子の全テンプレート（ミラーを含む）がスタイルの URL と同じオリジンか親の提供元の `matches` に当たるときだけ、その子に配る（`style_body.credentialTargetOf`）。資格情報は親（登録の正本。`update()` で配り直す）と子（照合表が使う）の両方の id で持つ。子のテンプレートに載っていた同じ名前の値は、子のものが勝つ。子にする組の判定（`spec.acceptsMember`。R22 のミラーの値の食い違い・userinfo・`sk.` なども）は本体の資格情報の除去（§10）と同じ
+- 衝突（R10）: スタイルの子の登録は `{ throwOnConflict: false }`。新しく現れた子の衝突は新しい登録として扱い（範囲だけ＋`warnings`）、前からある子の衝突は keep。スタイルの `update()` は下位資源の衝突で例外にならない
+- 同じオリジンの検査（R35）: スタイルの参照と、TileJSON の `tiles`（スタイルか TileJSON のどちらかが SW と別オリジンのとき）に当てる
+- Mapbox の `imports` は辿らない（`unsupported-source: imports`）。タイルの URL の `@2x`・`webp`・`raster/` の書き換え（Mapbox GL JS の `normalizeTileURL`）は行わない（MapLibre は書かれた URL をそのまま要求する）
+
 ### 5.6 合流と実効方針
 
 捕捉した要求から決まるのは `Resource` だけで、どの `Source` の要求かは分からない。そこで `Resource` に実効方針を持たせる。`sourceIds` か `rangeOnlySourceIds` が変わるたびに、参照している全 `Source` の指定から計算し直して `resources` に保存する。`extents` は `sourceIds` と `rangeOnlySourceIds` の両方の `Source` の範囲の和から作り、その他の項目は `sourceIds` の `Source` だけから作る。**ただし `credentialParams` は Entry がある間は縮めない**（`count === 0` のときだけ計算し直す。Source の削除でも、自分自身の `update()` で減る場合でも同じ）。縮めると §5.3 の正規化で資格情報がキーに残り（§10 に反する）、既存の Entry にも当たらなくなる。
@@ -535,7 +546,7 @@ export class WeiwudiError extends Error {
 
 文字列の reject は次の major で `WeiwudiError` へ変える。非推奨の予告は §13 の時期に合わせる。
 
-新 API で増えるコード: `unsupported-template`・`invalid-style`・`opaque`・`sw-outdated`・`credential-rejected`・`source-not-found`・`resource-conflict`・`unsupported-kind`（その版がまだ扱わない `kind`。m2 では `style`・`asset`）。`resource-conflict` は自分自身の `update()` でだけ例外として投げ、`register()` では `warnings` に書く（§5.6）。`quota`・`network`・`upstream`・`storage`・`fetch-busy` などは m1 の表にあるものを使う。
+新 API で増えるコード: `unsupported-template`・`invalid-style`（スタイル自体が取れない・読めない。§5.5。m3-t7）・`opaque`・`sw-outdated`・`credential-rejected`・`source-not-found`・`resource-conflict`・`unsupported-kind`（その版がまだ扱わない `kind`。m2 では `style`・`asset`。m3-t7 で全 kind を扱うので作られなくなった。union には残す）。`resource-conflict` は自分自身の `update()` でだけ例外として投げ、`register()` では `warnings` に書く（§5.6）。`quota`・`network`・`upstream`・`storage`・`fetch-busy` などは m1 の表にあるものを使う。
 
 ## 10. 提供元の URL と資格情報（#40）
 
@@ -667,8 +678,13 @@ export interface SourceStats {
 
 - `WeiwudiSource.resources` も呼び出し時点の写しで、後の変化は `stats()` か `source()` で読み直す
 - 上の `class` の宣言のうち、各版の d.ts と文書には、その版で入るメンバだけを書く（m2 は `register`・`source`・`sources` と、`WeiwudiSource` の `id`・`url`・`resources`・`warnings`・`stats`・`update`・`clean`（範囲なし）・`remove`・`release`）
-- `warnings` の書式は `"<code>: <subject>"`（`subject` は `Resource.id`。利用者は知らない `code` を無視する）。m2 の `code` は `resource-conflict`（§5.6）と `template-shadowed`（同じ要求に当たる別の照合の形が先に評価され、その Resource が捕捉されない。その Source が参照する Resource のものだけを書く）
-- 登録を拒否するもの: `map:` から始まる `id`・空の `id`・`\0` を含む `id`（§5.1・§10。`attribute-invalid`）・userinfo を含むテンプレート（§10。`attribute-invalid`）・`weiwudi.example.com` のテンプレート（`unsupported-template`）・その版が扱わない `kind`（`unsupported-kind`。m2 では `style`・`asset`）・`sk.` の資格情報（`credential-rejected`）
+- `warnings` の書式は `"<code>: <subject>"`（`subject` は `Resource.id`。利用者は知らない `code` を無視する）。`code` は次の 5 つ（m3-t7・R20）
+  - `resource-conflict`（§5.6）
+  - `template-shadowed`（同じ要求に当たる別の照合の形が先に評価され、その Resource が捕捉されない。その Source が参照する Resource のものだけを書く。スタイルは子の Resource のもの。I10・R26: 警告のまま）
+  - `fetch-failed`（スタイル: 段 A 以外の取得の失敗。subject は取れなかった子の `Resource.id`）
+  - `same-origin-skipped`（スタイル: §5.5-5。subject はクエリを落とした URL（オリジン＋パス）。パスの区画に秘密（`sk.eyJ`）があるか userinfo を持てば、スタイルの中の名前（`sources.<名前>`・`glyphs`・`sprite`・`sprite.<id>`））
+  - `unsupported-source`（スタイル: video・知らない type・子として受けられない URL の source。subject は `sources.<名前>`・`glyphs`・`sprite`・`sprite.<id>`（`sprite` の配列の要素）・`imports`）
+- 登録を拒否するもの: `map:` から始まる `id`・空の `id`・`\0` を含む `id`（§5.1・§10。`attribute-invalid`）・userinfo を含むテンプレート（§10。`attribute-invalid`）・`weiwudi.example.com` のテンプレート（`unsupported-template`）・その版が扱わない `kind`（`unsupported-kind`。m2 では `style`・`asset`。m3 では作られない）・`sk.` の資格情報（`credential-rejected`）・同じ id で違う `kind`（`attribute-invalid`。R37）・読めないスタイル（`invalid-style`）
 - 提供元別の使用量（#38）は `usage().byProvider`。鍵は `ResourceMeta.provider`、無ければ origin
 - `/v2/*` の要求の前に制御下かを確かめる（§4.1）
 - `/v2/ping` が `{ api: 2, version }` を返す。最初の POST の前に必ず確かめる（§4.1）。古い SW（更新待ち）に当たると 404 になるので、ページ側は `sw-outdated` を投げる。旧 `/api/ping` の `Implemented` は変えない

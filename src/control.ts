@@ -11,11 +11,14 @@
 // - register・update・remove の後に照合表を作り直す（hook.tableChanged）。作り直しが失敗しても登録は成功させ、
 //   表を捨てて門番に読み直させる（古い表のまま固まらない。Ruling）
 // - 照合表の影（template-shadowed）は、その Source が参照する Resource のものだけを warnings に足して保存する
+// - スタイル（kind: 'style'）の register・update は style.ts。Resource の絞り込みは「持ち主の id の一覧」（スタイルは子の id、
+//   ほかは自分。style.ownersOf）で行う（m3-t7・I3 の後半）
 import type { RouteHandlerCallbackOptions } from 'workbox-core';
 import type { Context } from './context';
 import { tableChanged } from './hook';
 import { applyRegister, applyRemove, applyUpdate, isExclusiveTo } from './registry';
-import { normalizeSpec, type NormalizedSpec } from './spec';
+import { isNormalizedStyle, normalizeSpec, type NormalizedSpec } from './spec';
+import { ownersOf, registerStyle, removeStyleChildren } from './style';
 import { isChildRecord, isLegacyRecord, storedSpecOf, styleSpecOf, toResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
 import { countTiles } from './tile_math';
 import { WeiwudiError } from './errors';
@@ -61,25 +64,41 @@ const idOf = (body: unknown): string => {
   return id;
 };
 
-/** その Source が参照する Resource（sourceIds のもの・範囲だけのもの。重ねない） */
-const resourcesOf = async (store: Store, id: string): Promise<ResourceMeta[]> => {
-  const own = await store.resourcesBySource(id);
-  const rangeOnly = (await store.resourcesByRangeOnlySource(id)).filter((r) => !own.some((o) => o.id === r.id));
-  return [...own, ...rangeOnly];
+/**
+ * 持ち主の id の一覧（スタイルは子の id、ほかは自分）が参照する Resource（sourceIds のもの・範囲だけのもの。重ねない。
+ * sourceIds のものを先に、登録の順）
+ */
+const resourcesOf = async (store: Store, owners: readonly string[]): Promise<ResourceMeta[]> => {
+  const own: ResourceMeta[] = [];
+  const rangeOnly: ResourceMeta[] = [];
+  for (const id of owners) {
+    for (const r of await store.resourcesBySource(id)) if (!own.some((o) => o.id === r.id)) own.push(r);
+    for (const r of await store.resourcesByRangeOnlySource(id)) if (!rangeOnly.some((o) => o.id === r.id)) rangeOnly.push(r);
+  }
+  return [...own, ...rangeOnly.filter((r) => !own.some((o) => o.id === r.id))];
 };
 
-/** SourceInfo（仕様 §12）。resources は toResourceInfo(meta, now, その Source の id)（rangeOnly を出す。第 3 回 O7） */
+/** 範囲だけで参照している Resource か（持ち主のどれも sourceIds に無く、どれかが rangeOnlySourceIds にある） */
+const isRangeOnlyFor = (m: ResourceMeta, owners: readonly string[]): boolean =>
+  !owners.some((id) => m.sourceIds.indexOf(id) >= 0) && owners.some((id) => (m.rangeOnlySourceIds ?? []).indexOf(id) >= 0);
+
+/** SourceInfo（仕様 §12）。resources は toResourceInfo の射影に、持ち主の一覧で決めた rangeOnly を付ける（第 3 回 O7） */
 const infoOf = async (store: Store, rec: SourceRecord): Promise<SourceInfo> => {
-  // 読み方は store の補助だけ（m2 の記録の type を補う。L1 M1）。style の親は m3-t7 まで作られない
+  // 読み方は store の補助だけ（m2 の記録の type を補う。L1 M1）
   const spec = storedSpecOf(rec) ?? styleSpecOf(rec);
   if (!spec) throw notFound(rec.id);
   const now = Date.now();
+  const owners = ownersOf(rec);
   return {
     id: rec.id,
     // getOwn・sources が旧 API の記録と子を除くので、kind は利用者の kind
     kind: rec.kind as SourceInfo['kind'],
     url: Array.isArray(spec.url) ? spec.url.slice() : spec.url,
-    resources: (await resourcesOf(store, rec.id)).map((m) => toResourceInfo(m, now, rec.id)),
+    resources: (await resourcesOf(store, owners)).map((m) => {
+      const info = toResourceInfo(m, now);
+      if (isRangeOnlyFor(m, owners)) info.rangeOnly = true;
+      return info;
+    }),
     warnings: rec.warnings.slice(),
   };
 };
@@ -89,12 +108,13 @@ const statsOf = async (store: Store, rec: SourceRecord): Promise<SourceStats> =>
   const byResource: Record<string, { count: number; bytes: number }> = Object.create(null);
   let count = 0;
   let size = 0;
-  for (const m of await resourcesOf(store, rec.id)) {
+  for (const m of await resourcesOf(store, ownersOf(rec))) {
     byResource[m.id] = { count: m.count, bytes: m.bytes };
     count += m.count;
     size += m.bytes;
   }
   const stats: SourceStats = { count, size, byResource };
+  // スタイルは範囲が 1 つに決まらないので total・percent を出さない（storedSpecOf は style の親で undefined）
   const extent = storedSpecOf(rec)?.extent;
   if (extent?.box) {
     // 範囲が決まるときだけ（仕様 §12）
@@ -135,6 +155,16 @@ const withShadows = async (store: Store, rec: SourceRecord, shadows: readonly st
   return next;
 };
 
+/** SW のオリジン（同じオリジンの検査。§5.5-5）。SW の外（単体試験）で読めなければ undefined */
+const swOrigin = (): string | undefined => {
+  try {
+    const o = self.location.origin;
+    return typeof o === 'string' && o !== '' && o !== 'null' ? o : undefined;
+  } catch (_e) {
+    return undefined;
+  }
+};
+
 export interface Control {
   /** 疑似ホストの GET のうち /v2/ で始まるもの（ping。ほかは 404） */
   get(options: RouteHandlerCallbackOptions): Promise<Response>;
@@ -152,20 +182,34 @@ export function createControl(ctx: Context): Control {
     return run;
   };
 
+  /** 保存の後: 照合表を作り直し、持ち主の Resource の影を warnings に足して SourceInfo を返す */
+  const finish = async (store: Store, rec: SourceRecord): Promise<SourceInfo> => {
+    const ids = (await resourcesOf(store, ownersOf(rec))).map((m) => m.id);
+    return infoOf(store, await withShadows(store, rec, await refreshTable(ctx, ids)));
+  };
+
   const register = (body: unknown) => serial(async () => {
     // 提供元の評価の順（利用者が先・標準の mapbox が後）で解決してから検査する（m3-t5・X8）
     const spec = normalizeSpec(body, ctx.providers());
     const store = await ctx.store();
+    if (isNormalizedStyle(spec)) return finish(store, await registerStyle(ctx, spec, { mode: 'register', swOrigin: swOrigin() }));
     const r = await applyRegister(store, spec);
-    const ids = (await resourcesOf(store, r.source.id)).map((m) => m.id);
-    const rec = await withShadows(store, r.source, await refreshTable(ctx, ids));
-    return infoOf(store, rec);
+    return finish(store, r.source);
   });
 
   const update = (id: string) => serial(async () => {
     const store = await ctx.store();
     const rec = await getOwn(store, id);
     const credentials = await store.getCredentials(id);
+    const style = styleSpecOf(rec);
+    if (style) {
+      // スタイルは取り直して芋づるを作り直す（下位資源の衝突で例外にしない。P2・R10）
+      const before = (await resourcesOf(store, ownersOf(rec))).map((m) => m.id);
+      const out = await registerStyle(ctx, credentials ? { spec: style, credentials } : { spec: style },
+        { mode: 'update', swOrigin: swOrigin() });
+      for (const rid of [...before, ...(await resourcesOf(store, ownersOf(out))).map((m) => m.id)]) ctx.corslessStreak.delete(rid);
+      return finish(store, out);
+    }
     // 保存した登録内容で合流と方針を作り直す（資格情報は credentials ストアのものを持ち越す）
     // 保存した登録内容は storedSpecOf で読む（m2 の記録は type が無く、生のまま渡すと型違いの衝突になる。L1 M1）
     const stored = storedSpecOf(rec);
@@ -174,24 +218,32 @@ export function createControl(ctx: Context): Control {
     const r = await applyUpdate(store, id, spec);
     // CORS の判定をやり直す（仕様 §4.5。corsOk・corslessUntil は registry が消す）
     for (const m of r.resources) ctx.corslessStreak.delete(m.id);
-    const ids = (await resourcesOf(store, id)).map((m) => m.id);
-    return infoOf(store, await withShadows(store, r.source, await refreshTable(ctx, ids)));
+    return finish(store, r.source);
   });
 
   const clean = (id: string) => serial(async () => {
     const store = await ctx.store();
-    await getOwn(store, id);
-    // 範囲なしの clean（m2）。他の Source が参照する共有・範囲だけの Resource の Entry は残す（仕様 §5.6・§7.2）
-    for (const m of await store.resourcesBySource(id)) {
-      if (isExclusiveTo(m, id)) await store.clearEntries(m.id);
+    const owners = ownersOf(await getOwn(store, id));
+    // 範囲なしの clean（m2）。他の Source が参照する共有・範囲だけの Resource の Entry は残す（仕様 §5.6・§7.2）。
+    // スタイルは子の Resource を、子の id の一覧で判定する
+    const done: string[] = [];
+    for (const owner of owners) {
+      for (const m of await store.resourcesBySource(owner)) {
+        if (done.indexOf(m.id) >= 0) continue;
+        done.push(m.id);
+        if (isExclusiveTo(m, owners)) await store.clearEntries(m.id);
+      }
     }
     return null;
   });
 
   const remove = (id: string) => serial(async () => {
     const store = await ctx.store();
-    await getOwn(store, id);
-    const before = (await resourcesOf(store, id)).map((m) => m.id);
+    const rec = await getOwn(store, id);
+    const before = (await resourcesOf(store, ownersOf(rec))).map((m) => m.id);
+    // スタイルは子を全部外してから親を消す（親の記録が残っていれば、途中で止まっても remove() をやり直せる）
+    // parentId が親の id の孤児（段の途中で止まった子。R33）も外す（L1 M-1）
+    if (styleSpecOf(rec)) await removeStyleChildren(store, id, ownersOf(rec), { strict: true });
     await applyRemove(store, id);
     for (const rid of before) {
       if (!(await store.getResource(rid))) ctx.corslessStreak.delete(rid);

@@ -136,10 +136,13 @@ describe('register（仕様 §5.6・§12）', () => {
     expect((await ok(h, 'source', { id: 's' })).warnings).toEqual([`resource-conflict: ${TPL}`]);
   });
 
-  it('未対応の kind は unsupported-kind（m2 は style・asset）', async () => {
+  it('style・asset も受ける（m3-t7 で unsupported-kind は出なくなった）。知らない kind は attribute-invalid', async () => {
     const h = harness();
-    await fails(h, 'register', { kind: 'style', url: 'https://s.example/style.json' }, 'unsupported-kind');
-    await fails(h, 'register', { kind: 'asset', url: 'https://s.example/a.png' }, 'unsupported-kind');
+    h.fetch.mockImplementation(async () => new Response(JSON.stringify({ version: 8, sources: {}, layers: [] }),
+      { status: 200, headers: { 'content-type': 'application/json' } }));
+    expect((await ok(h, 'register', { kind: 'style', url: 'https://s.example/style.json' })).kind).toBe('style');
+    expect((await ok(h, 'register', { kind: 'asset', url: 'https://s.example/a.png' })).kind).toBe('asset');
+    await fails(h, 'register', { kind: 'video', url: 'https://s.example/a.mp4' }, 'attribute-invalid');
   });
 
   it('sk. の資格情報は credential-rejected で、credentials ストアにも sources にも何も書かない（第 1 回 C6）', async () => {

@@ -165,8 +165,19 @@ console.log(source.warnings, await source.stats());
 ```
 
 - Only Chromium is tested. **WebKit and Firefox are not verified yet.**
-- In this version `kind` is `'raster'` or `'vector'`; `'style'` and `'asset'` are
-  rejected with `unsupported-kind`.
+- `kind` is `'raster'`, `'vector'`, `'style'` or `'asset'`. A style registers
+  everything it refers to (TileJSON, tiles, glyphs, sprites, GeoJSON, images);
+  pass `source.url` to MapLibre after `register()` resolves:
+
+  ```typescript
+  const style = await Weiwudi.register({ kind: 'style', url: 'https://example.com/style.json' });
+  const map = new maplibregl.Map({ container, style: style.url as string });
+  ```
+
+  Credentials of a style are sent only to the origin of the style and to its
+  provider, and a style from another origin cannot capture URLs of the page's
+  origin. `update()` fetches the style again
+  ([Styles](docs/api/weiwudi.md#styles-kind-style)).
 - An explicit `id` is a public value (it appears in `sources()` and `warnings`).
   Do not put credentials in it; pass them as `credentials` instead.
 - The service worker adds `credentials` only to requests on the page request's

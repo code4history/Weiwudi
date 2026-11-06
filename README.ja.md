@@ -158,7 +158,17 @@ console.log(source.warnings, await source.stats());
 ```
 
 - 試験しているのは Chromium だけです。**WebKit・Firefox は未確認です。**
-- この版の `kind` は `'raster'` と `'vector'` です。`'style'`・`'asset'` は `unsupported-kind` で拒否します。
+- `kind` は `'raster'`・`'vector'`・`'style'`・`'asset'` です。スタイルは参照する資源（TileJSON・タイル・グリフ・
+  スプライト・GeoJSON・画像）をすべて登録します。`register()` の完了を待ってから `source.url` を MapLibre に渡します:
+
+  ```typescript
+  const style = await Weiwudi.register({ kind: 'style', url: 'https://example.com/style.json' });
+  const map = new maplibregl.Map({ container, style: style.url as string });
+  ```
+
+  スタイルの資格情報を送るのはスタイルと同じオリジンとその提供元だけで、別オリジンのスタイルはページと同じオリジンの
+  URL を捕捉させられません。`update()` はスタイルを取り直します
+  （[スタイル](docs/api/weiwudi.ja.md#スタイルkind-style)）。
 - 明示の `id` は公開の値です（`sources()` と `warnings` に出ます）。資格情報を入れず、`credentials` で渡してください。
 - サービスワーカーが `credentials` を足すのはページの要求と同じオリジンの要求だけで、ヘッダの資格情報を足した要求は
   `redirect: 'error'` で出します。秘密トークン（クエリの `sk.`・`sk.eyJ…` のパスの区画）は拒否し、同じ資格情報の項目に

@@ -329,3 +329,50 @@ describe('子として受けられない組（L1 Major-1・Minor-3）', () => {
     expect(rewriteTileJsonBody(text, TJ_BASE, { strip: stripA })).toBe(text);
   });
 });
+
+describe('組の判定 accepts（m3-t7・t6 の申し送り: 子作りと本体の除去で同じ組を使う）', () => {
+  const tiles = ['https://a.example/m/{z}/{x}/{y}.png?access_token=pk.T', 'https://a.example/n/{z}/{x}/{y}.png?access_token=pk.T'];
+  const s = () => style({
+    sources: { m: { type: 'raster', tiles, url: 'https://a.example/m.json' }, k: { type: 'raster', tiles: ['https://a.example/k/{z}/{x}/{y}.png?access_token=pk.T'] } },
+    sprite: [{ id: 'default', url: 'https://a.example/sprites/s?access_token=pk.T' }],
+  });
+  /** m の tiles の組だけを受けない（R22 などで normalizeMember が拒否する組の代わり） */
+  const rejectM = (_type: string, templates: string[]) => !templates.some((t) => t.includes('/m/'));
+
+  it('collectStyleRefs: accepts が偽の組の source は丸ごと skipped（url の組も子にしない）。sprite の組はテンプレート（{spriteSuffix}）で渡す', () => {
+    const seen: [string, string[]][] = [];
+    const refs = collectStyleRefs(s(), BASE, (type, templates) => {
+      seen.push([type, templates]);
+      return rejectM(type, templates);
+    });
+    expect(refs.skipped).toEqual([{ name: 'm', reason: 'unsupported-source' }]);
+    expect(refs.tilejson).toEqual([]);
+    expect(refs.tiles.map((t) => t.name)).toEqual(['k']);
+    expect(seen).toContainEqual(['sprite', ['https://a.example/sprites/s{spriteSuffix}?access_token=pk.T']]);
+    expect(refs.spriteIds).toEqual(['default']);
+  });
+
+  it('rewriteStyleBody: accepts が偽の組からは除かない（受ける組からは除く）', () => {
+    const out = JSON.parse(rewriteStyleBody(JSON.stringify(s()), BASE, { strip: { ...stripA, accepts: rejectM } }));
+    expect(out.sources.m.tiles).toEqual(tiles);
+    expect(out.sources.k.tiles).toEqual(['https://a.example/k/{z}/{x}/{y}.png']);
+  });
+
+  it('rewriteTileJsonBody: accepts が偽なら tiles を除かない', () => {
+    const body = JSON.stringify({ tiles });
+    expect(rewriteTileJsonBody(body, TJ_BASE, { strip: { ...stripA, accepts: rejectM } })).toBe(body);
+    expect(JSON.parse(rewriteTileJsonBody(body, TJ_BASE, { strip: { ...stripA, accepts: () => true } })).tiles)
+      .toEqual(['https://a.example/m/{z}/{x}/{y}.png', 'https://a.example/n/{z}/{x}/{y}.png']);
+  });
+});
+
+describe('userinfo の組（L2 B: accepts が無くても子作りと除去で揃う）', () => {
+  const ui = 'https://user:pass@a.example/u/{z}/{x}/{y}.png?access_token=pk.T';
+  it('collectStyleRefs は userinfo の組の source を skipped にし、rewriteStyleBody・rewriteTileJsonBody はその組から除かない', () => {
+    const s = style({ sources: { u: { type: 'raster', tiles: [ui] } } });
+    expect(collectStyleRefs(s, BASE).skipped).toEqual([{ name: 'u', reason: 'unsupported-source' }]);
+    expect(JSON.parse(rewriteStyleBody(JSON.stringify(s), BASE, { strip: stripA })).sources.u.tiles).toEqual([ui]);
+    const tj = JSON.stringify({ tiles: [ui] });
+    expect(rewriteTileJsonBody(tj, TJ_BASE, { strip: stripA })).toBe(tj);
+  });
+});

@@ -248,6 +248,8 @@ Only Chromium is tested. WebKit and Firefox are not verified yet.
 ### `Weiwudi.register(spec)`
 
 Register a source. Calling it again with the same spec is idempotent.
+Registering again with the same `id` replaces the spec, credentials included
+(omitting `credentials` removes them).
 
 **Parameters:** `spec` (`SourceSpec`)
 
@@ -280,8 +282,11 @@ interface TileBox { minX: number; maxX: number; minY: number; maxY: number }
   value (the key of `source()`, the `id` of `sources()`, and `warnings`): **do not
   put credentials in it**. It must be a non-empty string without `\0` and must not
   start with `map:` (reserved for maps registered with `registerMap`).
-- **`kind: 'style'` and `kind: 'asset'` are rejected with `unsupported-kind` in this
-  version.**
+- `kind: 'style'`: one style URL (an array is `attribute-invalid`). The service
+  worker fetches the style and registers everything it refers to. See
+  [Styles](#styles-kind-style). `fonts` is only saved in this version.
+- `kind: 'asset'`: a file without tokens (GeoJSON, an image, …). An array is a list
+  of mirrors of the same file (one resource). An asset has no range.
 - Out-of-range tiles are a transparent PNG (raster) or an empty 200 body (vector)
   by default. Use `outOfRange: { zoom: 'not-found' }` to get a 404 outside the zoom range.
 
@@ -292,11 +297,13 @@ interface TileBox { minX: number; maxX: number; minY: number; maxY: number }
   or containing `\0`, a template with user info (`user:pass@`), or mirrors that
   carry different values for the same credential parameter (names compared
   case-insensitively; register each mirror as its own source; names in an
-  explicit `credentials.query` are not compared)
+  explicit `credentials.query` are not compared), a `kind: 'style'` with an array
+  `url` or a malformed `fonts`, or a different `kind` for an `id` that is already
+  registered (`remove()` it first)
 - `unsupported-template`: an unsupported token, a URL that cannot be resolved
   or is not `http:` / `https:` (relative URLs are resolved against the page
   first), or a template on `weiwudi.example.com`
-- `unsupported-kind`: `style` or `asset` (not handled by this version)
+- `invalid-style`: the style of `kind: 'style'` could not be fetched or read (see [Styles](#styles-kind-style))
 - `credential-rejected`: a secret token (`sk.`) in `credentials` or in a template query,
   or a path segment starting with `sk.eyJ` (a segment name such as `sk.osm` is accepted)
 - `sw-not-controlling` / `sw-outdated`: see [Before every call](#before-every-call)
@@ -322,6 +329,70 @@ interface TileBox { minX: number; maxX: number; minY: number; maxY: number }
 A resource that cannot be merged with an existing one does **not** make
 `register()` fail. The source is saved and `warnings` gets
 `resource-conflict: <resource id>`.
+
+A template of another shape that matches the same requests (`{y}` and `{-y}`,
+for example) is only reported as `template-shadowed`; the later registration is
+not captured.
+
+### Styles (`kind: 'style'`)
+
+```typescript
+const style = await Weiwudi.register({
+  kind: 'style', url: 'mapbox://styles/u/s',
+  credentials: { query: { access_token: 'pk.…' } },
+});
+// style.url is https://api.mapbox.com/styles/v1/u/s (no token). Create the map after register() resolves
+const map = new maplibregl.Map({ container, style: style.url as string });
+```
+
+The service worker fetches the style through its own cache and registers each
+resource the style refers to: the TileJSON of `sources.*.url` (and the `tiles`
+inside it), `sources.*.tiles`, `glyphs`, `sprite` (a string or `{ id, url }[]`;
+`.json`, `.png`, `@2x.json` and `@2x.png` share one resource), the URL `data` of a
+`geojson` source and the `url` of an `image` source. Ranges come from `bounds`,
+`minzoom`, `maxzoom` and `scheme` of the TileJSON and of the source (the source
+wins; a `bounds` without `maxzoom` uses zoom 30). Out-of-range tiles are a
+transparent PNG (raster) or an empty body (vector). `source.resources` and
+`stats()` include all of them. `raster-dem` is cached as raster tiles.
+
+- `mapbox://` is resolved at registration (the standard `mapbox` provider), and
+  the saved style is rewritten to `https`. Only a style that you register with
+  `mapbox://` or a Mapbox `https` URL is rewritten.
+- **Credentials are sent only to the origin of the style and to the provider of
+  the style** (for a `mapbox://` style: `api.mapbox.com` and `*.tiles.mapbox.com`).
+  A resource gets the credentials only when every mirror of it is such a
+  target. A style from a third party cannot make the service worker send your
+  token to another host. A credential that is already written in a URL of the
+  style stays with that URL (it wins over the registered value of the same name).
+- When credentials are registered, the credential items are removed from the
+  URLs in the saved style and TileJSON bodies that receive the credentials (the
+  service worker adds them again upstream). Other URLs are kept as they are.
+- **A style from another origin cannot capture URLs of the page's origin**:
+  those resources are not registered (`same-origin-skipped`). The same applies
+  to the `tiles` of a TileJSON when the style or the TileJSON is from another
+  origin.
+- A resource that cannot be registered does not make `register()` fail; it is
+  written to `warnings` (see [warnings](#warnings)). A conflict with another
+  source's resource is `resource-conflict` here too, also in `update()`.
+- `invalid-style`: the style itself could not be fetched or read (for example,
+  an HTML login page). A new registration then leaves nothing. For a style that
+  is already registered (`update()`, or `register()` with the same `id`),
+  nothing is changed.
+- `register()` again with the same spec uses the cache (it works offline).
+  `update()` fetches the style and the TileJSON again from upstream, drops the
+  resources the style no longer refers to (with their entries), and keeps the
+  resources under a TileJSON that could not be fetched (`fetch-failed`).
+- When credentials are added to an already registered style by `register()`
+  with the same `id` and the saved style is still fresh, the saved body keeps the
+  token until it is fetched again (after `cacheTtl`, or by `update()`). That token
+  came from the style server and was visible to the page anyway.
+- Mapbox `imports` are not followed (`unsupported-source: imports`). Tile URLs
+  are used as written (Mapbox GL JS rewrites some `mapbox://` tile URLs, MapLibre
+  does not).
+- The registration of a style waits for the upstream inside the queue that also
+  runs `register`, `update`, `clean` and `remove`, so those calls wait for it.
+  `source()`, `sources()` and `stats()` do not wait and can show a style in the
+  middle of its registration (some resources, older `warnings`).
 
 ### `Weiwudi.source(id)`
 
@@ -358,7 +429,7 @@ type ResourceType = 'style' | 'tilejson' | 'tile' | 'glyph' | 'sprite' | 'data';
 | `resources` | `ResourceInfo[]`, a copy taken at the time of the call. Read `stats()` or `Weiwudi.source()` again for later changes |
 | `warnings` | `string[]`, a copy taken at `register()` / `update()` (it does not change afterwards) |
 | `stats()` | `Promise<SourceStats>` |
-| `update()` | Rebuilds merging and policies from the saved spec and resets the CORS detection. Rejects with `resource-conflict` (and changes nothing) when its own resources conflict |
+| `update()` | Rebuilds merging and policies from the saved spec and resets the CORS detection. Rejects with `resource-conflict` (and changes nothing) when its own resources conflict. A style is fetched again instead and never rejects with `resource-conflict` (conflicts go to `warnings`); it rejects with `invalid-style` when the style cannot be read |
 | `clean()` | Deletes cached entries. Entries of resources shared with another source are kept |
 | `remove()` | Deletes the registration and its entries and calls `release()`. Entries of a resource that another source still has in its `sourceIds` are kept; a resource whose `sourceIds` becomes empty is deleted with its entries, even when another source still refers to it only by range (`rangeOnly`) |
 | `release()` | Removes the page-side listener. Other methods then reject with `instance-released` |
@@ -376,12 +447,16 @@ interface SourceStats {
 ### `warnings`
 
 Each entry is `"<code>: <subject>"`. The subject is a resource id (credentials
-are already removed).
+are already removed), except for the codes below that name a URL or a source of
+the style.
 
 | code | Meaning |
 |---|---|
 | `resource-conflict` | The resource could not be merged with an existing one (different `type`, `scheme` or encoding, wider `credentialParams` while entries exist, or overlapping two resources). It keeps the existing policy; only the range of this source is added. When the source already belonged to that resource (registering the same `id` again), nothing is added either: the resource keeps the old policy and the old range of this source |
 | `template-shadowed` | Another registered template matches the same requests and is evaluated first, so this resource is not captured |
+| `fetch-failed` | A style: a resource (a TileJSON) could not be fetched and had no cached entry. The subject is its resource id |
+| `same-origin-skipped` | A style: a URL of the page's origin referred to by a style or TileJSON of another origin was not registered. The subject is the URL without its query, or the name in the style (`sources.<name>`, `glyphs`, `sprite`, `sprite.<id>`) when its path holds a secret token or it has user info |
+| `unsupported-source` | A style: a source that is not registered (`video`, an unknown `type`, a URL that cannot be a template). The subject is `sources.<name>`, `glyphs`, `sprite`, `sprite.<id>` (an item of a `sprite` array) or `imports` |
 
 Ignore any code you do not know: new codes may be added in a minor release.
 
@@ -507,15 +582,17 @@ above) and `network`, `upstream`, `storage` (tile failures, see below).
 
 **Codes of the source API** (rejected as `WeiwudiError`, see [Source API](#source-api)):
 `unsupported-template` and `credential-rejected` (`register`),
-`unsupported-kind` (`register` with `kind: 'style'` or `'asset'` in this version),
+`invalid-style` (`register` and `update()` of a style that cannot be read),
 `sw-outdated` (the controlling service worker lacks the source API),
 `source-not-found` (`source()` and the `WeiwudiSource` methods for an unknown id),
 `resource-conflict` (`update()` only; `register()` writes it to `warnings`).
 The source API also uses `attribute-invalid`, `sw-not-controlling`,
 `instance-released` and `api-not-found` from the table above, with its own messages.
 
-**Codes reserved for the upcoming API:** `invalid-style`, `opaque`.
-They are part of the `WeiwudiErrorCode` type but are not produced yet.
+**Codes reserved for the upcoming API:** `opaque`.
+It is part of the `WeiwudiErrorCode` type but is not produced yet.
+`unsupported-kind` stays in the type but is no longer produced (every `kind` is
+handled).
 
 **New codes may be added in a minor release.** When you `switch` on `code`,
 always keep a `default` branch.
