@@ -246,7 +246,7 @@ export async function registerStyle(ctx: Context, input: NormalizedStyle, o: Sty
 
   const styleChild = styleChildOf(base, creds);
   const styleUrl = base.url;
-  const stageAOpts = { ...fetchOpts, parent: { url: styleUrl, ...(base.provider !== undefined ? { provider: base.provider } : {}) } };
+  const stageAOpts = { ...fetchOpts, parent: { url: styleUrl, policy: base.policy, ...(base.provider !== undefined ? { provider: base.provider } : {}) } };
 
   /** 子を 1 つ合流させて保存し、親の children に載せる */
   const applyChild = async (n: NormalizedSpec, from?: string): Promise<RegisterResult> => {
