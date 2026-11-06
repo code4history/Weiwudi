@@ -236,6 +236,18 @@ describe('オフラインと update()（§5.5-1・6・R3・R4・C-S5）', () => 
     expect(h.fetch).not.toHaveBeenCalled();
   });
 
+  it('update() は子の Resource の CORS の判定をやり直す（corsOk・corslessUntil を消す。§4.5）', async () => {
+    const { h, store } = await setup({ [STYLE]: FULL, [TJ]: TILEJSON });
+    await ok(h, 'register', { kind: 'style', id: 'st', url: STYLE });
+    await store.patchResource(VT, (m) => ({ ...m, corsOk: true, corslessUntil: Date.now() + 1000 }));
+    await ok(h, 'register', { kind: 'style', id: 'st', url: STYLE });
+    expect((await store.getResource(VT))!.corsOk).toBe(true);
+    await ok(h, 'update', { id: 'st' });
+    const r = (await store.getResource(VT))!;
+    expect(r.corsOk).toBeUndefined();
+    expect(r.corslessUntil).toBeUndefined();
+  });
+
   it('一部の取得に失敗しても登録は成功し、warnings に fetch-failed', async () => {
     const { h } = await setup({ [STYLE]: FULL, [TJ]: () => new Response('no', { status: 500 }) });
     const info = await ok(h, 'register', { kind: 'style', id: 'st', url: STYLE });
@@ -438,6 +450,27 @@ describe('資格情報の配り先（R5・X2・S-N1・§10）', () => {
     await ok(h, 'register', { kind: 'style', id: 'st', url: A2, credentials: { query: { access_token: TOKEN } } });
     // 除いていなければテンプレートの pk.PAGE が子のもの（子の値が勝つ）になる
     expect(await store.getCredentials(childId('st', 'tile:m'))).toEqual({ query: { access_token: TOKEN } });
+  });
+
+  it('O-N4: 保存したスタイルが新しいうちに再登録で資格情報を足すと、本体のトークンが残り、その値が子のもの（子のテンプレートの値が親の値に勝つ）', async () => {
+    const A = 'https://a.example/style.json';
+    const { h, store } = await setup({
+      [A]: styleOf({ m: { type: 'raster', tiles: ['https://a.example/m/{z}/{x}/{y}.png?access_token=pk.PAGE'] } }),
+    });
+    await ok(h, 'register', { kind: 'style', id: 'st', url: A });
+    await ok(h, 'register', { kind: 'style', id: 'st', url: A, credentials: { query: { access_token: TOKEN } } });
+    // 2 回目は hit（除かれていない本体）。配る相手の子でも、テンプレートに載っていた値が勝つ
+    expect(await store.getCredentials(childId('st', 'tile:m'))).toEqual({ query: { access_token: 'pk.PAGE' } });
+    expect(await store.getCredentials('st')).toEqual({ query: { access_token: TOKEN } });
+  });
+
+  it('組が 1 つでも子にできない source は丸ごと子にしない（url の TileJSON も作らない。本体の除去と同じ組。Minor-3）', async () => {
+    const A = 'https://a.example/style.json';
+    const tiles = ['https://a.example/m/{z}/{x}/{y}.png?access_token=pk.ONE', 'https://a.example/n/{z}/{x}/{y}.png?access_token=pk.TWO'];
+    const { h, store } = await setup({ [A]: styleOf({ m: { type: 'raster', url: 'https://a.example/m.json', tiles } }) });
+    const info = await ok(h, 'register', { kind: 'style', id: 'st', url: A });
+    expect(info.warnings).toEqual(['unsupported-source: sources.m']);
+    expect(await store.getSource(childId('st', 'tilejson:m'))).toBeUndefined();
   });
 
   it('R22: ミラーの間で資格情報の値が違う組は子にせず unsupported-source、本体の資格情報も除かない（子作りと除去で揃える）', async () => {
