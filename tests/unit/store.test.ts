@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBDatabase, IDBFactory, IDBKeyRange, IDBObjectStore } from 'fake-indexeddb';
 import {
   openStore, toResourceInfo, STORE_DB_NAME,
-  type EntryBody, type EntryMeta, type ResourceMeta, type ResourcePolicy, type SourceRecord, type Store,
+  type EntryBody, type EntryMeta, type ResourceMeta, type ResourcePolicy, type SourceRecord, type Store, type StoredBody,
 } from '../../src/store';
 import { normalizeSpec } from '../../src/spec';
 
@@ -91,7 +91,7 @@ const rawAll = async <T>(storeName: string): Promise<T[]> => {
 /** 各 Resource の count・bytes・pinnedBytes が entries の全件の集計と一致することを確かめる */
 const expectCountsConsistent = async (s: Store) => {
   const entries = await rawAll<EntryMeta>('entries');
-  const bodies = await rawAll<EntryBody>('bodies');
+  const bodies = await rawAll<StoredBody>('bodies');
   const resources = await s.listResources();
   const ids = new Set(resources.map((r) => r.id));
   for (const r of resources) {
@@ -688,11 +688,11 @@ describe('putGlyphPart（m3-t4・仕様 §11）', () => {
     await s.createResource(resource(G, { type: 'glyph', templates: [G] }));
     await s.putGlyphPart(gmeta(1), '0-255', blob(4, 1), { 'content-type': 'application/x-protobuf' }, []);
     const txSpy = vi.spyOn(IDBDatabase.prototype, 'transaction');
+    // 本体を ArrayBuffer にしてから tx を作る（m3-t10）ので、tx は呼び出しの後に 1 つだけ
     const p = s.putGlyphPart(gmeta(2), '256-511', blob(3, 2), { 'content-type': 'application/x-protobuf' }, []);
-    expect(txSpy).toHaveBeenCalledTimes(1);
-    expect(txSpy.mock.calls[0][1]).toBe('readwrite');
     expect(await p).toEqual({ saved: true });
     expect(txSpy).toHaveBeenCalledTimes(1);
+    expect(txSpy.mock.calls[0][1]).toBe('readwrite');
     const got = await s.getEntry(key(G, 'Noto'));
     expect(got!.meta).toMatchObject({ size: 7, fetchedAt: 2 });
     expect(got!.body.parts).toEqual({
@@ -787,6 +787,115 @@ describe('putGlyphParts（m3-t7・仕様 §11 の「1 fontstack 分を溜めて�
     const txSpy = vi.spyOn(IDBDatabase.prototype, 'transaction');
     expect(await s.putGlyphParts(gmeta(3), [], {}, [])).toEqual({ saved: false });
     expect(txSpy).not.toHaveBeenCalled();
+    await expectCountsConsistent(s);
+  });
+});
+
+describe('本体の保存の形（m3-t10。WebKit の非永続の保存領域は Blob を put できない）', () => {
+  /** bodies へ直接書く（古い形のレコードを作る） */
+  const rawPut = async (storeName: string, value: unknown): Promise<void> => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = factory.open(STORE_DB_NAME);
+      req.onsuccess = () => resolve(req.result as unknown as IDBDatabase);
+      req.onerror = () => reject(req.error);
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const t = db.transaction([storeName], 'readwrite');
+        t.objectStore(storeName).put(value);
+        t.oncomplete = () => resolve();
+        t.onerror = () => reject(t.error);
+      });
+    } finally {
+      db.close();
+    }
+  };
+  const bytesOf = async (b: Blob) => Array.from(new Uint8Array(await b.arrayBuffer()));
+  const isArrayBuffer = (x: unknown) => Object.prototype.toString.call(x) === '[object ArrayBuffer]';
+
+  it('putEntry は本体を ArrayBuffer・型を type で保存し、getEntry は同じ型とバイト列の Blob を返す', async () => {
+    const s = await open();
+    await s.createResource(resource('r1'));
+    const e = entry('r1', '1_0_0', 3, 10);
+    expect(await s.putEntry(e, { key: e.key, blob: new Blob([Uint8Array.from([7, 8, 9])], { type: 'image/png' }), headers: { a: '1' } }, []))
+      .toEqual({ saved: true });
+    const [raw] = await rawAll<Record<string, unknown>>('bodies');
+    expect(isArrayBuffer(raw.data)).toBe(true);
+    expect(raw).toMatchObject({ key: e.key, type: 'image/png', headers: { a: '1' } });
+    expect('blob' in raw).toBe(false);
+    const got = await s.getEntry(e.key);
+    expect(got!.body.blob).toBeInstanceOf(Blob);
+    expect(got!.body.blob.type).toBe('image/png');
+    expect(await bytesOf(got!.body.blob)).toEqual([7, 8, 9]);
+    expect(got!.body.headers).toEqual({ a: '1' });
+  });
+
+  it('putGlyphPart の結合した本体も ArrayBuffer（parts と型を保つ）', async () => {
+    const G = 'https://g.example/{fontstack}/{range}.pbf';
+    const s = await open();
+    await s.createResource(resource(G, { type: 'glyph', templates: [G] }));
+    const m = (t: number): EntryMeta => ({ key: key(G, 'Noto'), resourceId: G, size: 0, fetchedAt: t, accessedAt: t, pinned: 0 });
+    await s.putGlyphPart(m(1), '0-255', new Blob([Uint8Array.from([1, 1])], { type: 'application/x-protobuf' }), {}, []);
+    await s.putGlyphPart(m(2), '256-511', new Blob([Uint8Array.from([2])], { type: 'application/x-protobuf' }), {}, []);
+    const [raw] = await rawAll<StoredBody>('bodies');
+    expect(isArrayBuffer(raw.data)).toBe(true);
+    expect(raw.type).toBe('application/x-protobuf');
+    expect(Array.from(new Uint8Array(raw.data))).toEqual([1, 1, 2]);
+    const got = await s.getEntry(key(G, 'Noto'));
+    expect(got!.body.blob.type).toBe('application/x-protobuf');
+    expect(await bytesOf(got!.body.blob)).toEqual([1, 1, 2]);
+    expect(got!.body.parts).toEqual({ '0-255': { offset: 0, length: 2, fetchedAt: 1 }, '256-511': { offset: 2, length: 1, fetchedAt: 2 } });
+  });
+
+  it('Blob を持つ古いレコードは miss（getEntry が undefined）で、書き直すと数が合う', async () => {
+    const s = await open();
+    await s.createResource(resource('r1'));
+    const e = entry('r1', '1_0_0', 4, 10);
+    await put(s, e);
+    await rawPut('bodies', { key: e.key, blob: new Blob([new Uint8Array(4)], { type: 'image/png' }), headers: {} });
+    expect(await s.getEntry(e.key)).toBeUndefined();
+    // 作り直し（同じキーの putEntry）は古い Entry を置き換え、count・bytes を二重に数えない
+    const e2 = entry('r1', '1_0_0', 6, 20);
+    expect(await put(s, e2)).toEqual({ saved: true });
+    expect((await s.getEntry(e.key))!.body.blob.size).toBe(6);
+    expect(await s.getResource('r1')).toMatchObject({ count: 1, bytes: 6 });
+    await expectCountsConsistent(s);
+  });
+
+  it('Blob を持つ古いグリフのレコードは残さず、新しい部分だけで作り直す', async () => {
+    const G = 'https://g.example/{fontstack}/{range}.pbf';
+    const s = await open();
+    await s.createResource(resource(G, { type: 'glyph', templates: [G] }));
+    const m = (t: number): EntryMeta => ({ key: key(G, 'Noto'), resourceId: G, size: 0, fetchedAt: t, accessedAt: t, pinned: 0 });
+    await s.putGlyphPart(m(1), '0-255', new Blob([Uint8Array.from([1, 1, 1])]), {}, []);
+    await rawPut('bodies', {
+      key: key(G, 'Noto'), blob: new Blob([Uint8Array.from([1, 1, 1])]), headers: {},
+      parts: { '0-255': { offset: 0, length: 3, fetchedAt: 1 } },
+    });
+    expect(await s.getEntry(key(G, 'Noto'))).toBeUndefined();
+    await s.putGlyphPart(m(2), '256-511', new Blob([Uint8Array.from([2, 2])]), {}, []);
+    const got = await s.getEntry(key(G, 'Noto'));
+    expect(got!.body.parts).toEqual({ '256-511': { offset: 0, length: 2, fetchedAt: 2 } });
+    expect(await bytesOf(got!.body.blob)).toEqual([2, 2]);
+    expect(await s.getResource(G)).toMatchObject({ count: 1, bytes: 2 });
+    await expectCountsConsistent(s);
+  });
+
+  it('本体の変換を待つあいだも tx は呼び出しの順に作る（後の clearEntries・putEntry が追い越さない）', async () => {
+    const s = await open();
+    await s.createResource(resource('r1'));
+    const a = entry('r1', 'a', 2, 10);
+    const b = entry('r1', 'b', 3, 10);
+    // put の直後に clear: clear が後なので、どちらの Entry も残らない
+    await Promise.all([put(s, a), s.clearEntries('r1'), put(s, b), s.clearEntries('r1')]);
+    expect(await s.getEntry(a.key)).toBeUndefined();
+    expect(await s.getEntry(b.key)).toBeUndefined();
+    expect(await s.getResource('r1')).toMatchObject({ count: 0, bytes: 0 });
+    // 同じキーへの 2 つの put は後のものが残る（大きい本体が先でも）
+    const big = entry('r1', 'k', 5000, 10);
+    const small = entry('r1', 'k', 1, 20);
+    await Promise.all([put(s, big), put(s, small)]);
+    expect((await s.getEntry(big.key))!.meta.size).toBe(1);
     await expectCountsConsistent(s);
   });
 });

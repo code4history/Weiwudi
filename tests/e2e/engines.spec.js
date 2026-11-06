@@ -27,55 +27,6 @@ test.describe('Weiwudi engines', () => {
         await request.get(`${UPSTREAM}/__log?reset=1`);
     });
 
-    // [diag] 一時の診断（m3-t10 の WebKit の CI で何も保存されない件の切り分け）。結果を出力するだけで落とさない。
-    // 原因が分かったら消す
-    test('diag: storage of blobs in indexeddb', async ({ page }) => {
-        await openPage(page);
-        const reg = await page.evaluate((url) => window.attempt(async () => {
-            window.src = await window.Weiwudi.register({ kind: 'raster', url });
-            return window.src.id;
-        }), tpl('png'));
-        const tiles = [];
-        for (let i = 0; i < 2; i++) {
-            tiles.push(await page.evaluate(async (url) => {
-                const res = await fetch(url);
-                await res.arrayBuffer();
-                return { status: res.status, wstatus: res.headers.get('x-weiwudi-status'), werror: res.headers.get('x-weiwudi-error') };
-            }, at('png', 4, 1, 1)));
-        }
-        const probe = await page.evaluate(async () => {
-            const open = () => new Promise((resolve, reject) => {
-                const req = indexedDB.open('weiwudi-diag', 1);
-                req.onupgradeneeded = () => req.result.createObjectStore('s');
-                req.onsuccess = () => resolve(req.result);
-                req.onerror = () => reject(req.error);
-            });
-            const put = (db, key, value) => new Promise((resolve) => {
-                try {
-                    const tx = db.transaction('s', 'readwrite');
-                    tx.objectStore('s').put(value, key);
-                    tx.oncomplete = () => resolve('ok');
-                    tx.onabort = () => resolve(`abort: ${tx.error && tx.error.name}: ${tx.error && tx.error.message}`);
-                    tx.onerror = () => {};
-                } catch (e) {
-                    resolve(`throw: ${e && e.name}: ${e && e.message}`);
-                }
-            });
-            try {
-                const db = await open();
-                return {
-                    string: await put(db, 'a', 'text'),
-                    arrayBuffer: await put(db, 'b', new Uint8Array([1, 2, 3]).buffer),
-                    blob: await put(db, 'c', new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' })),
-                };
-            } catch (e) {
-                return { open: String(e) };
-            }
-        });
-        const stats = await page.evaluate(() => window.src ? window.src.stats() : null);
-        console.log(`[diag] ${test.info().project.name}: register=${JSON.stringify(reg)} tiles=${JSON.stringify(tiles)} idb=${JSON.stringify(probe)} stats=${JSON.stringify(stats)}`);
-    });
-
     test('does not touch script and navigate requests', async ({ page, request }) => {
         await openPage(page);
         const r = await page.evaluate((url) => window.attempt(async () => {

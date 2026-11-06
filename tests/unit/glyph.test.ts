@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { createContext, type Context } from '../../src/context';
 import { serve, type ServeInput, type UpstreamResult } from '../../src/core';
-import { STORE_DB_NAME, type EntryBody, type EntryMeta, type ResourceMeta, type ResourcePolicy, type SourceRecord, type Store } from '../../src/store';
+import { STORE_DB_NAME, type EntryMeta, type ResourceMeta, type ResourcePolicy, type SourceRecord, type Store, type StoredBody } from '../../src/store';
 import type { StoredSpec } from '../../src/spec';
 import { createSwHarness } from './sw-harness';
 
@@ -91,7 +91,7 @@ const rawAll = async <V>(name: string): Promise<V[]> => {
 /** 各 Resource の count・bytes・pinnedBytes が entries の全件の集計と一致し、本体の大きさが parts の和と一致する */
 const expectConsistent = async () => {
   const entries = await rawAll<EntryMeta>('entries');
-  const bodies = await rawAll<EntryBody>('bodies');
+  const bodies = await rawAll<StoredBody>('bodies');
   for (const r of await store.listResources()) {
     const mine = entries.filter((e) => e.resourceId === r.id);
     expect({ id: r.id, count: r.count, bytes: r.bytes, pinnedBytes: r.pinnedBytes }).toEqual({
@@ -104,7 +104,7 @@ const expectConsistent = async () => {
   expect(bodies.map((b) => b.key).sort()).toEqual(entries.map((e) => e.key).sort());
   for (const e of entries) {
     const b = bodies.find((x) => x.key === e.key)!;
-    expect(b.blob.size).toBe(e.size);
+    expect(b.data.byteLength).toBe(e.size);
     if (b.parts) {
       const list = Object.values(b.parts).sort((a, c) => a.offset - c.offset);
       // 空きを残さない: 部分は 0 から隙間なく並び、合計が本体の大きさ
