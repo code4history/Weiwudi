@@ -160,8 +160,10 @@ console.log(source.warnings, await source.stats());
 - Chromium は手元と CI で試験しています。**WebKit**（Linux の Playwright の WebKit）は CI で試験しています。
   ただし Chromium でしか成り立たない試験は除きます: オフライン（`context.setOffline`）・Service Worker の停止（CDP）・
   実際の保存容量の上限・Mapbox の試験（WebKit では Service Worker の要求を Playwright が横取りできないため）。
-  Linux の WebKit は iOS の Safari と同じではありません。Firefox は CI で 1 回走らせていますが、確かめられていません。
-  （仮の文です。CI の結果を受けて直します）
+  Linux の WebKit は iOS の Safari と同じではありません。（WebKit の結果は仮です。次の CI の結果で直します）
+  **Firefox** も CI で WebKit と同じ試験を走らせ、29 件すべて通りました。ただし必須の検査にはしていません。
+- sandbox（`allow-scripts allow-same-origin`）の `srcdoc` の iframe は、Chromium と WebKit ではページの
+  Service Worker を継ぐので、その中でも API を使えます。Firefox では継がず、中での呼び出しは `sw-not-controlling` で失敗します。
 - `kind` は `'raster'`・`'vector'`・`'style'`・`'asset'` です。スタイルは参照する資源（TileJSON・タイル・グリフ・
   スプライト・GeoJSON・画像）をすべて登録します。`register()` の完了を待ってから `source.url` を MapLibre に渡します:
 
