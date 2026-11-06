@@ -101,7 +101,8 @@ const rewriteMapboxStyle = (style: unknown): unknown => {
   if (!isPlainObject(style)) return style;
   const out: Record<string, unknown> = { ...style };
   if (isPlainObject(style.sources)) {
-    const sources: Record<string, unknown> = {};
+    // __proto__ も通常の source 名として JSON に残す。
+    const sources: Record<string, unknown> = Object.create(null);
     for (const [name, src] of Object.entries(style.sources)) {
       if (!isPlainObject(src)) {
         sources[name] = src;

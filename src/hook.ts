@@ -19,7 +19,7 @@ import type { RouteHandlerCallback, RouteHandlerCallbackOptions, RouteMatchCallb
 import type { Context, CredentialSourcePicker, LoadedTable, TableState } from './context';
 import { passThrough, serve, type ServeInput } from './core';
 import { createUpstream, hasCredentials, isAuthenticated, isStorable } from './upstream';
-import type { Credentials, ResourceMeta, ResourceType, SourceRecord } from './store';
+import type { Credentials, ResourceMeta, ResourcePolicy, ResourceType, SourceRecord } from './store';
 import type { WeiwudiProvider } from './plugins';
 import { isLegacyRecord, styleSpecOf, templatesOf } from './store';
 import { credentialTargetOf, rewriteStyleBody, rewriteTileJsonBody, type StripRule } from './style_body';
@@ -237,10 +237,10 @@ export interface ServeResourceOptions {
   credentialSourceId?: string;
   /**
    * 本体の除去の親を直接渡す（m3-t7・O-N2。スタイルの登録時の取得）。あれば store を読まずに、この親の URL のオリジンと
-   * 提供元で除去の規則を作る。除くのは credentials（足す資格情報）があるときだけ（保存した資格情報を見ないので、
+   * 提供元・policy で除去の規則を作る。除くのは credentials（足す資格情報）があるときだけ（保存した資格情報を見ないので、
    * update() でスタイルの URL が変わって Resource に当たらないときも、新しい正規化の値で除ける）
    */
-  parent?: { url: string; provider?: string };
+  parent?: { url: string; provider?: string; policy: Pick<ResourcePolicy, 'credentialParams'> };
 }
 
 const byOrder = (a: SourceRecord, b: SourceRecord): number => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -272,10 +272,10 @@ const stripRuleOf = async (ctx: Context, resource: ResourceMeta, credentialSourc
 };
 
 /**
- * 親（スタイルの URL と提供元）から作る除去の規則。accepts は context の acceptsMember（子作りと同じ判定。m3-t7）。
+ * 親（スタイルの URL・提供元・policy）から作る除去の規則。accepts は親の credentialParams で判定する（子作りと同じ。m3-t7）。
  * 親の URL が読めなければ除かない
  */
-const ruleOfParent = (ctx: Context, resource: ResourceMeta, parent: { url: string; provider?: string }): StripRule | undefined => {
+const ruleOfParent = (ctx: Context, resource: ResourceMeta, parent: NonNullable<ServeResourceOptions['parent']>): StripRule | undefined => {
   let styleOrigin: string;
   try {
     styleOrigin = new URL(parent.url).origin;
@@ -288,7 +288,7 @@ const ruleOfParent = (ctx: Context, resource: ResourceMeta, parent: { url: strin
   return {
     credentialParams,
     shouldStrip: credentialTargetOf({ styleOrigin, ...(provider ? { providerMatches: (u: string) => provider.matches(u) } : {}) }),
-    ...(acceptsMember ? { accepts: (type: ResourceType, templates: string[]) => acceptsMember(type, templates, credentialParams) } : {}),
+    ...(acceptsMember ? { accepts: (type: ResourceType, templates: string[]) => acceptsMember(type, templates, parent.policy.credentialParams) } : {}),
   };
 };
 

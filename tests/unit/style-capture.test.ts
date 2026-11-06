@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSwHarness, type SwHarness } from './sw-harness';
 import { createContext } from '../../src/context';
 import { apply, childSourceId } from '../../src/registry';
-import { normalizeMember, type StyleSpec } from '../../src/spec';
-import type { ResourceType, SourceRecord, Store } from '../../src/store';
+import { acceptsMember, normalizeMember, type StyleSpec } from '../../src/spec';
+import { styleSpecOf, type ResourceType, type SourceRecord, type Store } from '../../src/store';
 import { compileTemplate, matchUrl, spriteTemplateOf } from '../../src/url_pattern';
 import { serveResource } from '../../src/hook';
 import { createMapboxProvider } from '../../src/providers/mapbox';
@@ -237,6 +237,60 @@ describe('TileJSON の捕捉', () => {
   });
 });
 
+describe('L3: 合流後も組の判定には親の credentialParams を使う', () => {
+  it('スタイル登録時も直接渡す親に policy を添える', async () => {
+    const { h, store } = await setup();
+    await putParent(store, 'wide', STYLE_URL);
+    const wide = await putChild(store, 'wide', 'style', 'style', STYLE_URL, { credentialParams: ['variant'], cacheTtl: 0 });
+    const tiles = ['one', 'two'].map((v) => `https://a.example/${v}/{z}/{x}/{y}.pbf?access_token=${TOKEN}&variant=${v}`);
+    h.fetch.mockImplementation(async () => json(styleBody({ t: { type: 'vector', tiles } })));
+    const res = await h.post('/v2/register', {
+      kind: 'style', id: 'narrow', url: STYLE_URL, cacheTtl: 0,
+      credentials: { query: { access_token: TOKEN } },
+    });
+    expect((await res!.json()).ok).toBe(true);
+    const resource = (await store.getResource(wide.resources[0].id))!;
+    expect(resource.sourceIds).toHaveLength(2);
+    expect(resource.policy.credentialParams).toContain('variant');
+    const parent = styleSpecOf((await store.getSource('narrow'))!)!;
+    expect(parent.policy.credentialParams).not.toContain('variant');
+    expect(parent.children.some((c) => c.type === 'tile')).toBe(true);
+    const [saved] = await entriesOf(store, resource.id, ['']);
+    expect(await saved!.body.blob.text()).not.toContain(TOKEN);
+  });
+
+  it.each(['style', 'tilejson'] as const)('%s: 別の親から増えた資格情報名で組を拒否しない', async (type) => {
+    const { h, store } = await setup();
+    const url = type === 'style' ? STYLE_URL : 'https://a.example/tiles/t.json';
+    await putParent(store, 'narrow', STYLE_URL);
+    await putParent(store, 'wide', STYLE_URL);
+    const narrow = await putChild(store, 'narrow', type, type, url, {
+      credentials: { query: { access_token: TOKEN } },
+    });
+    await putChild(store, 'wide', type, type, url, { credentialParams: ['variant'] });
+    const resource = (await store.getResource(narrow.resources[0].id))!;
+    expect(resource.sourceIds).toHaveLength(2);
+    expect(resource.policy.credentialParams).toContain('variant');
+    const parent = styleSpecOf((await store.getSource('narrow'))!)!;
+    expect(parent.policy.credentialParams).not.toContain('variant');
+    const tiles = ['one', 'two'].map((v) => `https://a.example/${v}/{z}/{x}/{y}.pbf?access_token=${TOKEN}&variant=${v}`);
+    expect(acceptsMember('tile', tiles, parent.policy.credentialParams)).toBe(true);
+    expect(acceptsMember('tile', tiles, resource.policy.credentialParams)).toBe(false);
+    h.fetch.mockImplementation(async () => json(type === 'style'
+      ? styleBody({ t: { type: 'vector', tiles } }) : { tiles }));
+
+    const res = await get(h, url);
+    expect(res.headers.get('x-weiwudi-status')).toBe('miss');
+    const text = await res.text();
+    expect(text).not.toContain(TOKEN);
+    const body = JSON.parse(text);
+    expect(type === 'style' ? body.sources.t.tiles : body.tiles)
+      .toEqual(['one', 'two'].map((v) => `https://a.example/${v}/{z}/{x}/{y}.pbf`));
+    const [saved] = await entriesOf(store, resource.id, ['']);
+    expect(await saved!.body.blob.text()).toBe(text);
+  });
+});
+
 describe('スプライトの捕捉（R6）', () => {
   it('スプライト 4 つが 1 つの Resource の別の Entry', async () => {
     const { h, store } = await setup();
@@ -265,7 +319,7 @@ describe('serveResource を直接呼ぶ（L1 Minor-2・Minor-4）', () => {
     vi.stubGlobal('IDBKeyRange', (await import('fake-indexeddb')).IDBKeyRange);
     const fetchMock = vi.fn(async () => tjBody());
     vi.stubGlobal('fetch', fetchMock);
-    const ctx = createContext({ providers: () => [mapbox] });
+    const ctx = createContext({ providers: () => [mapbox], acceptsMember });
     const store = await ctx.store();
     return { ctx, store, fetchMock };
   };
@@ -292,6 +346,26 @@ describe('serveResource を直接呼ぶ（L1 Minor-2・Minor-4）', () => {
     const res = await call(ctx, rid);
     expect(res.headers.get('x-weiwudi-status')).toBe('miss');
     expect(JSON.parse(await res.text()).tiles).toEqual(['https://a.example/{z}/{x}/{y}.pbf']);
+  });
+
+  it('L3: 直接渡した親の policy で組を判定し、合流後の Resource の policy を使わない', async () => {
+    const { ctx, store, fetchMock } = await prepare();
+    await putParent(store, 'narrow', 'https://old.example/style.json');
+    await putParent(store, 'wide', STYLE_URL);
+    const credentials = { query: { access_token: TOKEN } };
+    const r = await putChild(store, 'narrow', 'tilejson', 'tj', TJ, { credentials });
+    await putChild(store, 'wide', 'tilejson', 'tj', TJ, { credentialParams: ['variant'] });
+    const resource = (await store.getResource(r.resources[0].id))!;
+    const parent = { ...styleSpecOf((await store.getSource('narrow'))!)!, url: STYLE_URL };
+    const tiles = ['one', 'two'].map((v) => `https://a.example/${v}/{z}/{x}/{y}.pbf?access_token=${TOKEN}&variant=${v}`);
+    expect(acceptsMember('tile', tiles, parent.policy.credentialParams)).toBe(true);
+    expect(acceptsMember('tile', tiles, resource.policy.credentialParams)).toBe(false);
+    fetchMock.mockImplementation(async () => json({ tiles }));
+    const url = new URL(TJ);
+    const m = matchUrl(compileTemplate(resource.templates[0]), url)!;
+    const res = await serveResource(ctx, resource, new Request(TJ), url, m, credentials, { parent });
+    expect(res.headers.get('x-weiwudi-status')).toBe('miss');
+    expect((await res.json()).tiles).toEqual(['one', 'two'].map((v) => `https://a.example/${v}/{z}/{x}/{y}.pbf`));
   });
 
   it('同じ構成で資格情報を持つ Source が無ければ除去しない', async () => {

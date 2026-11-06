@@ -193,6 +193,7 @@ interface WeiwudiProvider {
 }
 ```
 
+- `matches` はスタイルの子に親の資格情報を配るかの判定（R5）にも使うため、`https` の URL はその提供元自身のホストだけに当ててください。
 - `resolve` は Source の登録の時点で呼びます。返した URL はほかの URL テンプレートと同じく検査し、Source の
   `url` と Resource のテンプレートになります。`https` の URL はそのまま返してください。解決できない形には
   例外を投げてください。登録は `unsupported-template` で失敗し、文面は固定です
