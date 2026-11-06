@@ -276,16 +276,18 @@ interface TileBox { minX: number; maxX: number; minY: number; maxY: number }
 - `id`: 既定は先頭のテンプレートを正規化したもの。明示の `id` は公開の値です（`source()` の鍵・`sources()` の `id`・
   `warnings`）。**資格情報を入れないでください。** 空でない・`\0` を含まない文字列で、`map:` で始めてはいけません
   （`registerMap` で登録した地図のための予約）
-- **`kind: 'style'` と `kind: 'asset'` は、この版では `unsupported-kind` で拒否します。**
+- `kind: 'style'`: スタイルの URL 1 つ（配列は `attribute-invalid`）。サービスワーカーがスタイルを取り、スタイルが参照する
+  資源をすべて登録します。[スタイル](#スタイルkind-style) を参照。`fonts` はこの版では保存するだけです
+- `kind: 'asset'`: 字句の無いファイル（GeoJSON・画像など）。配列は同じファイルのミラー（1 つの資源）です。範囲を持ちません
 - 範囲外のタイルは、既定でラスタは透明 PNG、ベクタは 200 の空本体です。ズームの外を 404 にしたいときは
   `outOfRange: { zoom: 'not-found' }` を指定します
 
 **戻り値:** `Promise<WeiwudiSource>`
 
 **`WeiwudiError` で reject するとき:**
-- `attribute-invalid`: 項目の形の誤り・`map:` で始まる／空の／`\0` を含む `id`・userinfo（`user:pass@`）を含むテンプレート・同じ資格情報の項目（名前の大文字小文字を問わない）に違う値を持つミラー（ミラーごとに Source を分けてください。明示の `credentials.query` にある名前は除きます）
+- `attribute-invalid`: 項目の形の誤り・`map:` で始まる／空の／`\0` を含む `id`・userinfo（`user:pass@`）を含むテンプレート・同じ資格情報の項目（名前の大文字小文字を問わない）に違う値を持つミラー（ミラーごとに Source を分けてください。明示の `credentials.query` にある名前は除きます）・`url` が配列か `fonts` の形が誤った `kind: 'style'`・登録済みの `id` で違う `kind`（先に `remove()` してください）
 - `unsupported-template`: 未対応の字句・解決できないか `http:`・`https:` でない URL（相対 URL は先にページの場所で絶対化する）・`weiwudi.example.com` のテンプレート
-- `unsupported-kind`: `style`・`asset`（この版では扱わない）
+- `invalid-style`: `kind: 'style'` のスタイルが取れない・読めない（[スタイル](#スタイルkind-style) を参照）
 - `credential-rejected`: `credentials`・テンプレートのクエリの秘密トークン（`sk.`）、または `sk.eyJ` で始まるパスの区画（`sk.osm` のような区画名は通します）
 - `sw-not-controlling`・`sw-outdated`: [呼び出しの前の確認](#呼び出しの前の確認) を参照
 
@@ -301,6 +303,52 @@ interface TileBox { minX: number; maxX: number; minY: number; maxY: number }
 
 既存の資源と合流できない資源があっても `register()` は**失敗しません**。Source を保存し、`warnings` に
 `resource-conflict: <資源の id>` を書きます。
+
+同じ要求に当たる別の形のテンプレート（`{y}` と `{-y}` など）は `template-shadowed` で知らせるだけで、後の登録は捕捉されない
+ので注意してください。
+
+### スタイル（`kind: 'style'`）
+
+```typescript
+const style = await Weiwudi.register({
+  kind: 'style', url: 'mapbox://styles/u/s',
+  credentials: { query: { access_token: 'pk.…' } },
+});
+// style.url は https://api.mapbox.com/styles/v1/u/s（トークンなし）。register() の完了を待ってから地図を作る
+const map = new maplibregl.Map({ container, style: style.url as string });
+```
+
+サービスワーカーがスタイルを自分のキャッシュを通して取り、スタイルが参照する資源をそれぞれ登録します: `sources.*.url` の
+TileJSON（とその中の `tiles`）・`sources.*.tiles`・`glyphs`・`sprite`（文字列か `{ id, url }[]`。`.json`・`.png`・`@2x.json`・
+`@2x.png` は 1 つの資源）・`geojson` の URL の `data`・`image` の `url`。範囲は TileJSON と source の `bounds`・`minzoom`・
+`maxzoom`・`scheme` から作ります（source の値が勝ちます。`bounds` があって `maxzoom` が無ければズーム 30）。範囲外のタイルは
+ラスタなら透明 PNG、ベクタなら空本体です。`source.resources` と `stats()` はこれらをすべて含みます。`raster-dem` はラスタの
+タイルとして保存します。
+
+- `mapbox://` は登録の時点で解決し（標準の提供元 `mapbox`）、保存するスタイルを `https` に書き換えます。書き換えるのは、
+  `mapbox://` か Mapbox の `https` の URL で登録したスタイルだけです
+- **資格情報を送るのは、スタイルと同じオリジンと、スタイルの提供元だけです**（`mapbox://` のスタイルなら `api.mapbox.com` と
+  `*.tiles.mapbox.com`）。資源のミラーの全部がその相手のときだけ、その資源に資格情報を付けます。第三者のスタイルで、
+  サービスワーカーに利用者のトークンを別のホストへ送らせることはできません。スタイルの URL に既に書かれている資格情報は、その
+  URL のものとして残ります（同じ名前の登録の値より優先します）
+- 資格情報を登録したときは、保存するスタイル・TileJSON の本体のうち、資格情報を受け取る URL から資格情報の項目を除きます
+  （サービスワーカーが上流で足し直します）。ほかの URL はそのままです
+- **別オリジンのスタイルは、ページと同じオリジンの URL を捕捉させられません**: その資源は登録しません（`same-origin-skipped`）。
+  スタイルか TileJSON が別オリジンなら、TileJSON の `tiles` にも同じ規則を当てます
+- 登録できない資源があっても `register()` は失敗せず、`warnings` に書きます（[warnings](#warnings) を参照）。ほかの Source の
+  資源との衝突は、ここでも（`update()` でも）`resource-conflict` です
+- `invalid-style`: スタイル自体が取れない・読めない（HTML のログイン画面など）。新しい登録なら何も残しません。登録済みの
+  スタイル（`update()` と、同じ `id` の `register()`）なら何も変えません
+- 同じ内容の `register()` はキャッシュを使います（オフラインでも通ります）。`update()` はスタイルと TileJSON を上流から
+  取り直し、スタイルが参照しなくなった資源を Entry ごと外し、取れなかった TileJSON（`fetch-failed`）の下の資源は残します
+- 登録済みのスタイルに同じ `id` の `register()` で資格情報を足したとき、保存したスタイルが新しいうちは、保存した本体に
+  トークンが残ります（`cacheTtl` の後か `update()` で取り直すまで）。そのトークンはスタイルの配信元が渡したもので、もともと
+  ページから見えています
+- Mapbox の `imports` は辿りません（`unsupported-source: imports`）。タイルの URL は書かれたとおりに使います（Mapbox GL JS は
+  一部の `mapbox://` のタイルの URL を書き換えますが、MapLibre は書き換えません）
+- スタイルの登録は、`register`・`update`・`clean`・`remove` を通す待ち行列の中で上流を待つので、その間これらの呼び出しは
+  待たされます。`source()`・`sources()`・`stats()` は待たないので、登録の途中のスタイル（資源が一部だけ・`warnings` が前の
+  まま）が見えることがあります
 
 ### `Weiwudi.source(id)`
 
@@ -337,7 +385,7 @@ type ResourceType = 'style' | 'tilejson' | 'tile' | 'glyph' | 'sprite' | 'data';
 | `resources` | `ResourceInfo[]`。呼び出し時点の写しで、後の変化は `stats()` か `Weiwudi.source()` で読み直す |
 | `warnings` | `string[]`。`register()`・`update()` の時点の写し（後で変わらない） |
 | `stats()` | `Promise<SourceStats>` |
-| `update()` | 保存した登録内容で合流と方針を作り直し、CORS の判定をやり直す。自分の資源が衝突すると `resource-conflict` で reject し、何も変えない |
+| `update()` | 保存した登録内容で合流と方針を作り直し、CORS の判定をやり直す。自分の資源が衝突すると `resource-conflict` で reject し、何も変えない。スタイルは代わりに取り直し、`resource-conflict` では reject しない（衝突は `warnings` に書く）。スタイルが読めなければ `invalid-style` |
 | `clean()` | 保存した Entry を消す。他の Source と共有する資源の Entry は残す |
 | `remove()` | 登録と Entry を消し、`release()` を呼ぶ。他の Source が `sourceIds` に持つ資源の Entry は残す。`sourceIds` が空になった資源は、範囲だけ（`rangeOnly`）で参照している Source があっても Entry ごと消す |
 | `release()` | ページ側のリスナを外す。以後のメソッドは `instance-released` で reject |
@@ -354,12 +402,16 @@ interface SourceStats {
 
 ### `warnings`
 
-各要素は `"<code>: <subject>"` です。subject は資源の id（資格情報は除いてある）です。
+各要素は `"<code>: <subject>"` です。subject は資源の id（資格情報は除いてある）です。下の表で URL か
+スタイルの source を指すと書いた code を除きます。
 
 | code | 意味 |
 |---|---|
 | `resource-conflict` | 既存の資源と合流できなかった（`type`・`scheme`・符号化の違い、Entry があるのに `credentialParams` が広がる、2 つの資源に重なる）。既存の方針のままで、この Source の範囲だけを足す。その資源に既に属していた Source を同じ `id` で登録し直したときは範囲も足さず、資源は古い方針と、この Source の古い範囲のまま残る |
 | `template-shadowed` | 同じ要求に当たる別のテンプレートが先に評価されるので、この資源は捕捉されない |
+| `fetch-failed` | スタイル: 資源（TileJSON）が取れず、保存した Entry も無かった。subject はその資源の id |
+| `same-origin-skipped` | スタイル: 別オリジンのスタイルか TileJSON が指す、ページと同じオリジンの URL を登録しなかった。subject はクエリを落とした URL（パスに秘密トークンがあれば `sources.<名前>`） |
+| `unsupported-source` | スタイル: 登録しない source（`video`・知らない `type`・テンプレートにできない URL）。subject は `sources.<名前>`・`glyphs`・`sprite`・`imports` |
 
 知らない code は無視してください。code は minor の版で増えることがあります。
 
@@ -471,15 +523,15 @@ try {
 
 **Source の API のコード**（`WeiwudiError` で reject します。[Source の API](#source-の-api) を参照）:
 `unsupported-template`・`credential-rejected`（`register`）、
-`unsupported-kind`（この版の `register` で `kind: 'style'`・`'asset'`）、
+`invalid-style`（読めないスタイルの `register`・`update()`）、
 `sw-outdated`（制御しているサービスワーカーに Source の API が無い）、
 `source-not-found`（`source()` と `WeiwudiSource` のメソッドで、無い id）、
 `resource-conflict`（`update()` だけ。`register()` は `warnings` に書く）。
 Source の API は上の表の `attribute-invalid`・`sw-not-controlling`・`instance-released`・`api-not-found` も、
 独自の文面で使います。
 
-**今後の API のために予約したコード:** `invalid-style`・`opaque`。`WeiwudiErrorCode` の
-型には入っていますが、まだ作られません。
+**今後の API のために予約したコード:** `opaque`。`WeiwudiErrorCode` の
+型には入っていますが、まだ作られません。`unsupported-kind` は型に残しますが、もう作られません（どの `kind` も扱います）。
 
 **code は今後の minor で増えることがあります。** `code` で `switch` するときは、
 必ず `default` を置いてください。
