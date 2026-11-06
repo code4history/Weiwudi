@@ -37,6 +37,13 @@ const pluginsModule = (await import(/* @vite-ignore */ PLUGINS_MODULE).catch((e:
 export const SW_ORIGIN = 'https://weiwudi.example.com';
 /** SW 自身のオリジン（Workbox の RegExpRoute が「同じオリジンか」を見るのに使う） */
 export const SW_SELF_ORIGIN = 'http://localhost:5173';
+/**
+ * 制御の POST を出すページの client の id（m3-t8・I6）。self.clients.get はこの id に SW と同じオリジンの
+ * WindowClient の偽物を返す（ほかの id は既定で undefined のまま。旧 API の試験の clientId 'client-1' は変わらない）
+ */
+export const PAGE_CLIENT_ID = 'weiwudi-page';
+/** PAGE_CLIENT_ID の client の偽物 */
+export const PAGE_CLIENT = Object.freeze({ id: PAGE_CLIENT_ID, url: `${SW_SELF_ORIGIN}/index.html`, type: 'window' });
 
 type Listener = (event: unknown) => void;
 
@@ -86,8 +93,11 @@ export interface SwHarness {
   flushRoutes: () => Promise<void>;
   /** Workbox の Router と同じく、method ごとに登録順に照合し、最初に当たった handler を呼ぶ。当たらなければ undefined */
   dispatch: (request: Request | string, opts?: { event?: unknown; client?: unknown }) => Promise<Response | undefined>;
-  /** text/plain;charset=UTF-8 の POST を dispatch する（本文が文字列でなければ JSON にする） */
-  post: (path: string, body: unknown) => Promise<Response | undefined>;
+  /**
+   * text/plain;charset=UTF-8 の POST を dispatch する（本文が文字列でなければ JSON にする）。送り手は既定で PAGE_CLIENT。
+   * opts.client を渡すと、その client から送ったものにする（null は clients.get で見つからない client。m3-t8・I6）
+   */
+  post: (path: string, body: unknown, opts?: { client?: unknown }) => Promise<Response | undefined>;
   /** self.addEventListener で登録されたハンドラ（種別ごと） */
   listeners: Record<string, Listener[]>;
   /** self の偽物 */
@@ -238,6 +248,9 @@ export const createSwHarness = (opts: { factory?: IDBFactory } = {}): SwHarness 
   pluginsModule?._resetPluginsForTest?.();
 
   const factory = opts.factory ?? new IDBFactory();
+  /** post の opts.client で足した client（id → client。null は登録しない） */
+  const otherClients = new Map<unknown, unknown>();
+  let clientSeq = 0;
   const bus = busFor(factory);
   const listeners: Record<string, Listener[]> = {};
   const fakeSelf = {
@@ -247,7 +260,7 @@ export const createSwHarness = (opts: { factory?: IDBFactory } = {}): SwHarness 
     skipWaiting: vi.fn(() => Promise.resolve()),
     clients: {
       claim: vi.fn(() => Promise.resolve()),
-      get: vi.fn(() => Promise.resolve(undefined)),
+      get: vi.fn((id: unknown) => Promise.resolve(id === PAGE_CLIENT_ID ? PAGE_CLIENT : otherClients.get(id))),
     },
     location: new URL(`${SW_SELF_ORIGIN}/weiwudi-sw.js`),
   };
@@ -326,12 +339,20 @@ export const createSwHarness = (opts: { factory?: IDBFactory } = {}): SwHarness 
     return undefined;
   };
 
-  const post = (path: string, body: unknown) =>
-    dispatch(new Request(SW_ORIGIN + path, {
+  const post = (path: string, body: unknown, popts: { client?: unknown } = {}) => {
+    const req = new Request(SW_ORIGIN + path, {
       method: 'POST',
       headers: { 'content-type': 'text/plain;charset=UTF-8' },
       body: typeof body === 'string' ? body : JSON.stringify(body),
-    }));
+    });
+    const event = new FakeFetchEvent(req);
+    event.clientId = PAGE_CLIENT_ID;
+    if ('client' in popts) {
+      event.clientId = `other-client-${++clientSeq}`;
+      if (popts.client !== null) otherClients.set(event.clientId, popts.client);
+    }
+    return dispatch(req, { event });
+  };
 
   return {
     capture: legacyRoute.capture as RegExp,

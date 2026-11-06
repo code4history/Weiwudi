@@ -34,6 +34,16 @@ export interface SourceStats {
     byResource: Record<string, { count: number; bytes: number }>;
 }
 
+/**
+ * 全体と提供元別の使用量（仕様 §12・#38。m3-t8）。全 Resource（旧 API の地図も）を 1 回ずつ数える。
+ * byProvider の鍵は Resource の提供元（'mapbox' など）、無ければ先頭のテンプレートの origin。null プロトタイプ
+ */
+export interface UsageReport {
+    count: number;
+    bytes: number;
+    byProvider: Record<string, { count: number; bytes: number }>;
+}
+
 const BASEURL = `https://${PSEUDO_HOST}/api/`;
 let swChecking: Promise<boolean> | undefined;
 let swChecked: boolean | undefined;
@@ -295,6 +305,15 @@ export class WeiwudiSource extends WeiwudiEventTarget {
         await postV2<null>('clean', { id: this.id });
     }
 
+    /**
+     * その Source（スタイルは子）の Resource の Entry を消す（#38）。共有・範囲だけの参照でも消す（clean() は共有を残す）。
+     * Resource の記録と捕捉は残る（次の要求は取り直して保存する）。無ければ resource-not-found
+     */
+    async removeResource(resourceId: string): Promise<void> {
+        this.alive();
+        await postV2<null>('removeResource', { id: this.id, resourceId });
+    }
+
     /** 登録と Entry を消し、ページ側のリスナを外す */
     async remove(): Promise<void> {
         this.alive();
@@ -400,6 +419,18 @@ export default class Weiwudi extends WeiwudiEventTarget {
     /** 登録済みの Source。無ければ source-not-found（旧 API の地図も） */
     static async source(id: string): Promise<WeiwudiSource> {
         return new WeiwudiSource(await postV2<SourceInfo>('source', { id }));
+    }
+
+    /** 全体と提供元別の使用量（#38）。byProvider は null プロトタイプ（鍵が __proto__ でも自前の項目） */
+    static async usage(): Promise<UsageReport> {
+        const r = await postV2<UsageReport>('usage', {});
+        const byProvider: UsageReport['byProvider'] = Object.create(null);
+        const src = r && typeof r.byProvider === 'object' && r.byProvider !== null ? r.byProvider : {};
+        for (const key of Object.keys(src)) {
+            const v = src[key];
+            byProvider[key] = { count: v.count, bytes: v.bytes };
+        }
+        return { count: r.count, bytes: r.bytes, byProvider };
     }
 
     /** 新 API で登録した Source の一覧（旧 API の地図は含まない） */

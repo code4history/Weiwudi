@@ -441,13 +441,13 @@ const removeQuietly = async (store: Store, sourceId: string): Promise<void> => {
 export async function removeStyleChildren(
   store: Store, parentId: string, ids: readonly string[], opts: { strict?: boolean } = {},
 ): Promise<void> {
-  let orphans: string[] = [];
+  let targets: string[] = unique(ids);
   try {
-    orphans = (await store.listSources()).filter((r) => r.parentId === parentId).map((r) => r.id);
+    targets = await styleChildIds(store, parentId, ids);
   } catch (e) {
     if (opts.strict) throw e;
   }
-  for (const cid of unique([...ids, ...orphans])) {
+  for (const cid of targets) {
     if (!opts.strict) {
       await removeQuietly(store, cid);
       continue;
@@ -461,6 +461,16 @@ export async function removeStyleChildren(
 }
 
 const invalidStyle = (): WeiwudiError => new WeiwudiError('invalid-style', 'The style is not readable', { type: 'style' });
+
+/**
+ * removeStyleChildren が外す子の id（ids と、listSources() のうち parentId が親の id の孤児。重ねない・ids を先に）。
+ * control の removeResource も、親の単位の持ち主の一覧としてこれを使う（remove() が外す範囲の Resource を名指しできる。m3-t8）。
+ * listSources() の失敗はそのまま投げる
+ */
+export async function styleChildIds(store: Store, parentId: string, ids: readonly string[]): Promise<string[]> {
+  const orphans = (await store.listSources()).filter((r) => r.parentId === parentId).map((r) => r.id);
+  return unique([...ids, ...orphans]);
+}
 
 /** 親の全子の id（control の絞り込み。スタイルでなければ自分の id だけ） */
 export const ownersOf = (rec: SourceRecord): string[] => {

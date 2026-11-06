@@ -546,7 +546,9 @@ export class WeiwudiError extends Error {
 
 文字列の reject は次の major で `WeiwudiError` へ変える。非推奨の予告は §13 の時期に合わせる。
 
-新 API で増えるコード: `unsupported-template`・`invalid-style`（スタイル自体が取れない・読めない。§5.5。m3-t7）・`opaque`・`sw-outdated`・`credential-rejected`・`source-not-found`・`resource-conflict`・`unsupported-kind`（その版がまだ扱わない `kind`。m2 では `style`・`asset`。m3-t7 で全 kind を扱うので作られなくなった。union には残す）。`resource-conflict` は自分自身の `update()` でだけ例外として投げ、`register()` では `warnings` に書く（§5.6）。`quota`・`network`・`upstream`・`storage`・`fetch-busy` などは m1 の表にあるものを使う。
+新 API で増えるコード: `unsupported-template`・`invalid-style`（スタイル自体が取れない・読めない。§5.5。m3-t7）・`opaque`・`sw-outdated`・`credential-rejected`・`source-not-found`・`resource-conflict`・`unsupported-kind`（その版がまだ扱わない `kind`。m2 では `style`・`asset`。m3-t7 で全 kind を扱うので作られなくなった。union には残す）。`resource-not-found`（`removeResource()` の id がその Source（スタイルは子）の Resource でない。m3-t8）。`resource-conflict` は自分自身の `update()` でだけ例外として投げ、`register()` では `warnings` に書く（§5.6）。
+
+`WeiwudiErrorCode` と `ResourceType` は閉じた union のまま、minor で値が増える（文書に「switch には default を置く」を書く）。`from` は、印（`Symbol.for('@c4h/weiwudi/error')`）のある `WeiwudiError` なら、未知の `code` でも `/^[a-z][a-z0-9-]*$/` に合えばそのまま返す（新しい SW の code を `internal` に潰さない。m3-t8・I4・R24）。印の無い `name: 'WeiwudiError'` だけの救済は既知の `code` に限る。`quota`・`network`・`upstream`・`storage`・`fetch-busy` などは m1 の表にあるものを使う。
 
 ## 10. 提供元の URL と資格情報（#40）
 
@@ -657,7 +659,7 @@ export class WeiwudiSource extends WeiwudiEventTarget {
 }
 ```
 
-- 公開する型はすべて名前を付けて export する: `SourceSpec`・`CommonPolicy`・`Credentials`・`OutOfRange`・`TileBox`・`SourceInfo`・`SourceStats`・`ResourceInfo`・`ResourceType`。`SourceInfo` と `SourceStats` は次の完全な形とする
+- 公開する型はすべて名前を付けて export する: `SourceSpec`・`CommonPolicy`・`Credentials`・`OutOfRange`・`TileBox`・`SourceInfo`・`SourceStats`・`ResourceInfo`・`ResourceType`・`UsageReport`（m3-t8）。`SourceInfo` と `SourceStats` は次の完全な形とする
 
 ```ts
 export interface SourceInfo {
@@ -677,7 +679,7 @@ export interface SourceStats {
 ```
 
 - `WeiwudiSource.resources` も呼び出し時点の写しで、後の変化は `stats()` か `source()` で読み直す
-- 上の `class` の宣言のうち、各版の d.ts と文書には、その版で入るメンバだけを書く（m2 は `register`・`source`・`sources` と、`WeiwudiSource` の `id`・`url`・`resources`・`warnings`・`stats`・`update`・`clean`（範囲なし）・`remove`・`release`）
+- 上の `class` の宣言のうち、各版の d.ts と文書には、その版で入るメンバだけを書く（m2 は `register`・`source`・`sources` と、`WeiwudiSource` の `id`・`url`・`resources`・`warnings`・`stats`・`update`・`clean`（範囲なし）・`remove`・`release`。m3 は `usage` と `removeResource` を足す）
 - `warnings` の書式は `"<code>: <subject>"`（`subject` は `Resource.id`。利用者は知らない `code` を無視する）。`code` は次の 5 つ（m3-t7・R20）
   - `resource-conflict`（§5.6）
   - `template-shadowed`（同じ要求に当たる別の照合の形が先に評価され、その Resource が捕捉されない。その Source が参照する Resource のものだけを書く。スタイルは子の Resource のもの。I10・R26: 警告のまま）
@@ -685,7 +687,17 @@ export interface SourceStats {
   - `same-origin-skipped`（スタイル: §5.5-5。subject はクエリを落とした URL（オリジン＋パス）。パスの区画に秘密（`sk.eyJ`）があるか userinfo を持てば、スタイルの中の名前（`sources.<名前>`・`glyphs`・`sprite`・`sprite.<id>`））
   - `unsupported-source`（スタイル: video・知らない type・子として受けられない URL の source。subject は `sources.<名前>`・`glyphs`・`sprite`・`sprite.<id>`（`sprite` の配列の要素）・`imports`）
 - 登録を拒否するもの: `map:` から始まる `id`・空の `id`・`\0` を含む `id`（§5.1・§10。`attribute-invalid`）・userinfo を含むテンプレート（§10。`attribute-invalid`）・`weiwudi.example.com` のテンプレート（`unsupported-template`）・その版が扱わない `kind`（`unsupported-kind`。m2 では `style`・`asset`。m3 では作られない）・`sk.` の資格情報（`credential-rejected`）・同じ id で違う `kind`（`attribute-invalid`。R37）・読めないスタイル（`invalid-style`）
-- 提供元別の使用量（#38）は `usage().byProvider`。鍵は `ResourceMeta.provider`、無ければ origin
+- 提供元別の使用量（#38）は `usage().byProvider`。鍵は `ResourceMeta.provider`、無ければ先頭のテンプレートの origin（旧 API の相対の URL は SW の場所で解決する。origin が無ければ `'unknown'`）。全 Resource（旧 API の `map:` も、スタイルの子も）を 1 回ずつ数える。`byProvider` は null プロトタイプ（m3-t8・R19）
+
+```ts
+export interface UsageReport {
+  count: number; bytes: number;
+  byProvider: Record<string, { count: number; bytes: number }>;
+}
+```
+
+- `removeResource(resourceId)`（m3-t8・R18）: その Source の `sourceIds` か `rangeOnlySourceIds` にある Resource の Entry を消す（`clearEntries`）。スタイルは親の単位で判定する（持ち主は子の id と、`parentId` が親の孤児の子。`remove()` が外す範囲と同じ）。Resource の記録と捕捉は残る。他の Source と共有していても、範囲だけで参照していても消す（利用者が名指ししたため。`clean()` は共有を残す）。グリフは fontstack ごとのレコードを全部消す。無ければ `resource-not-found`。control の直列の待ち行列に通す
+- 制御の POST は、`event.clientId` の client（`self.clients.get`）の URL のオリジン（`blob:` は中のオリジン）が `self.location.origin` と同じときだけ受ける。違う・見つからないときは `{ ok: false, error: { code: 'sw-not-controlling' } }` で何もしない（m3-t8・I6・R25）。GET の `/v2/ping` は見ない
 - `/v2/*` の要求の前に制御下かを確かめる（§4.1）
 - `/v2/ping` が `{ api: 2, version }` を返す。最初の POST の前に必ず確かめる（§4.1）。古い SW（更新待ち）に当たると 404 になるので、ページ側は `sw-outdated` を投げる。旧 `/api/ping` の `Implemented` は変えない
 - `/v2/*` の POST は `Content-Type: text/plain;charset=UTF-8`（§4.1）

@@ -420,6 +420,29 @@ interface ResourceInfo {
 type ResourceType = 'style' | 'tilejson' | 'tile' | 'glyph' | 'sprite' | 'data';
 ```
 
+`ResourceType` may get new values in a minor release. Add a `default` branch to every `switch` on it.
+
+### `Weiwudi.usage()`
+
+**Returns:** `Promise<UsageReport>`, the stored amount in total and per provider.
+
+```typescript
+interface UsageReport {
+  count: number;   // entries of every resource
+  bytes: number;   // their size
+  byProvider: Record<string, { count: number; bytes: number }>;
+}
+```
+
+- Every resource is counted once, including the resources of maps registered
+  with `registerMap` (it is the amount stored) and the resources of a style.
+- The key of `byProvider` is the provider of the resource (`'mapbox'`, or the
+  `id` of a provider added with `addProvider`), otherwise the origin of its first
+  URL template (a relative URL of `registerMap` is resolved against the service
+  worker). `'unknown'` is used when there is no origin.
+- `byProvider` has a `null` prototype, so a key such as `__proto__` is an own
+  property.
+
 ### `WeiwudiSource`
 
 | Member | Description |
@@ -431,6 +454,7 @@ type ResourceType = 'style' | 'tilejson' | 'tile' | 'glyph' | 'sprite' | 'data';
 | `stats()` | `Promise<SourceStats>` |
 | `update()` | Rebuilds merging and policies from the saved spec and resets the CORS detection. Rejects with `resource-conflict` (and changes nothing) when its own resources conflict. A style is fetched again instead and never rejects with `resource-conflict` (conflicts go to `warnings`); it rejects with `invalid-style` when the style cannot be read |
 | `clean()` | Deletes cached entries. Entries of resources shared with another source are kept |
+| `removeResource(resourceId)` | Deletes the cached entries of one resource of this source (for a style, of the resources it registered), **even when the resource is shared with another source or only referred to by range** (`rangeOnly`), because you named it. All glyph records (every fontstack) of a glyph resource are deleted. The resource and its capture stay: the next request fetches and stores it again. Rejects with `resource-not-found` when the source does not refer to that resource id (a resource id of `resources`) |
 | `remove()` | Deletes the registration and its entries and calls `release()`. Entries of a resource that another source still has in its `sourceIds` are kept; a resource whose `sourceIds` becomes empty is deleted with its entries, even when another source still refers to it only by range (`rangeOnly`) |
 | `release()` | Removes the page-side listener. Other methods then reject with `instance-released` |
 
@@ -471,6 +495,12 @@ with this API (`GET https://weiwudi.example.com/v2/ping` answering
 - `sw-outdated`: the controlling service worker is an older Weiwudi without
   this API (`/v2/ping` is 404), or it answered 200 with a body that is not
   `{ api: 2, version: <non-empty string> }` (reload after the new one activates)
+
+The service worker accepts a control `POST` only from a client (a page or a
+worker; a `blob:` worker by the origin inside its URL) of its own origin. A
+request from a client of another origin, or from a client it cannot find, is
+answered with `sw-not-controlling` and changes nothing. `GET /v2/ping` is not
+checked.
 
 A successful check is remembered for the controlling worker until
 `controllerchange`. Control requests are `POST` with
@@ -528,7 +558,11 @@ try {
   `detail`. It never throws, whatever value is passed.
 - **Only a genuine `Error` that carries a known `code` is returned as is**: a
   `WeiwudiError`, including one created by another copy of Weiwudi (or an
-  `Error` whose `name` is `'WeiwudiError'`). Anything else is converted into a
+  `Error` whose `name` is `'WeiwudiError'`). A `WeiwudiError` with the brand
+  (any copy of Weiwudi) keeps a `code` this version does not know, as long as
+  it matches `/^[a-z][a-z0-9-]*$/`, so a code added by a newer service worker is
+  not turned into `internal`. An `Error` with only `name: 'WeiwudiError'` must
+  carry a known `code`. Anything else is converted into a
   new `WeiwudiError`. Where `Error.isError` is not available (e.g. Node 22),
   whether a value is a genuine `Error` can only be checked with `instanceof`,
   so an object that inherits the prototype, such as one made with
@@ -585,7 +619,8 @@ above) and `network`, `upstream`, `storage` (tile failures, see below).
 `invalid-style` (`register` and `update()` of a style that cannot be read),
 `sw-outdated` (the controlling service worker lacks the source API),
 `source-not-found` (`source()` and the `WeiwudiSource` methods for an unknown id),
-`resource-conflict` (`update()` only; `register()` writes it to `warnings`).
+`resource-conflict` (`update()` only; `register()` writes it to `warnings`),
+`resource-not-found` (`removeResource()` with a resource id the source does not refer to).
 The source API also uses `attribute-invalid`, `sw-not-controlling`,
 `instance-released` and `api-not-found` from the table above, with its own messages.
 
@@ -594,8 +629,7 @@ It is part of the `WeiwudiErrorCode` type but is not produced yet.
 `unsupported-kind` stays in the type but is no longer produced (every `kind` is
 handled).
 
-**New codes may be added in a minor release.** When you `switch` on `code`,
-always keep a `default` branch.
+**New codes may be added in a minor release.** `WeiwudiErrorCode` may get new values in a minor release. Add a `default` branch to every `switch` on it.
 
 ### Tile responses: `x-weiwudi-error`
 

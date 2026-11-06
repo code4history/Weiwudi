@@ -16,6 +16,8 @@ const NEW_API_CODES = [
   'credential-rejected', 'source-not-found', 'resource-conflict',
   // その版がまだ扱わない kind（m2 では style・asset。仕様 §9）
   'unsupported-kind',
+  // WeiwudiSource.removeResource の id がその Source の Resource でない（m3-t8・R18）
+  'resource-not-found',
 ] as const;
 
 /** 旧 API に文面があるコード（16 件） */
@@ -31,6 +33,9 @@ export type WeiwudiErrorCode =
   | NewApiErrorCode;
 
 const KNOWN_CODES: ReadonlySet<string> = new Set<string>([...LEGACY_CODES, ...OTHER_CODES, ...NEW_API_CODES]);
+
+/** 印のある WeiwudiError が持ってよい code の書式（新しい SW の未知の code を消さない。m3-t8・I4・R24） */
+const CODE_FORMAT = /^[a-z][a-z0-9-]*$/;
 
 // 別のバンドル・別のコピーの errors.ts で作られた WeiwudiError も見分けるための印（#33）
 const BRAND = Symbol.for('@c4h/weiwudi/error');
@@ -187,10 +192,11 @@ const ownDataValue = (value: object, key: string | symbol): { value: unknown; en
 
 /**
  * 別のコピーの WeiwudiError として、そのまま返してよいか。
- * **そのまま返すのは、本物の Error で、既知の code を自前の文字列として持つものだけ。**
+ * **そのまま返すのは、本物の Error で、code を自前の文字列として持つものだけ。**
  * そのうえで次のどちらかを求める。
- * - 印（Symbol.for('@c4h/weiwudi/error')）を、列挙されない自前のデータプロパティとして持つ
- * - name が 'WeiwudiError'（印を付けない別の作り方の救済。どちらの環境でも認める）
+ * - 印（Symbol.for('@c4h/weiwudi/error')）を、列挙されない自前のデータプロパティとして持ち、code が CODE_FORMAT に合う
+ *   （未知の code も保つ。新しい SW・新しい版のコピーが増やした code を internal に潰さない。m3-t8・I4・R24）
+ * - name が 'WeiwudiError' で、code が既知（印を付けない別の作り方の救済。どちらの環境でも認める。未知の code は救わない）
  * 素の object・Proxy・toStringTag の偽装は、本物の Error の判定（isErrorLike）で落ちる。
  * ただし Error.isError の無い環境では本物の Error かどうかを instanceof でしか見られないので、
  * Object.create(WeiwudiError.prototype) などでプロトタイプを継いで作った object に、印か name と
@@ -201,9 +207,10 @@ const isWeiwudiErrorLike = (value: unknown): value is WeiwudiError => {
   if (typeof value !== 'object' || value === null) return false;
   if (!isErrorLike(value)) return false;
   const code = ownDataValue(value, 'code');
-  if (!code || typeof code.value !== 'string' || !KNOWN_CODES.has(code.value)) return false;
+  if (!code || typeof code.value !== 'string') return false;
   const brand = ownDataValue(value, BRAND);
-  if (brand && brand.value === true && !brand.enumerable) return true;
+  if (brand && brand.value === true && !brand.enumerable) return CODE_FORMAT.test(code.value);
+  if (!KNOWN_CODES.has(code.value)) return false;
   const name = ownDataValue(value, 'name')?.value ?? (value as { name?: unknown }).name;
   return name === 'WeiwudiError';
 };
@@ -242,8 +249,8 @@ export class WeiwudiError extends Error {
 
   /**
    * 文字列・Error・その他から作る。どんな値を渡しても throw しない。
-   * そのまま返すのは、本物の Error で、既知の code を自前の文字列として持ち、印か name が
-   * 'WeiwudiError' のものだけ（別のコピーの WeiwudiError を含む）。
+   * そのまま返すのは、本物の Error で、code を自前の文字列として持ち、印があって code が書式（/^[a-z][a-z0-9-]*$/）に
+   * 合うもの（未知の code も保つ）か、name が 'WeiwudiError' で code が既知のものだけ（別のコピーの WeiwudiError を含む）。
    * 読み取りの途中で例外が起きる値（throw する getter・Proxy など）は internal で作り直す
    */
   static from(value: unknown): WeiwudiError {

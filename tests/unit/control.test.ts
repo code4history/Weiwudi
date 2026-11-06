@@ -2,7 +2,7 @@
 // context に触る試験（連続数・表の作り直しの失敗）だけは createControl を直接呼ぶ。
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createSwHarness, type SwHarness } from './sw-harness';
+import { createSwHarness, PAGE_CLIENT_ID, SW_SELF_ORIGIN, type SwHarness } from './sw-harness';
 import { createContext } from '../../src/context';
 import { createControl } from '../../src/control';
 import { installHook } from '../../src/hook';
@@ -300,7 +300,8 @@ const direct = (open: () => Promise<Store> = openStore) => {
   const post = async (op: string, body: unknown): Promise<Reply> => {
     const url = new URL(`https://weiwudi.example.com/v2/${op}`);
     const request = new Request(url, { method: 'POST', headers: { 'content-type': 'text/plain;charset=UTF-8' }, body: JSON.stringify(body) });
-    return (await control.post({ url, request, event: undefined } as never)).json();
+    // 送り手はハーネスのページの client（m3-t8・I6。event が無いと sw-not-controlling）
+    return (await control.post({ url, request, event: { clientId: PAGE_CLIENT_ID } } as never)).json();
   };
   return { ctx, post };
 };
@@ -459,5 +460,182 @@ describe('m2 の記録（spec.type なし）の update()（m3-t2 L1 M1）', () =
     expect(r).toMatchObject({ type: 'tile', scheme: 'tms', sourceIds: ['old'] });
     expect(r.extents).toEqual([{ minZoom: 0, maxZoom: 1, box, sourceId: 'old' }]);
     expect((await ok(h, 'stats', { id: 'old' })).total).toBe(5);
+  });
+});
+
+// ---- m3-t8: removeResource（R18・#38）と制御の POST の送り手の検査（I6・R25） ----
+
+/** Resource の Entry の件数（store の count。Entry の増減と同じ tx で直る） */
+const countOf = async (id: string): Promise<number | undefined> => (await (await openStore()).getResource(id))?.count;
+
+describe('removeResource（R18・#38）', () => {
+  it('Entry だけを消す。Resource の記録と捕捉は残り、次の要求は miss で、また保存する', async () => {
+    const h = harness();
+    await ok(h, 'register', { kind: 'raster', id: 's', url: TPL });
+    await fetchTile(h);
+    const before = (await (await storeOf(h)).getResource(TPL))!;
+    expect(before.count).toBe(1);
+    expect(await ok(h, 'removeResource', { id: 's', resourceId: TPL })).toBeNull();
+    const after = (await (await storeOf(h)).getResource(TPL))!;
+    expect(after).toEqual({ ...before, count: 0, bytes: 0, pinnedBytes: 0 });
+    expect(await (await storeOf(h)).getEntry(`${TPL}\u00003_1_2`)).toBeUndefined();
+    expect((await ok(h, 'source', { id: 's' })).resources[0]).toMatchObject({ id: TPL, count: 0, bytes: 0 });
+    await fetchTile(h);
+    expect(await countOf(TPL)).toBe(1);
+  });
+
+  it('他の Source と共有していても消す（clean は共有を残す）', async () => {
+    const h = harness();
+    await ok(h, 'register', { kind: 'raster', id: 'a', url: TPL });
+    await ok(h, 'register', { kind: 'raster', id: 'b', url: TPL });
+    await fetchTile(h);
+    await ok(h, 'clean', { id: 'a' });
+    expect(await countOf(TPL)).toBe(1);
+    await ok(h, 'removeResource', { id: 'a', resourceId: TPL });
+    expect(await countOf(TPL)).toBe(0);
+    expect((await (await storeOf(h)).getResource(TPL))!.sourceIds.slice().sort()).toEqual(['a', 'b']);
+  });
+
+  it('範囲だけ（rangeOnlySourceIds）で参照している Resource の Entry も消す（C-O13）', async () => {
+    const h = harness();
+    await ok(h, 'register', { kind: 'raster', id: 'a', url: TPL });
+    await fetchTile(h);
+    const b = await ok(h, 'register', { kind: 'raster', id: 'b', url: TPL, credentialParams: ['foo'] });
+    expect(b.resources).toEqual([expect.objectContaining({ id: TPL, rangeOnly: true })]);
+    await ok(h, 'removeResource', { id: 'b', resourceId: TPL });
+    expect(await countOf(TPL)).toBe(0);
+  });
+
+  it('同時の register と直列に走る（removeResource が先に走って source-not-found にならない）', async () => {
+    const h = harness();
+    const [a, b] = await Promise.all([
+      call(h, 'register', { kind: 'raster', id: 's', url: TPL }),
+      call(h, 'removeResource', { id: 's', resourceId: TPL }),
+    ]);
+    expect([a.ok, b.ok]).toEqual([true, true]);
+  });
+
+  it('その Source が参照しない id は resource-not-found（detail に sourceId・resourceId）。無い Source は source-not-found', async () => {
+    const h = harness();
+    await ok(h, 'register', { kind: 'raster', id: 'a', url: TPL });
+    await ok(h, 'register', { kind: 'raster', id: 'b', url: 'https://b.example/{z}/{x}/{y}.png' });
+    await fetchTile(h);
+    const e = await fails(h, 'removeResource', { id: 'b', resourceId: TPL }, 'resource-not-found');
+    expect(e.detail).toEqual({ sourceId: 'b', resourceId: TPL });
+    await fails(h, 'removeResource', { id: 'a', resourceId: 'https://none.example/{z}/{x}/{y}.png' }, 'resource-not-found');
+    await fails(h, 'removeResource', { id: 'none', resourceId: TPL }, 'source-not-found');
+    await fails(h, 'removeResource', { id: 'a' }, 'attribute-invalid');
+    await fails(h, 'removeResource', { id: 'a', resourceId: '' }, 'attribute-invalid');
+    expect(await countOf(TPL)).toBe(1);
+  });
+
+  it('旧 API の地図は source-not-found、旧 API の Resource（map:）は resource-not-found で、何も消さない', async () => {
+    const h = harness();
+    await h.request(`/api/add?mapID=m&type=xyz&url=${encodeURIComponent(TPL)}&width=1024&height=1024`);
+    expect((await h.request('/api/cache/m/2/1/0')).status).toBe(200);
+    await ok(h, 'register', { kind: 'raster', id: 's', url: TPL });
+    await fails(h, 'removeResource', { id: 'map:m', resourceId: 'map:m' }, 'source-not-found');
+    await fails(h, 'removeResource', { id: 's', resourceId: 'map:m' }, 'resource-not-found');
+    expect(await countOf('map:m')).toBe(1);
+  });
+
+  describe('スタイルの子の Resource（親の Source の単位）', () => {
+    const STYLE = 'https://s.example/style.json';
+    const VT = 'https://v.example/{z}/{x}/{y}.pbf';
+    const GLYPHS = 'https://g.example/fonts/{fontstack}/{range}.pbf';
+    const styleHarness = () => {
+      const h = createSwHarness();
+      h.fetch.mockImplementation(async (req: Request) => (req.url.startsWith(STYLE)
+        ? new Response(JSON.stringify({ version: 8, sources: { v: { type: 'vector', tiles: [VT] } }, layers: [], glyphs: GLYPHS }),
+          { status: 200, headers: { 'content-type': 'application/json' } })
+        : new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { 'content-type': 'application/x-protobuf' } })));
+      return h;
+    };
+    const get = async (h: SwHarness, url: string) => {
+      await h.flushRoutes();
+      expect((await h.dispatch(url))!.headers.get('x-weiwudi-status')).toBe('miss');
+    };
+
+    it('子の Resource を親の id で消せる。子の id では source-not-found', async () => {
+      const h = styleHarness();
+      const info = await ok(h, 'register', { kind: 'style', id: 'st', url: STYLE });
+      expect(info.resources.map((r: { id: string }) => r.id)).toContain(VT);
+      await get(h, 'https://v.example/3/1/2.pbf');
+      expect(await countOf(VT)).toBe(1);
+      await ok(h, 'removeResource', { id: 'st', resourceId: VT });
+      expect(await countOf(VT)).toBe(0);
+      const child = (await (await storeOf(h)).getResource(VT))!.sourceIds[0];
+      await fails(h, 'removeResource', { id: child, resourceId: VT }, 'source-not-found');
+      await get(h, 'https://v.example/3/1/2.pbf');
+    });
+
+    it('グリフは fontstack ごとのレコードを全部消す', async () => {
+      const h = styleHarness();
+      await ok(h, 'register', { kind: 'style', id: 'st', url: STYLE });
+      await get(h, 'https://g.example/fonts/A/0-255.pbf');
+      await get(h, 'https://g.example/fonts/B/0-255.pbf');
+      await get(h, 'https://g.example/fonts/B/256-511.pbf');
+      const store = await storeOf(h);
+      expect((await store.getResource(GLYPHS))!.count).toBe(2);
+      await ok(h, 'removeResource', { id: 'st', resourceId: GLYPHS });
+      expect(await store.getResource(GLYPHS)).toMatchObject({ count: 0, bytes: 0 });
+      expect(await store.getEntry(`${GLYPHS}\u0000A`)).toBeUndefined();
+      expect(await store.getEntry(`${GLYPHS}\u0000B`)).toBeUndefined();
+    });
+
+    it('親の children に載らない子（parentId が親の孤児。R33）の Resource も親の id で消せる（remove() が外す範囲と同じ）', async () => {
+      const h = styleHarness();
+      await ok(h, 'register', { kind: 'style', id: 'st', url: STYLE });
+      await get(h, 'https://v.example/3/1/2.pbf');
+      const store = await storeOf(h);
+      const parent = (await store.getSource('st'))!;
+      const childOfVt = (await store.getResource(VT))!.sourceIds[0];
+      const spec = parent.spec as { children: { id: string }[] };
+      await store.putSource({ ...parent, spec: { ...spec, children: spec.children.filter((c) => c.id !== childOfVt) } as typeof parent.spec });
+      expect((await store.getSource(childOfVt))!.parentId).toBe('st');
+      await ok(h, 'removeResource', { id: 'st', resourceId: VT });
+      expect(await countOf(VT)).toBe(0);
+    });
+  });
+});
+
+describe('制御の POST の送り手（I6・R25）', () => {
+  it('別オリジンの client の POST は sw-not-controlling で、何も変えない', async () => {
+    const h = harness();
+    const evil = { id: 'x', url: 'https://evil.example/page.html', type: 'window' };
+    const r = await (await h.post('/v2/register', { kind: 'raster', id: 's', url: TPL }, { client: evil }))!.json();
+    expect(r).toMatchObject({ ok: false, error: { code: 'sw-not-controlling' } });
+    expect(await (await storeOf(h)).listSources()).toEqual([]);
+    await ok(h, 'register', { kind: 'raster', id: 's', url: TPL });
+    await fetchTile(h);
+    const r2 = await (await h.post('/v2/removeResource', { id: 's', resourceId: TPL }, { client: evil }))!.json();
+    expect(r2.error.code).toBe('sw-not-controlling');
+    const r3 = await (await h.post('/v2/usage', {}, { client: evil }))!.json();
+    expect(r3.error.code).toBe('sw-not-controlling');
+    expect(await countOf(TPL)).toBe(1);
+  });
+
+  it('blob: の Worker の client は中のオリジンで判定する（同じオリジンなら受け、別なら受けない）', async () => {
+    const h = harness();
+    const same = { id: 'w', url: `blob:${SW_SELF_ORIGIN}/0b1c6f2e-0000-4000-8000-000000000000`, type: 'worker' };
+    const r = await (await h.post('/v2/register', { kind: 'raster', id: 's', url: TPL }, { client: same }))!.json();
+    expect(r.ok).toBe(true);
+    const other = { id: 'w2', url: 'blob:https://evil.example/0b1c6f2e-0000-4000-8000-000000000000', type: 'worker' };
+    const r2 = await (await h.post('/v2/sources', {}, { client: other }))!.json();
+    expect(r2.error.code).toBe('sw-not-controlling');
+  });
+
+  it('client が見つからないときと、オリジンを持たない URL（data:）は受けない', async () => {
+    const h = harness();
+    const r = await (await h.post('/v2/sources', {}, { client: null }))!.json();
+    expect(r).toMatchObject({ ok: false, error: { code: 'sw-not-controlling' } });
+    const r2 = await (await h.post('/v2/sources', {}, { client: { id: 'd', url: 'data:text/html,x', type: 'worker' } }))!.json();
+    expect(r2.error.code).toBe('sw-not-controlling');
+  });
+
+  it('GET の /v2/ping は送り手を見ない（今のまま）', async () => {
+    const h = harness();
+    const res = await h.dispatch('https://weiwudi.example.com/v2/ping', { event: { clientId: 'unknown' } });
+    expect(await res!.json()).toEqual({ api: 2, version: PKG_VERSION });
   });
 });
