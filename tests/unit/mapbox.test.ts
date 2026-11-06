@@ -138,6 +138,19 @@ describe('rewriteStyle', () => {
     expect(out.name).toBe('n');
   });
 
+  it.each([
+    ['object', { type: 'vector', url: 'mapbox://mapbox.mapbox-streets-v8' },
+      { type: 'vector', url: 'https://api.mapbox.com/v4/mapbox.mapbox-streets-v8.json?secure' }],
+    ['null', null, null],
+  ])('__proto__ の source（%s）が書き換え後の JSON に残る', (_label, source, expected) => {
+    const input = { version: 8, sources: { ['__proto__']: source }, layers: [] };
+    const before = JSON.stringify(input);
+    const out = JSON.parse(JSON.stringify(mapbox.rewriteStyle!(input)));
+    expect(Object.prototype.hasOwnProperty.call(out.sources, '__proto__')).toBe(true);
+    expect(out.sources['__proto__']).toEqual(expected);
+    expect(JSON.stringify(input)).toBe(before);
+  });
+
   it('sprite の {id, url}[] も直す', () => {
     const out = mapbox.rewriteStyle!({
       version: 8, sources: {}, layers: [],
