@@ -1,7 +1,7 @@
 // 実行中の状態の入れ物（仕様 §3・計画「実行中の状態」・第 1 回 S1）。Weiwudi_Internal の呼び出しごとに 1 つ作る。
 // モジュール変数を置かないので、1 試験 1 SW（同じプロセスに複数の SW の実行文脈が同居しても混ざらない）。
 // 値の依存は store・errors だけ（仕様 §3）。照合表と連続数は t7、ジョブは t5 で足した。
-import { openStore, type ResourceMeta, type SourceRecord, type Store } from './store';
+import { openStore, type ResourceMeta, type ResourceType, type SourceRecord, type Store } from './store';
 import type { TileFailure } from './errors';
 import type { MatchTable } from './url_pattern';
 import type { WeiwudiProvider } from './plugins';
@@ -72,13 +72,23 @@ export interface Context {
    * 配線（weiwudi_gw_logic）が渡す。渡さなければ空
    */
   providers(): readonly WeiwudiProvider[];
+  /**
+   * 子の URL の組を normalizeMember が受けるか（spec.acceptsMember。m3-t7）。hook は spec を import できないので配線が渡す。
+   * 本体の資格情報の除去（style_body）が、子作り（style.ts）と同じ組だけを除くのに使う。無ければ字句の許可だけで見る
+   */
+  acceptsMember?: MemberAcceptorWithParams;
 }
+
+/** 子の URL の組を受けるか（type・テンプレート・credentialParams） */
+export type MemberAcceptorWithParams = (type: ResourceType, templates: string[], credentialParams: readonly string[]) => boolean;
 
 export interface ContextOptions {
   /** 試験の差し替え用。既定は store.openStore */
   open?: () => Promise<Store>;
   /** 提供元の一覧を返す関数（既定は空） */
   providers?: () => readonly WeiwudiProvider[];
+  /** 子の URL の組の判定（既定は無し） */
+  acceptsMember?: MemberAcceptorWithParams;
 }
 
 /** 引数は open の関数（試験の差し替え用）か ContextOptions */
@@ -103,5 +113,6 @@ export function createContext(options: ContextOptions | (() => Promise<Store>) =
     table: { generation: 0, failures: 0, retryAt: 0 },
     corslessStreak: new Map(),
     providers: () => providers(),
+    ...(opts.acceptsMember ? { acceptsMember: opts.acceptsMember } : {}),
   };
 }

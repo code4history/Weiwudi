@@ -742,3 +742,51 @@ describe('putGlyphPart（m3-t4・仕様 §11）', () => {
     expect(await rawAll('entries')).toEqual([]);
   });
 });
+
+describe('putGlyphParts（m3-t7・仕様 §11 の「1 fontstack 分を溜めてから 1 回で書く」。t4 の申し送り）', () => {
+  const G = 'https://g.example/{fontstack}/{range}.pbf';
+  const gmeta = (fetchedAt: number): EntryMeta => ({
+    key: key(G, 'Noto'), resourceId: G, size: 0, fetchedAt, accessedAt: fetchedAt, pinned: 0,
+  });
+  const blob = (n: number, fill: number) => new Blob([new Uint8Array(n).fill(fill)]);
+
+  it('複数の範囲を 1 つの readwrite tx で 1 回に書く。部分ごとの fetchedAt と、最も新しい部分の EntryMeta.fetchedAt', async () => {
+    const s = await open();
+    await s.createResource(resource(G, { type: 'glyph', templates: [G] }));
+    await s.putGlyphPart(gmeta(1), '0-255', blob(4, 1), {}, []);
+    const txSpy = vi.spyOn(IDBDatabase.prototype, 'transaction');
+    const out = await s.putGlyphParts(gmeta(99), [
+      { part: '256-511', blob: blob(3, 2), fetchedAt: 5 },
+      { part: '512-767', blob: blob(2, 3), fetchedAt: 4 },
+    ], { 'content-type': 'application/x-protobuf' }, []);
+    expect(out).toEqual({ saved: true });
+    expect(txSpy).toHaveBeenCalledTimes(1);
+    const got = await s.getEntry(key(G, 'Noto'));
+    expect(got!.meta).toMatchObject({ size: 9, fetchedAt: 5 });
+    expect(got!.body.parts).toEqual({
+      '0-255': { offset: 0, length: 4, fetchedAt: 1 },
+      '256-511': { offset: 4, length: 3, fetchedAt: 5 },
+      '512-767': { offset: 7, length: 2, fetchedAt: 4 },
+    });
+    expect(new Uint8Array(await got!.body.blob.arrayBuffer())).toEqual(Uint8Array.from([1, 1, 1, 1, 2, 2, 2, 3, 3]));
+    expect(await s.getResource(G)).toMatchObject({ count: 1, bytes: 9 });
+    await expectCountsConsistent(s);
+  });
+
+  it('並びに同じ範囲が 2 つあれば後のものが勝ち、保存済みの同じ範囲は落とす。空の並びは何も書かない', async () => {
+    const s = await open();
+    await s.createResource(resource(G, { type: 'glyph', templates: [G] }));
+    await s.putGlyphPart(gmeta(1), '0-255', blob(4, 1), {}, []);
+    await s.putGlyphParts(gmeta(2), [
+      { part: '0-255', blob: blob(1, 7), fetchedAt: 2 },
+      { part: '0-255', blob: blob(2, 8), fetchedAt: 3 },
+    ], {}, []);
+    const got = await s.getEntry(key(G, 'Noto'));
+    expect(got!.body.parts).toEqual({ '0-255': { offset: 0, length: 2, fetchedAt: 3 } });
+    expect(new Uint8Array(await got!.body.blob.arrayBuffer())).toEqual(Uint8Array.from([8, 8]));
+    const txSpy = vi.spyOn(IDBDatabase.prototype, 'transaction');
+    expect(await s.putGlyphParts(gmeta(3), [], {}, [])).toEqual({ saved: false });
+    expect(txSpy).not.toHaveBeenCalled();
+    await expectCountsConsistent(s);
+  });
+});

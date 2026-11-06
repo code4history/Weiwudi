@@ -31,8 +31,44 @@ describe('kind', () => {
     expect(normalizeSpec({ kind, url: T }).spec.kind).toBe(kind);
   });
 
-  it.each(['style', 'asset'])('%s は unsupported-kind（R18）', (kind) => {
-    expect(codeOf({ kind, url: T })).toBe('unsupported-kind');
+  // m3-t7 で style・asset を受けるようになった（unsupported-kind はどの kind にも出ない。コードは union に残す）
+  it('style を受ける: StyleSpec（url 1 つ・fonts・children は空・資格情報は spec に入れない）', () => {
+    const n = normalizeSpec({
+      kind: 'style', url: 'https://s.example/style.json?access_token=pk.T', fonts: ['Noto Sans'], cacheMaxBytes: 10,
+    });
+    expect(n.spec).toMatchObject({
+      kind: 'style', id: 'https://s.example/style.json', url: 'https://s.example/style.json',
+      templates: ['https://s.example/style.json'], fonts: ['Noto Sans'], cacheMaxBytes: 10, children: [],
+    });
+    expect(n.credentials).toEqual({ query: { access_token: 'pk.T' } });
+    expect(JSON.stringify(n.spec)).not.toContain('pk.T');
+  });
+
+  it.each([
+    ['url が配列', { url: ['https://s.example/a.json'] }],
+    ['url が空', { url: '' }],
+    ['fonts が配列でない', { url: 'https://s.example/a.json', fonts: 'Noto' }],
+    ['fonts に空の文字列', { url: 'https://s.example/a.json', fonts: [''] }],
+  ])('style の %s は attribute-invalid', (_l, over) => {
+    expect(codeOf({ kind: 'style', ...over })).toBe('attribute-invalid');
+  });
+
+  it('style の URL も提供元の resolve を通す（mapbox://styles/…）', async () => {
+    const { createMapboxProvider } = await import('../../src/providers/mapbox');
+    const { appendQueryCredentials } = await import('../../src/upstream');
+    const n = normalizeSpec({ kind: 'style', url: 'mapbox://styles/u/s' }, [createMapboxProvider(appendQueryCredentials)]);
+    expect(n.spec).toMatchObject({ url: 'https://api.mapbox.com/styles/v1/u/s', provider: 'mapbox' });
+  });
+
+  it('asset を受ける: type は data・URL 配列はミラー（R8）・範囲を持たない', () => {
+    const n = normalizeSpec({ kind: 'asset', url: ['https://a.example/x.png', 'https://b.example/x.png'], minZoom: 1, maxZoom: 3 });
+    expect(n.spec).toMatchObject({ kind: 'asset', type: 'data', templates: ['https://a.example/x.png', 'https://b.example/x.png'] });
+    expect((n.spec as NormalizedSpec['spec']).extent).toBeUndefined();
+  });
+
+  it('kind と資源の型の組が合わなければ internal（asset は data・raster・vector は tile だけ。t2 の申し送り）', () => {
+    expect(() => normalizeMember('tile', [T], {}, { kind: 'asset' })).toThrow(/cannot hold/);
+    expect(() => normalizeMember('data', ['https://d.example/a.json'], {}, { kind: 'raster' })).toThrow(/cannot hold/);
   });
 
   it.each([['未知の文字列', 'raster2'], ['無い', undefined], ['文字列でない', 1], ['legacy', 'legacy']])('%s は attribute-invalid', (_l, kind) => {
@@ -394,10 +430,10 @@ describe('normalizeMember: 型ごとの字句の許可（m3-t2）', () => {
     expect(n.spec.encoding).toBeUndefined();
   });
 
-  it('normalizeSpec は今の形のまま（raster・vector は type: tile。style・asset は unsupported-kind）', () => {
+  it('normalizeSpec の raster・vector は type: tile のまま（style・asset は m3-t7 で受ける）', () => {
     expect(normalizeSpec({ kind: 'raster', url: T }).spec).toMatchObject({ kind: 'raster', type: 'tile', scheme: 'xyz' });
-    expect(normalizeSpec({ kind: 'raster', url: T }).spec.encoding).toBeUndefined();
-    expect(codeOf({ kind: 'style', url: 'https://s.example/style.json' })).toBe('unsupported-kind');
-    expect(codeOf({ kind: 'asset', url: 'https://d.example/a.json' })).toBe('unsupported-kind');
+    expect((normalizeSpec({ kind: 'raster', url: T }).spec as NormalizedSpec['spec']).encoding).toBeUndefined();
+    expect(normalizeSpec({ kind: 'style', url: 'https://s.example/style.json' }).spec.kind).toBe('style');
+    expect(normalizeSpec({ kind: 'asset', url: 'https://d.example/a.json' }).spec).toMatchObject({ kind: 'asset', type: 'data' });
   });
 });

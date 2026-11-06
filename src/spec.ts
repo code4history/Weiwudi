@@ -157,11 +157,8 @@ const templateQueryPairs = (t: string): { rawName: string; name: string; raw: st
   });
 };
 
-const parseKind = (v: unknown): 'raster' | 'vector' => {
-  if (v === 'raster' || v === 'vector') return v;
-  if (v === 'style' || v === 'asset') {
-    throw new WeiwudiError('unsupported-kind', `Source kind "${v}" is not supported in this version`, { kind: v });
-  }
+const parseKind = (v: unknown): SourceSpec['kind'] => {
+  if (v === 'raster' || v === 'vector' || v === 'style' || v === 'asset') return v;
   throw invalid('kind');
 };
 
@@ -405,6 +402,10 @@ export function normalizeMember(
   type: ResourceType, inputUrls: string[], common: CommonPolicyInput, opts: MemberOptions,
   providers?: readonly WeiwudiProvider[],
 ): NormalizedSpec {
+  // kind と資源の型の組（m3-t2 の申し送り）: raster・vector は tile、asset は data だけ。子はどの型でもよい
+  if ((opts.kind === 'asset' && type !== 'data') || ((opts.kind === 'raster' || opts.kind === 'vector') && type !== 'tile')) {
+    throw new WeiwudiError('internal', `Source kind "${opts.kind}" cannot hold a ${type} resource`);
+  }
   // 提供元の URL は resolve してから検査する（以後の urls は解決した https の URL。m3-t5）
   const { urls, provider } = resolveProviders(inputUrls, providers);
   const explicit = parseCredentials(own(common, 'credentials'));
@@ -503,14 +504,92 @@ export function normalizeMember(
   return credentials ? { spec, credentials } : { spec };
 }
 
+/** スタイルの Source（親）の正規化の出力（m3-t7）。資格情報は credentials ストアだけへ入れる */
+export interface NormalizedStyle {
+  spec: StyleSpec;
+  credentials?: Credentials;
+}
+
+/** normalizeSpec の出力。kind: 'style' は NormalizedStyle、それ以外は NormalizedSpec */
+export type NormalizedInput = NormalizedSpec | NormalizedStyle;
+
+/** NormalizedInput がスタイルか */
+export const isNormalizedStyle = (n: NormalizedInput): n is NormalizedStyle => n.spec.kind === 'style';
+
+const parseFonts = (v: unknown): string[] | undefined => {
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v) || v.some((f) => typeof f !== 'string' || f === '')) throw invalid('fonts', 'must be an array of non-empty strings');
+  return (v as string[]).slice();
+};
+
 /**
- * 利用者の登録内容を検査して正規化する（仕様 §5.1・§10・§12）。kind: style・asset は m3-t7 まで unsupported-kind（R18）、
- * それ以外の未知の値は attribute-invalid。残りの検査は normalizeMember('tile', …)。providers は提供元の評価の順（m3-t5。無ければ使わない）
+ * スタイルの登録内容（m3-t7・仕様 §5.5）。url は文字列 1 つ（配列は attribute-invalid）。検査は normalizeMember('style', …) と同じで、
+ * 提供元（mapbox:// など）も通す。children は空（芋づるの子は style.ts が作る）
  */
-export function normalizeSpec(input: unknown, providers?: readonly WeiwudiProvider[]): NormalizedSpec {
+const normalizeStyle = (input: Record<string, unknown>, providers?: readonly WeiwudiProvider[]): NormalizedStyle => {
+  const urlIn = own(input, 'url');
+  if (typeof urlIn !== 'string' || urlIn === '') throw invalid('url', 'must be one URL for kind "style"');
+  const fonts = parseFonts(own(input, 'fonts'));
+  const n = normalizeMember('style', [urlIn], input, { kind: 'child', id: own(input, 'id'), single: true }, providers);
+  const spec: StyleSpec = {
+    kind: 'style',
+    id: n.spec.id,
+    url: n.spec.url as string,
+    templates: [n.spec.templates[0]],
+    policy: n.spec.policy,
+    children: [],
+  };
+  if (fonts) spec.fonts = fonts;
+  if (n.spec.cacheMaxBytes !== undefined) spec.cacheMaxBytes = n.spec.cacheMaxBytes;
+  if (n.spec.provider !== undefined) spec.provider = n.spec.provider;
+  return n.credentials ? { spec, credentials: n.credentials } : { spec };
+};
+
+/**
+ * 利用者の登録内容を検査して正規化する（仕様 §5.1・§5.5・§10・§12）。kind は raster・vector・style・asset（m3-t7）、
+ * それ以外の値は attribute-invalid。raster・vector は normalizeMember('tile', …)、asset は normalizeMember('data', …)（URL 配列はミラー。R8）、
+ * style は NormalizedStyle。providers は提供元の評価の順（m3-t5。無ければ使わない）
+ */
+export function normalizeSpec(input: unknown, providers?: readonly WeiwudiProvider[]): NormalizedInput {
   if (!isPlainObject(input)) throw invalid('spec', 'must be an object');
   const kind = parseKind(own(input, 'kind'));
+  if (kind === 'style') return normalizeStyle(input, providers);
   const urlIn = own(input, 'url');
   const urls = parseUrls(urlIn);
-  return normalizeMember('tile', urls, input, { kind, id: own(input, 'id'), single: typeof urlIn === 'string' }, providers);
+  return normalizeMember(kind === 'asset' ? 'data' : 'tile', urls, input,
+    { kind, id: own(input, 'id'), single: typeof urlIn === 'string' }, providers);
+}
+
+/**
+ * 子の URL の組を normalizeMember が受けるか（m3-t7。投げずに真偽で返す）。スタイルの子を作るとき（style.ts）と、
+ * 本体の資格情報の除去の組（style_body。配線が context に渡す）が同じ判定を使う（t6 の申し送り: R22・userinfo・sk.・# など
+ * normalizeMember だけが拒否する組を、子作りと本体の除去で揃える）
+ */
+export function acceptsMember(
+  type: ResourceType, templates: readonly string[], credentialParams: readonly string[], providers?: readonly WeiwudiProvider[],
+): boolean {
+  if (templates.length === 0) return false;
+  try {
+    normalizeMember(type, templates.slice(), { credentialParams: credentialParams.slice() },
+      { kind: 'child', internalId: '\0', single: templates.length === 1 }, providers);
+    return true;
+  } catch (_e) {
+    return false;
+  }
+}
+
+/** URL（テンプレートでよい）のパスの区画に秘密トークン（sk.eyJ。decode した後も）があるか（same-origin-skipped の subject。C-S6・X3） */
+export function hasSecretPathSegment(url: string): boolean {
+  let path: string;
+  try {
+    path = new URL(url.replace(/\{[^{}]*\}/g, '0')).pathname;
+  } catch (_e) {
+    // 読めない URL は秘密があるものとして扱う（subject に URL を出さない）
+    return true;
+  }
+  return path.split('/').some((seg) => {
+    let decoded = seg;
+    try { decoded = decodeURIComponent(seg); } catch (_e) { /* 生の形だけ */ }
+    return isSecretPathSegment(seg) || isSecretPathSegment(decoded);
+  });
 }

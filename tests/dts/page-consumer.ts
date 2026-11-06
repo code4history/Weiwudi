@@ -73,8 +73,13 @@ const use = async (): Promise<void> => {
   const again: WeiwudiSource = await Weiwudi.source(id);
   const all: SourceInfo[] = await Weiwudi.sources();
   void [url, resources, warnings, s, u, c, r, rel, again, all];
+  // kind: 'style'・'asset' の登録（m3-t7）。スタイルの url は地図ライブラリへ渡す https の URL
+  const st: WeiwudiSource = await Weiwudi.register(style);
+  const styleUrl: string | string[] = st.url;
+  const as: WeiwudiSource = await Weiwudi.register(asset);
+  void [styleUrl, as];
   try {
-    await Weiwudi.register(asset);
+    await Weiwudi.register({ kind: 'style', url: 'https://a.example/broken.json' });
   } catch (e) {
     const code: string = WeiwudiError.from(e).code;
     void code;

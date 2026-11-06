@@ -235,6 +235,12 @@ export interface ServeResourceOptions {
    * style・tilejson の本体の除去の親をここから引く（O-N3）。無ければ sourceIds の Source を登録順に見て、資格情報を持つ最初のもの
    */
   credentialSourceId?: string;
+  /**
+   * 本体の除去の親を直接渡す（m3-t7・O-N2。スタイルの登録時の取得）。あれば store を読まずに、この親の URL のオリジンと
+   * 提供元で除去の規則を作る。除くのは credentials（足す資格情報）があるときだけ（保存した資格情報を見ないので、
+   * update() でスタイルの URL が変わって Resource に当たらないときも、新しい正規化の値で除ける）
+   */
+  parent?: { url: string; provider?: string };
 }
 
 const byOrder = (a: SourceRecord, b: SourceRecord): number => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -262,7 +268,14 @@ const stripRuleOf = async (ctx: Context, resource: ResourceMeta, credentialSourc
   if (!hasCredentials(await (await ctx.store()).getCredentials(owner.id))) return undefined;
   const parentRec = await (await ctx.store()).getSource(owner.parentId);
   const parent = parentRec ? styleSpecOf(parentRec) : undefined;
-  if (!parent) return undefined;
+  return parent ? ruleOfParent(ctx, resource, parent) : undefined;
+};
+
+/**
+ * 親（スタイルの URL と提供元）から作る除去の規則。accepts は context の acceptsMember（子作りと同じ判定。m3-t7）。
+ * 親の URL が読めなければ除かない
+ */
+const ruleOfParent = (ctx: Context, resource: ResourceMeta, parent: { url: string; provider?: string }): StripRule | undefined => {
   let styleOrigin: string;
   try {
     styleOrigin = new URL(parent.url).origin;
@@ -270,9 +283,12 @@ const stripRuleOf = async (ctx: Context, resource: ResourceMeta, credentialSourc
     return undefined;
   }
   const provider = parent.provider === undefined ? undefined : ctx.providers().find((p) => p.id === parent.provider);
+  const credentialParams = resource.policy.credentialParams;
+  const acceptsMember = ctx.acceptsMember;
   return {
-    credentialParams: resource.policy.credentialParams,
+    credentialParams,
     shouldStrip: credentialTargetOf({ styleOrigin, ...(provider ? { providerMatches: (u: string) => provider.matches(u) } : {}) }),
+    ...(acceptsMember ? { accepts: (type: ResourceType, templates: string[]) => acceptsMember(type, templates, credentialParams) } : {}),
   };
 };
 
@@ -305,7 +321,10 @@ export async function serveResource(
   const provider = providerOf(ctx, resource);
   let styleLike: Pick<ServeInput, 'isStyleLike' | 'transform'> = {};
   if (resource.type === 'style' || resource.type === 'tilejson') {
-    const stripOf = () => stripRuleOf(ctx, resource, opts.credentialSourceId);
+    const direct = opts.parent;
+    const stripOf = direct
+      ? async () => (hasCredentials(credentials) ? ruleOfParent(ctx, resource, direct) : undefined)
+      : () => stripRuleOf(ctx, resource, opts.credentialSourceId);
     const rewriteStyle = resource.type === 'style' && provider?.rewriteStyle
       ? (st: unknown) => provider.rewriteStyle!(st) : undefined;
     styleLike = { isStyleLike: true, transform: bodyTransformOf(resource.type, url.href, rewriteStyle, stripOf) };

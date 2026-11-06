@@ -12,6 +12,7 @@ import { credentialSourceFor } from './registry';
 import { getProviders } from './plugins';
 import { createMapboxProvider } from './providers/mapbox';
 import { appendQueryCredentials } from './upstream';
+import { acceptsMember } from './spec';
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -21,7 +22,12 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp | RouteMatchCal
   "use strict";
   // 提供元は利用者のもの（addProvider の登録順）を先に、標準の mapbox を後に評価する（m3-t5・R13）
   const mapbox = createMapboxProvider(appendQueryCredentials);
-  const ctx = createContext({ providers: () => [...getProviders(), mapbox] });
+  const providers = () => [...getProviders(), mapbox];
+  // 本体の資格情報の除去は、スタイルの子作りと同じ判定（spec.acceptsMember）で組を選ぶ（m3-t7。hook は spec を import できない）
+  const ctx = createContext({
+    providers,
+    acceptsMember: (type, templates, credentialParams) => acceptsMember(type, templates, credentialParams, providers()),
+  });
 
   // 初回ナビゲーションをリロードせずに SW の制御下へ置くため、install で skipWaiting・
   // activate で clients.claim を実行する（#30）
