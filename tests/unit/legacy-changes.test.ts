@@ -261,7 +261,7 @@ describe('載せ替えで決めた旧 API の扱い（Ruling）', () => {
     expect(res?.status).toBe(404);
   });
 
-  it('容量の判定の読み出し（evictScopesFor）が失敗したら、包括の Error: の文を返す（現行の読み出しの失敗と同じ経路）', async () => {
+  it('容量の判定の読み出し（evictScopesFor）が失敗しても、取得したタイルを storage で配信する（m4-t1 で直した。I1・仕様 §9）', async () => {
     const h = createSwHarness();
     await addTileMap(h, TEMPLATE, '&cacheMaxBytes=100');
     h.fetch.mockImplementation(async () => tileResponse(4));
@@ -272,7 +272,10 @@ describe('載せ替えで決めた旧 API の扱い（Ruling）', () => {
       return original.apply(this, args);
     });
     const res = await h.request('/api/cache/m/2/1/0');
-    expect(await res.text()).toBe('Error: UnknownError: simulated');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-weiwudi-error')).toBe('storage');
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(new Uint8Array(await tileResponse(4).arrayBuffer()));
+    expect(h.fetch).toHaveBeenCalledTimes(1);
   });
 
   it('fetchAll は取得した本体を読み切る（noOutput の空読み）', async () => {

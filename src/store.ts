@@ -267,6 +267,16 @@ export const toResourceInfo = (meta: ResourceMeta, now: number, sourceId?: strin
 
 // ---- Store ----
 
+/**
+ * 範囲取得の region（regions ストア。keyPath id・索引 sourceId）。形は m4-t3 で決める。ここでは store が読み書きに使う項目だけ
+ * （m4-t1）。deleteSource が同じ tx で sourceId の region を消す
+ */
+export interface RegionRecord {
+  id: string;
+  sourceId: string;
+  status: string;
+}
+
 /** putEntry の退避の 1 要素。cacheMaxBytes を持つ Source 1 つ分（§7.1） */
 export interface EvictionScope {
   resourceIds: string[];
@@ -300,7 +310,10 @@ export interface Store {
   clearEntries(resourceId: string): Promise<void>;
 
   getEntry(key: string): Promise<{ meta: EntryMeta; body: EntryBody } | undefined>;
-  /** メタがあり、かつ本体が今の形（StoredBody）で読めるものだけ true（古い形・壊れた本体は取り直しの対象として false） */
+  /**
+   * メタ（entries）があるものを true。本体は読まない（m4-t1・I12・R43）。古い形（Blob を持つ）の本体のキーも true で、
+   * 範囲取得・fetchAll は「有る」として飛ばし、表示の要求で getEntry が miss にして取り直す
+   */
   hasEntries(keys: string[]): Promise<boolean[]>;
   /** entries だけ。接続があれば tx は呼び出しの中で同期に作る */
   touch(key: string, accessedAt: number): Promise<void>;
@@ -320,6 +333,35 @@ export interface Store {
   putGlyphParts(
     meta: EntryMeta, parts: readonly GlyphPartInput[], headers: Record<string, string>, evict: EvictionScope[],
   ): Promise<{ saved: boolean }>;
+
+  /**
+   * 複数の Entry を同じ tx で消し、Resource の数を直す（呼び出し側が 200 件ずつ呼ぶ）。tx の中で読んだメタで条件を見直してから消す
+   * （unpinnedOnly: pinned === 1 なら残す。fetchedBefore: fetchedAt >= fetchedBefore なら残す）。消した数を返す（m4-t1）
+   */
+  deleteEntries(keys: readonly string[], opts?: { unpinnedOnly?: boolean; fetchedBefore?: number }): Promise<number>;
+  /** 固定を付ける・外す（同じ tx で pinnedBytes を直す）。無いキーと既にその値のキーは飛ばす。付けた・外した数を返す（m4-t1） */
+  setPinned(keys: readonly string[], pinned: 0 | 1): Promise<number>;
+  /**
+   * [pinned, fetchedAt] の索引を pinned = 0・fetchedAt < before で古い順（同値はキー昇順）に最大 limit 件読む（メタだけ。cursor）。
+   * next は limit 件読めたときの続きの位置（[fetchedAt, key]）で、after に渡すとその次から読む（m4-t1。t2 の掃除）
+   */
+  listUnpinnedBefore(before: number, limit: number, after?: IDBValidKey): Promise<{ metas: EntryMeta[]; next?: IDBValidKey }>;
+  /** Resource のキーの範囲のメタをキー昇順に最大 limit 件読む。next は limit 件読めたときの最後のキーで、after はその次から（m4-t1。t2 のグリフの掃除） */
+  entriesOf(resourceId: string, limit: number, after?: string): Promise<{ metas: EntryMeta[]; next?: string }>;
+  /** [resourceId, z] の索引で z の Entry のメタを読む（stats の範囲の数え上げ・解放の幾何。m4-t1） */
+  entriesAtZoom(resourceId: string, z: number): Promise<EntryMeta[]>;
+  /**
+   * グリフのレコードから fetchedAt < before の部分を tx の中で落として書き直す（空になれば消す。固定のレコード・部分の索引の無い
+   * レコード・古い形の本体は触らない）。詰め直しは putGlyphParts と共有する。落とした部分の数を返す（m4-t1。t2 の掃除）
+   */
+  pruneGlyphParts(key: string, before: number): Promise<number>;
+
+  getRegion(id: string): Promise<RegionRecord | undefined>;
+  putRegion(r: RegionRecord): Promise<void>;
+  /** 1 tx で読み・直し・書き。無ければ fn を呼ばず undefined。fn が undefined を返せば書かずに undefined。書いた値を返す（m4-t1） */
+  patchRegion(id: string, fn: (r: RegionRecord) => RegionRecord | undefined): Promise<RegionRecord | undefined>;
+  listRegions(sourceId: string): Promise<RegionRecord[]>;
+  deleteRegion(id: string): Promise<void>;
 
   getCredentials(sourceId: string): Promise<Credentials | undefined>;
   putCredentials(sourceId: string, c: Credentials): Promise<void>;
@@ -342,6 +384,9 @@ const S_KV = 'kv';
 const IX_SOURCE_IDS = 'sourceIds';
 const IX_RANGE_ONLY = 'rangeOnlySourceIds';
 const IX_LRU = 'resourceId_pinned_accessedAt';
+const IX_GLOBAL_LRU = 'pinned_accessedAt';
+const IX_FETCHED = 'pinned_fetchedAt';
+const IX_ZOOM = 'resourceId_z';
 const IX_REGION_SOURCE = 'sourceId';
 
 const blockedError = (): Error => {
@@ -361,9 +406,9 @@ const createSchema = (db: IDBDatabase): void => {
   if (!has(S_ENTRIES)) {
     const s = db.createObjectStore(S_ENTRIES, { keyPath: 'key' });
     s.createIndex(IX_LRU, ['resourceId', 'pinned', 'accessedAt']);
-    s.createIndex('pinned_accessedAt', ['pinned', 'accessedAt']);
-    s.createIndex('pinned_fetchedAt', ['pinned', 'fetchedAt']);
-    s.createIndex('resourceId_z', ['resourceId', 'z']);
+    s.createIndex(IX_GLOBAL_LRU, ['pinned', 'accessedAt']);
+    s.createIndex(IX_FETCHED, ['pinned', 'fetchedAt']);
+    s.createIndex(IX_ZOOM, ['resourceId', 'z']);
   }
   if (!has(S_BODIES)) db.createObjectStore(S_BODIES, { keyPath: 'key' });
   if (!has(S_REGIONS)) {
@@ -380,6 +425,58 @@ const req2p = <T>(req: IDBRequest<T>): Promise<T> =>
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+
+/**
+ * cursor の要求の次の success を待つ（m4-t1）。req2p は 1 回で解決するので、cursor は continue() の前にこれを呼んで
+ * 同じ要求の次の結果を待つ。tx の中で IDB の要求以外を待たない
+ */
+const cursorStep = <C extends IDBCursor>(req: IDBRequest<C | null>): Promise<C | null> =>
+  new Promise<C | null>((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+
+/** 2 つの Entry のメタの退避の順（accessedAt 昇順・同値はキー昇順） */
+const lruOrder = (a: EntryMeta, b: EntryMeta): number =>
+  a.accessedAt - b.accessedAt || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+
+/** 部分の索引を作り直した結合の本体（putGlyphParts と pruneGlyphParts が共有する。m4-t1） */
+interface PackedGlyph { data: ArrayBuffer; parts: GlyphPartIndex }
+
+/**
+ * 残す部分（保存済みの本体の中の位置）と新しい部分を、残す部分は本体の中の順に、新しい部分は並びの順に詰めて連結する
+ * （空きを残さない）。ArrayBuffer の切り出しと連結は同期なので、tx の中で IDB 以外の Promise を待たない
+ */
+const packGlyph = (
+  source: ArrayBuffer | undefined,
+  kept: readonly [string, { offset: number; length: number; fetchedAt: number }][],
+  fresh: readonly { part: string; data: ArrayBuffer; fetchedAt: number }[],
+): PackedGlyph => {
+  const pieces: Uint8Array[] = [];
+  const parts: GlyphPartIndex = {};
+  let offset = 0;
+  for (const [name, p] of [...kept].sort((a, b) => a[1].offset - b[1].offset)) {
+    pieces.push(new Uint8Array(source!, p.offset, p.length));
+    parts[name] = { offset, length: p.length, fetchedAt: p.fetchedAt };
+    offset += p.length;
+  }
+  for (const p of fresh) {
+    pieces.push(new Uint8Array(p.data));
+    parts[p.part] = { offset, length: p.data.byteLength, fetchedAt: p.fetchedAt };
+    offset += p.data.byteLength;
+  }
+  const joined = new Uint8Array(offset);
+  let at = 0;
+  for (const piece of pieces) {
+    joined.set(piece, at);
+    at += piece.byteLength;
+  }
+  return { data: joined.buffer, parts };
+};
+
+/** 部分の索引のうち最も新しい fetchedAt（レコードの fetchedAt。R7） */
+const newestPart = (parts: GlyphPartIndex): number =>
+  Object.values(parts).reduce((m, p) => Math.max(m, p.fetchedAt), -Infinity);
 
 /** Resource の Entry のキーの範囲（key = resourceId + '\0' + suffix。id は \0 を含まない） */
 const entryRange = (resourceId: string): IDBKeyRange =>
@@ -538,8 +635,72 @@ export const openStore = async (): Promise<Store> => {
   };
 
   /**
+   * Entry の増減と同じ tx で各 Resource の count・bytes・pinnedBytes を直す（commitEntry・deleteEntries・setPinned・
+   * pruneGlyphParts が共有する。C-O7）。known は同じ tx で読んだ Resource（読み直さない）。無い Resource は飛ばす
+   */
+  const applyDeltas = async (t: IDBTransaction, deltas: Map<string, Delta>, known: readonly ResourceMeta[] = []): Promise<void> => {
+    const resources = t.objectStore(S_RESOURCES);
+    for (const [id, d] of deltas) {
+      const saved = known.find((r) => r.id === id) ?? ((await req2p(resources.get(id))) as ResourceMeta | undefined);
+      if (!saved) continue;
+      resources.put({
+        ...saved,
+        count: saved.count + d.count,
+        bytes: saved.bytes + d.bytes,
+        pinnedBytes: saved.pinnedBytes + d.pinnedBytes,
+      });
+    }
+  };
+
+  /**
+   * 要素の resourceIds の固定でない Entry を、Resource ごとに IX_LRU の cursor で開いて併合し（accessedAt 昇順・同値はキー昇順）、
+   * total が budget に収まるまで 1 件ずつ消す（m4-t1・P7・R7'）。skipKey は候補から外す（保存する同じキー）。
+   * 前の要素が消した Entry は同じ tx の後の cursor に現れない。消した分は deltas に数え、残りの total を返す
+   */
+  const evictByCursor = async (
+    t: IDBTransaction, ids: readonly string[], total: number, budget: number,
+    skipKey: string | undefined, deltas: Map<string, Delta>,
+  ): Promise<number> => {
+    const entries = t.objectStore(S_ENTRIES);
+    const bodies = t.objectStore(S_BODIES);
+    const index = entries.index(IX_LRU);
+    const heads = await Promise.all(ids.map(async (id) => {
+      const req = index.openCursor(IDBKeyRange.bound([id, 0], [id, 0, []]));
+      return { req, cursor: await cursorStep(req) };
+    }));
+    const advance = async (h: (typeof heads)[number]) => {
+      const next = cursorStep(h.req);
+      h.cursor!.continue();
+      h.cursor = await next;
+    };
+    // 同じキーは飛ばす（今の getAll の実装の filter と同じ）
+    const skipSame = async () => {
+      for (const h of heads) {
+        while (h.cursor && skipKey !== undefined && (h.cursor.value as EntryMeta).key === skipKey) await advance(h);
+      }
+    };
+    await skipSame();
+    while (total > budget) {
+      let best: (typeof heads)[number] | undefined;
+      for (const h of heads) {
+        if (h.cursor && (!best || lruOrder(h.cursor.value as EntryMeta, best.cursor!.value as EntryMeta) < 0)) best = h;
+      }
+      if (!best) break;
+      const victim = best.cursor!.value as EntryMeta;
+      entries.delete(victim.key);
+      bodies.delete(victim.key);
+      addDelta(deltas, victim.resourceId, -1, -victim.size, 0); // 候補は pinned = 0 だけ
+      total -= victim.size;
+      await advance(best);
+      await skipSame();
+    }
+    return total;
+  };
+
+  /**
    * putEntry と putGlyphPart の共通の後半（C-O7）。同じ tx の中で、退避・Entry の書き込み・Resource の数の更新を行う。
-   * target は meta.resourceId の Resource、old は同じキーの保存済みの Entry（どちらも同じ tx で読んだもの）
+   * target は meta.resourceId の Resource、old は同じキーの保存済みの Entry（どちらも同じ tx で読んだもの）。
+   * 書く pinned は meta.pinned と old.pinned の論理和（m4-t1・L1・R6。上流を待つ間の setPinned を戻さない）
    */
   const commitEntry = async (
     t: IDBTransaction, target: ResourceMeta, old: EntryMeta | undefined,
@@ -550,55 +711,47 @@ export const openStore = async (): Promise<Store> => {
     const bodies = t.objectStore(S_BODIES);
 
     const newSize = meta.size;
+    const pinned: 0 | 1 = meta.pinned === 1 || old?.pinned === 1 ? 1 : 0;
     // 旧 putItemWithEviction と同じ: maxBytes が 0、または単体で maxBytes を超える応答は保存しない。
     // どれか 1 要素でも「保存しない」なら保存しない
     const willSave = evict.every((e) => e.maxBytes > 0 && newSize <= e.maxBytes);
     const deltas = new Map<string, Delta>();
+    const known: ResourceMeta[] = [target];
 
-    // 退避は要素ごと（第 1 回 S4）。各要素の resourceIds の pinned = 0 の Entry を併合し、
-    // accessedAt 昇順・同値はキー昇順で、要素の予算に収まるまで消す。前の要素が消した Entry は、同じ tx の
-    // 要求が出した順に処理されるので後の getAll には現れない（二重に数えない）
+    // 退避は要素ごと（第 1 回 S4）。まず予算の見積もり（R42）: 保存済みの固定でない大きさの和 ＋ この tx で前の要素が消した分
+    // － 置き換える同じキーの固定でない古い Entry（候補から外す分）。予算内なら走査しない（P7・R7'）。
+    // 超えるときだけ cursor を併合して古い順に消す（今の getAll の実装と同じ集合を消す）
     for (const scope of evict) {
       const ids = scope.resourceIds.filter((id, i, xs) => xs.indexOf(id) === i);
-      const lists = await Promise.all(ids.map((id) =>
-        req2p(entries.index(IX_LRU).getAll(IDBKeyRange.bound([id, 0], [id, 0, []]))) as Promise<EntryMeta[]>));
-      const candidates = ([] as EntryMeta[]).concat(...lists)
-        .filter((e) => !(willSave && e.key === meta.key))
-        .sort((a, b) => a.accessedAt - b.accessedAt || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-      let total = candidates.reduce((sum, e) => sum + e.size, 0);
-      const budget = willSave ? scope.maxBytes - newSize : scope.maxBytes;
-      for (let i = 0; total > budget && i < candidates.length; i++) {
-        const victim = candidates[i];
-        entries.delete(victim.key);
-        bodies.delete(victim.key);
-        addDelta(deltas, victim.resourceId, -1, -victim.size, 0); // 候補は pinned = 0 だけ
-        total -= victim.size;
+      let total = 0;
+      for (const id of ids) {
+        let r = known.find((x) => x.id === id);
+        if (!r) {
+          r = (await req2p(resources.get(id))) as ResourceMeta | undefined;
+          if (r) known.push(r);
+        }
+        if (r) total += r.bytes - r.pinnedBytes;
+        total += deltas.get(id)?.bytes ?? 0;
       }
+      if (willSave && old && old.pinned === 0 && ids.indexOf(old.resourceId) >= 0) total -= old.size;
+      const budget = willSave ? scope.maxBytes - newSize : scope.maxBytes;
+      if (total <= budget) continue;
+      await evictByCursor(t, ids, total, budget, willSave ? meta.key : undefined, deltas);
     }
 
     if (willSave) {
       // 保存するときは同じキーを候補から外したので、old は消えていない
       if (old) {
         addDelta(deltas, meta.resourceId, 0, newSize - old.size,
-          (meta.pinned === 1 ? newSize : 0) - (old.pinned === 1 ? old.size : 0));
+          (pinned === 1 ? newSize : 0) - (old.pinned === 1 ? old.size : 0));
       } else {
-        addDelta(deltas, meta.resourceId, 1, newSize, meta.pinned === 1 ? newSize : 0);
+        addDelta(deltas, meta.resourceId, 1, newSize, pinned === 1 ? newSize : 0);
       }
-      entries.put(meta);
+      entries.put({ ...meta, pinned });
       bodies.put(body);
     }
 
-    // Entry の増減と同じ tx で各 Resource の count・bytes・pinnedBytes を直す
-    for (const [id, d] of deltas) {
-      const saved = id === target.id ? target : ((await req2p(resources.get(id))) as ResourceMeta | undefined);
-      if (!saved) continue;
-      resources.put({
-        ...saved,
-        count: saved.count + d.count,
-        bytes: saved.bytes + d.bytes,
-        pinnedBytes: saved.pinnedBytes + d.pinnedBytes,
-      });
-    }
+    await applyDeltas(t, deltas, known);
     return { saved: willSave };
   };
 
@@ -667,14 +820,10 @@ export const openStore = async (): Promise<Store> => {
       const entryBody = fromStoredBody(body);
       return meta && entryBody ? { meta, body: entryBody } : undefined;
     }),
-    hasEntries: (keys) => tx([S_ENTRIES, S_BODIES], 'readonly', (t) => {
+    hasEntries: (keys) => tx([S_ENTRIES], 'readonly', (t) => {
       const entries = t.objectStore(S_ENTRIES);
-      const bodies = t.objectStore(S_BODIES);
-      // 取得を省く判定にも使うので、本体が今の形で読めることまで確かめる（古い形は取り直す。m3-t10）
-      return Promise.all(keys.map(async (k) => {
-        const [meta, body] = await Promise.all([req2p(entries.getKey(k)), req2p(bodies.get(k))]);
-        return meta !== undefined && isStoredBody(body);
-      }));
+      // メタだけで判定する（m4-t1・I12・R43）。古い形の本体は表示の要求の getEntry が miss にして取り直す
+      return Promise.all(keys.map(async (k) => (await req2p(entries.getKey(k))) !== undefined));
     }),
     touch: (key, accessedAt) => tx([S_ENTRIES], 'readwrite', async (t) => {
       const s = t.objectStore(S_ENTRIES);
@@ -707,7 +856,6 @@ export const openStore = async (): Promise<Store> => {
           req2p(t.objectStore(S_BODIES).get(meta.key)),
         ]);
         // 残す部分を本体の中の順に詰め直し、新しい部分を最後に足す（同じ範囲の古い部分は落とす。空きを残さない）。
-        // ArrayBuffer の切り出しと連結は同期なので、tx の中で IDB 以外の Promise を待たない。
         // 古い形（Blob を持つ）の本体は読めないので、その部分は残さない（作り直す）
         const oldBody = isStoredBody(oldRaw) ? oldRaw : undefined;
         const replaced = new Set(freshData.map((p) => p.part));
@@ -715,38 +863,148 @@ export const openStore = async (): Promise<Store> => {
           ? Object.entries(oldBody.parts).filter(([name]) => !replaced.has(name))
           : [];
         // 本体を超える部分が 1 つでもあれば全体を読めないものとして kept を空にし、新しい部分だけで作り直す（例外にしない）
-        const kept = oldParts.every(([, p]) => p.offset + p.length <= oldBody!.data.byteLength)
-          ? oldParts.sort((a, b) => a[1].offset - b[1].offset)
-          : [];
-        const pieces: Uint8Array[] = [];
-        const parts: GlyphPartIndex = {};
-        let offset = 0;
-        for (const [name, p] of kept) {
-          pieces.push(new Uint8Array(oldBody!.data, p.offset, p.length));
-          parts[name] = { offset, length: p.length, fetchedAt: p.fetchedAt };
-          offset += p.length;
+        let kept = oldParts.every(([, p]) => p.offset + p.length <= oldBody!.data.byteLength) ? oldParts : [];
+        // 上限を超える結合レコード（m4-t1・L3・R7）: 連結後の大きさが要素のどれかの maxBytes を超えるとき、残す部分を
+        // fetchedAt の昇順（同値は本体の中の順）に落として収める。新しい部分だけで超えるときは落とさない（commitEntry が保存しない）
+        const limit = evict.reduce((m, e) => Math.min(m, e.maxBytes), Infinity);
+        const freshSize = freshData.reduce((n, p) => n + p.data.byteLength, 0);
+        let keptSize = kept.reduce((n, [, p]) => n + p.length, 0);
+        if (freshSize + keptSize > limit && freshSize <= limit) {
+          const byAge = [...kept].sort((x, y) => x[1].fetchedAt - y[1].fetchedAt || x[1].offset - y[1].offset);
+          while (freshSize + keptSize > limit && byAge.length > 0) keptSize -= byAge.shift()![1].length;
+          kept = byAge;
         }
-        for (const p of freshData) {
-          pieces.push(new Uint8Array(p.data));
-          parts[p.part] = { offset, length: p.data.byteLength, fetchedAt: p.fetchedAt };
-          offset += p.data.byteLength;
-        }
-        const joined = new Uint8Array(offset);
-        let at = 0;
-        for (const piece of pieces) {
-          joined.set(piece, at);
-          at += piece.byteLength;
-        }
+        const packed = packGlyph(oldBody?.data, kept, freshData);
         const type = freshData[freshData.length - 1].type;
         const next: EntryMeta = {
           ...meta,
-          size: joined.byteLength,
+          size: packed.data.byteLength,
           // 最も新しい部分の fetchedAt（R7。新しい部分がある間はレコードを掃除の対象にしない）
-          fetchedAt: Object.values(parts).reduce((m, p) => Math.max(m, p.fetchedAt), -Infinity),
+          fetchedAt: newestPart(packed.parts),
         };
-        return commitEntry(t, target, old, next, { key: meta.key, data: joined.buffer, type, headers, parts }, evict);
+        return commitEntry(t, target, old, next, { key: meta.key, data: packed.data, type, headers, parts: packed.parts }, evict);
       });
     },
+
+    deleteEntries: (keys, opts = {}) => tx([S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t) => {
+      const entries = t.objectStore(S_ENTRIES);
+      const bodies = t.objectStore(S_BODIES);
+      const deltas = new Map<string, Delta>();
+      let n = 0;
+      const unique = keys.filter((k, i, xs) => xs.indexOf(k) === i);
+      const metas = await Promise.all(unique.map((k) => req2p(entries.get(k)) as Promise<EntryMeta | undefined>));
+      for (const m of metas) {
+        if (!m) continue;
+        // tx の中で読んだメタで条件を見直す（一覧の後の固定・取り直しを消さない。第 1 回 M11）
+        if (opts.unpinnedOnly && m.pinned === 1) continue;
+        if (opts.fetchedBefore !== undefined && m.fetchedAt >= opts.fetchedBefore) continue;
+        entries.delete(m.key);
+        bodies.delete(m.key);
+        addDelta(deltas, m.resourceId, -1, -m.size, m.pinned === 1 ? -m.size : 0);
+        n++;
+      }
+      await applyDeltas(t, deltas);
+      return n;
+    }),
+    setPinned: (keys, pinned) => tx([S_RESOURCES, S_ENTRIES], 'readwrite', async (t) => {
+      const entries = t.objectStore(S_ENTRIES);
+      const deltas = new Map<string, Delta>();
+      let n = 0;
+      const unique = keys.filter((k, i, xs) => xs.indexOf(k) === i);
+      const metas = await Promise.all(unique.map((k) => req2p(entries.get(k)) as Promise<EntryMeta | undefined>));
+      for (const m of metas) {
+        if (!m || m.pinned === pinned) continue;
+        entries.put({ ...m, pinned });
+        addDelta(deltas, m.resourceId, 0, 0, pinned === 1 ? m.size : -m.size);
+        n++;
+      }
+      await applyDeltas(t, deltas);
+      return n;
+    }),
+    listUnpinnedBefore: (before, limit, after) => tx([S_ENTRIES], 'readonly', async (t) => {
+      const metas: EntryMeta[] = [];
+      if (limit <= 0) return { metas };
+      const pos = Array.isArray(after) ? (after as [number, string]) : undefined;
+      const lower = pos ? [0, pos[0]] : [0, -Infinity];
+      const req = t.objectStore(S_ENTRIES).index(IX_FETCHED).openCursor(IDBKeyRange.bound(lower, [0, before], false, true));
+      let cursor = await cursorStep(req);
+      // 続きの位置（[fetchedAt, key]）まで飛ばす。同じ fetchedAt で key が後のものから読む
+      while (cursor && pos && (cursor.value as EntryMeta).fetchedAt === pos[0] && String(cursor.primaryKey) <= pos[1]) {
+        const next = cursorStep(req);
+        if (String(cursor.primaryKey) === pos[1]) cursor.continue();
+        else cursor.continuePrimaryKey([0, pos[0]], pos[1]);
+        cursor = await next;
+      }
+      while (cursor && metas.length < limit) {
+        metas.push(cursor.value as EntryMeta);
+        if (metas.length >= limit) break;
+        const next = cursorStep(req);
+        cursor.continue();
+        cursor = await next;
+      }
+      const last = metas[metas.length - 1];
+      return metas.length >= limit && last ? { metas, next: [last.fetchedAt, last.key] } : { metas };
+    }),
+    entriesOf: (resourceId, limit, after) => tx([S_ENTRIES], 'readonly', async (t) => {
+      if (limit <= 0) return { metas: [] };
+      const range = after === undefined
+        ? entryRange(resourceId)
+        : IDBKeyRange.bound(after, `${resourceId}\x01`, true, true);
+      const metas = (await req2p(t.objectStore(S_ENTRIES).getAll(range, limit))) as EntryMeta[];
+      return metas.length >= limit ? { metas, next: metas[metas.length - 1].key } : { metas };
+    }),
+    entriesAtZoom: (resourceId, z) => tx([S_ENTRIES], 'readonly', (t) =>
+      req2p(t.objectStore(S_ENTRIES).index(IX_ZOOM).getAll([resourceId, z])) as Promise<EntryMeta[]>),
+    pruneGlyphParts: (key, before) => tx([S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t) => {
+      const entries = t.objectStore(S_ENTRIES);
+      const bodies = t.objectStore(S_BODIES);
+      const [meta, raw] = await Promise.all([
+        req2p(entries.get(key)) as Promise<EntryMeta | undefined>,
+        req2p(bodies.get(key)),
+      ]);
+      if (!meta || meta.pinned === 1 || !isStoredBody(raw) || !raw.parts) return 0;
+      const all = Object.entries(raw.parts);
+      // 本体を超える部分を持つレコードは読めないので触らない（次の putGlyphParts が作り直す）
+      if (!all.every(([, p]) => p.offset + p.length <= raw.data.byteLength)) return 0;
+      const kept = all.filter(([, p]) => p.fetchedAt >= before);
+      const dropped = all.length - kept.length;
+      if (dropped === 0) return 0;
+      const deltas = new Map<string, Delta>();
+      if (kept.length === 0) {
+        entries.delete(key);
+        bodies.delete(key);
+        addDelta(deltas, meta.resourceId, -1, -meta.size, 0);
+      } else {
+        const packed = packGlyph(raw.data, kept, []);
+        const size = packed.data.byteLength;
+        entries.put({ ...meta, size, fetchedAt: newestPart(packed.parts) });
+        bodies.put({ ...raw, data: packed.data, parts: packed.parts });
+        addDelta(deltas, meta.resourceId, 0, size - meta.size, 0);
+      }
+      await applyDeltas(t, deltas);
+      return dropped;
+    }),
+
+    getRegion: (id) => getOne<RegionRecord>(S_REGIONS, id),
+    putRegion: (r) => tx([S_REGIONS], 'readwrite', (t) => {
+      t.objectStore(S_REGIONS).put(r);
+    }),
+    patchRegion: (id, fn) => tx([S_REGIONS], 'readwrite', async (t) => {
+      const s = t.objectStore(S_REGIONS);
+      const saved = (await req2p(s.get(id))) as RegionRecord | undefined;
+      if (!saved) return undefined;
+      const next = fn(saved);
+      if (!next) return undefined;
+      // id は保存済みの値のまま（patchResource と同じ）
+      const out: RegionRecord = { ...next, id: saved.id };
+      s.put(out);
+      return out;
+    }),
+    listRegions: (sourceId) => tx([S_REGIONS], 'readonly', (t) =>
+      req2p(t.objectStore(S_REGIONS).index(IX_REGION_SOURCE).getAll(sourceId)) as Promise<RegionRecord[]>),
+    deleteRegion: (id) => tx([S_REGIONS], 'readwrite', (t) => {
+      t.objectStore(S_REGIONS).delete(id);
+    }),
 
     getCredentials: (sourceId) => tx([S_CREDENTIALS], 'readonly', async (t) => {
       const rec = (await req2p(t.objectStore(S_CREDENTIALS).get(sourceId))) as (Credentials & { sourceId: string }) | undefined;

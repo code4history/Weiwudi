@@ -387,3 +387,38 @@ describe('照合ルートからグリフの範囲を渡す（hook）', () => {
     s.close();
   });
 });
+
+// ---- m4-t1（計画 docs/superpowers/plans/2026-11-07-m4-range-release-migration.md の m4-t1）。追記のみ ----
+
+describe('固定の競合のグリフ版（m4-t1・L1・R6）', () => {
+  it('上流を待つ間に固定されたレコードは、putGlyphParts の後も固定のまま（old.pinned を保つ）', async () => {
+    await serve(ctx, glyphInput('Noto', '0-255', vi.fn<Up>(async () => okBody(glyphBytes('0-255', 10)))), () => T);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const upstream = vi.fn<Up>(async () => {
+      await gate;
+      return okBody(glyphBytes('256-511', 6));
+    });
+    const p = serve(ctx, glyphInput('Noto', '256-511', upstream), () => T + 1);
+    await vi.waitFor(() => expect(upstream).toHaveBeenCalled());
+    await store.setPinned([gkey('Noto')], 1);
+    release();
+    expect((await p).headers.get('x-weiwudi-status')).toBe('miss');
+    const got = await store.getEntry(gkey('Noto'));
+    expect(got!.meta.pinned).toBe(1);
+    expect(Object.keys(got!.body.parts!).sort()).toEqual(['0-255', '256-511']);
+    expect(await store.getResource(GID)).toMatchObject({ count: 1, bytes: 16, pinnedBytes: 16 });
+    await expectConsistent();
+  });
+
+  it('上限を超える結合レコードは古い範囲を落として新しい範囲を保存する（L3・R7）', async () => {
+    await store.putSource(sourceRecord('s1', 25));
+    await serve(ctx, glyphInput('Noto', '0-255', vi.fn<Up>(async () => okBody(glyphBytes('0-255', 12)))), () => T);
+    await serve(ctx, glyphInput('Noto', '256-511', vi.fn<Up>(async () => okBody(glyphBytes('256-511', 12)))), () => T + 1);
+    const res = await serve(ctx, glyphInput('Noto', '512-767', vi.fn<Up>(async () => okBody(glyphBytes('512-767', 12)))), () => T + 2);
+    expect(res.headers.get('x-weiwudi-error')).toBeNull();
+    const got = await store.getEntry(gkey('Noto'));
+    expect(Object.keys(got!.body.parts!).sort()).toEqual(['256-511', '512-767']);
+    await expectConsistent();
+  });
+});

@@ -10,13 +10,14 @@
 //   上流の x-weiwudi-* をすべて落とす
 // - 同時要求をまとめるのは storable の要求だけ。Range つきの要求は素通し（仕様 §11）
 // - hit の touch は応答を返す前に呼び、完了は待たない（R8・第 1 回 O-6）
-// - 保存に失敗しても配信は続け、x-weiwudi-error に quota か storage を付ける（#22）
+// - 保存に失敗しても配信は続け、x-weiwudi-error に quota か storage を付ける（#22）。退避の範囲の読み出しの失敗も storage（m4-t1・I1）
 // - store の読み出しの失敗（接続・Resource・Entry）は reject で返す（呼び出し側が旧 API の文面などへ直す）
 import type { Context } from './context';
 import { isChildRecord, storedSpecOf, styleSpecOf, toResourceInfo, type EntryBody, type EntryMeta, type EvictionScope, type ResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
 import { getPlugins, type WeiwudiPlugin } from './plugins';
 import { isInTileBox, scaleTileBox } from './tile_math';
 import { WeiwudiError, type TileFailure } from './errors';
+import { DROPPED_HEADERS, OWN_PREFIX } from './constants';
 
 // ---- 型 ----
 
@@ -59,6 +60,11 @@ export interface ServeInput {
   transform?: (blob: Blob) => Promise<Blob>;
   /** 真なら §6 の 2（hit）を飛ばして上流へ出す。失敗したら表の 4・6 で古い本体（m3-t6・R4。update() の取り直し） */
   revalidate?: boolean;
+  /**
+   * 真なら保存と同じ tx で固定する（pinned = 1。m4-t1・R6）。範囲取得の近道で、固定の正本はジョブ側の store.setPinned
+   * （同時要求のまとめと hit は save を通らない。R46）。偽・無しは pinned = 0 で書き、保存済みの固定は commitEntry が保つ
+   */
+  pin?: boolean;
 }
 
 /** x-weiwudi-status の値（公開の契約。仕様 §6） */
@@ -77,16 +83,10 @@ export const TRANSPARENT_PNG: Uint8Array = Uint8Array.from(atob(
 /** ベクタの空本体の content-type（登録時に分からないときの既定。仕様 §6） */
 const VECTOR_TILE_TYPE = 'application/vnd.mapbox-vector-tile';
 
-/** 保存時と合成時に落とすヘッダ（本体は復号済みなので、残すと再生時に矛盾する） */
-const DROPPED_HEADERS: readonly string[] = ['content-encoding', 'content-length', 'transfer-encoding', 'set-cookie'];
-
 const H_STATUS = 'x-weiwudi-status';
 const H_ERROR = 'x-weiwudi-error';
 const H_EXPOSE = 'access-control-expose-headers';
 const EXPOSE_VALUE = `${H_STATUS}, ${H_ERROR}`;
-
-/** 上流の値を写さない名前の前置き（こちらの名前空間。上流の x-weiwudi-* はすべて落とす） */
-const OWN_PREFIX = 'x-weiwudi-';
 
 const JOB_BATCH = 5;
 
@@ -384,13 +384,11 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
     if (kind) return outOfRangeResponse(resource, kind);
   }
 
-  // Entry（削除期限を過ぎたものは無いもの。固定は対象外。R21）
+  // Entry（削除期限を過ぎたものは無いもの。固定は対象外。R21）。保存し直すときの固定の引き継ぎ（PR #75 L1 m2）は
+  // store.commitEntry が tx の中で読んだ値で行う（上流を待つ間の setPinned も戻さない。m4-t1・R6）
   let entry: LiveEntry | undefined;
-  // 保存し直すときに引き継ぐ固定（Entry を無いもの扱いにしても、保存済みの値を保つ。PR #75 L1 m2）
-  let savedPinned: 0 | 1 = 0;
   if (resource) {
     const got = await store.getEntry(input.key);
-    if (got) savedPinned = got.meta.pinned;
     const live = got && liveEntryOf(got.meta, got.body, input.part);
     const retention = resource.policy.cacheRetention;
     if (live && !(retention !== undefined && live.meta.pinned !== 1 && t - live.meta.fetchedAt > retention)) {
@@ -467,7 +465,7 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
   const status: ServeStatus = entry && input.storable ? 'refresh' : 'miss';
   let failure: TileFailure | undefined;
   if (resource && input.storable) {
-    failure = await save(store, resource, input, hooks!, up, savedPinned, t);
+    failure = await save(store, resource, input, hooks!, up, t);
   }
   return synthesize({ ...up, status: 200, statusText: 'OK' }, status, failure);
 };
@@ -475,7 +473,7 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
 /** 保存する。失敗は種類を返す（配信は続ける）。cacheWillUpdate には元の要求（ServeInput.request）を渡す */
 const save = async (
   store: Store, resource: ResourceMeta, input: ServeInput, hooks: Hooks,
-  up: Parts, pinned: 0 | 1, t: number,
+  up: Parts, t: number,
 ): Promise<TileFailure | undefined> => {
   let blob = up.body as Blob;
   let headers = up.headers;
@@ -500,7 +498,7 @@ const save = async (
     size: blob.size,
     fetchedAt: t,
     accessedAt: t,
-    pinned,
+    pinned: input.pin === true ? 1 : 0,
   };
   if (input.coord) {
     meta.z = input.coord.z;
@@ -508,8 +506,14 @@ const save = async (
     meta.y = input.coord.y;
   }
   if (headers['content-type'] !== undefined) meta.contentType = headers['content-type'];
-  // 退避の範囲の読み出しの失敗は reject で返す（store の読み出しは R3）。書き込みの失敗だけを種類に直す
-  const evict = await evictScopesFor(store, resource);
+  // 退避の範囲の読み出しの失敗も保存の失敗として storage を返し、配信を続ける（m4-t1・I1a・I1b・R-I1。仕様 §9）。
+  // reject にすると照合ルートの serveHit が素通しして上流へ 2 回出る
+  let evict: EvictionScope[];
+  try {
+    evict = await evictScopesFor(store, resource);
+  } catch (_e) {
+    return 'storage';
+  }
   try {
     if (input.part === undefined) await store.putEntry(meta, { key: input.key, blob, headers }, evict);
     else await store.putGlyphPart(meta, input.part, blob, headers, evict);

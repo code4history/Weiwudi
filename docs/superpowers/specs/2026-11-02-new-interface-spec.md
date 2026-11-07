@@ -74,7 +74,7 @@
 
 | ファイル | 役割 | 値を import してよいもの |
 |---|---|---|
-| `constants.ts` | 疑似ホスト・旧 API の前置き・既定の時間（m3） | なし（全ファイルが import してよい） |
+| `constants.ts` | 疑似ホスト・旧 API の前置き・既定の時間（m3）・保存と合成で落とすヘッダと自前のヘッダの接頭辞（m4） | なし（全ファイルが import してよい） |
 | `tile_math.ts` | 座標・タイル計算（#34。m1）・テンプレートの展開・タイルのキーの suffix（`tileKeySuffix`。新旧で 1 つ） | なし |
 | `errors.ts` | `WeiwudiError` と旧文面の表（#33。m1） | なし |
 | `url_pattern.ts` | テンプレートの解析・照合・正規化・キー | `tile_math`・`constants`・`errors` |
@@ -89,7 +89,8 @@
 | `core.ts` | `serve()`・退避・ジョブ | `context`・`store`・`plugins`・`url_pattern`・`tile_math`・`constants`・`errors` |
 | `hook.ts` | 照合表・ルート登録 | `core`・`upstream`・`context`・`store`・`url_pattern`・`style_body`・`constants`・`errors` |
 | `style.ts` | スタイルの芋づる登録の段取り（§5.5。m3） | `hook`・`core`・`registry`・`spec`・`style_body`・`url_pattern`・`context`・`store`・`constants`・`errors` |
-| `control.ts` | `/v2/*` の処理 | `hook`・`core`・`registry`・`spec`・`style`・`context`・`store`・`tile_math`・`constants`・`errors` |
+| `range.ts` | 範囲の正規化・列挙・ジョブ・region・解放（m4） | `hook`・`core`・`upstream`・`registry`・`context`・`store`・`spec`・`url_pattern`・`tile_math`・`style_body`・`constants`・`errors` |
+| `control.ts` | `/v2/*` の処理 | `hook`・`core`・`registry`・`spec`・`style`・`range`・`context`・`store`・`tile_math`・`constants`・`errors` |
 | `legacy.ts` | `/api/*` の翻訳と `MapSetting` の変換 | `core`・`context`・`store`・`tile_math`・`constants`・`errors`（m4 で `migrate`） |
 | `migrate.ts` | 旧 DB からの移行（m4） | `store`・`constants`・`errors` |
 | `weiwudi_gw_logic.ts` | 配線だけ（`Weiwudi_Internal`） | 上の全部 |
@@ -556,7 +557,7 @@ export class WeiwudiError extends Error {
   - `blocked` の文面の DB 名は `Weiwudi` から `WeiwudiStore` に変わる。旧 DB が `blocked` でも `delete` は失敗せず成功する（§14.2。旧 DB の削除は次の起動へ回す）
   - `fetchAll` の `proceed`・`finish` の `error`・`errors` は、そのジョブの要求の失敗だけを数える（現行は動いている間の他のタイルの要求の失敗も数えていた。m2-t5 の Ruling）
   - `Range` ヘッダつきの `/api/cache` の要求は、保存も範囲外の判定もせず上流のタイルの URL へ素通しし、206 をそのまま返す（§11）。素通しのネットワーク失敗は §6 の 7 の形（404・`x-weiwudi-status: offline-miss`・`x-weiwudi-error: network`・`access-control-expose-headers`）で返す
-  - 保存の前の容量の判定（`cacheMaxBytes` の退避の範囲を決める IndexedDB の読み出し）が失敗すると、タイルではなく包括の `Error: ${e}` の本文を返す（現行は保存の失敗として取得したタイルを返していた）。読み出しの失敗はまれなので m2 では直さず、m4 の保存の再試行（§7.1）と一緒に「`storage` で配信を続ける」形にする
+  - 保存の前の容量の判定（`cacheMaxBytes` の退避の範囲を決める IndexedDB の読み出し）の失敗は、m2 では包括の `Error: ${e}` の本文を返していた（照合ルートは上流へ 2 回出していた）。m4 で直し、現行と同じく保存の失敗として取得したタイルを `x-weiwudi-error: storage` で配信を続ける（保存しない・上流へは 1 回）
 
 文字列の reject は次の major で `WeiwudiError` へ変える。非推奨の予告は §13 の時期に合わせる。
 

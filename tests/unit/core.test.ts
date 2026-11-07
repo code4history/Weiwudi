@@ -663,10 +663,18 @@ describe('レビューの指摘（PR #75）', () => {
     expect(await bytesOf(priv)).toEqual(bodyOf(10, 7));
   });
 
-  it('退避の範囲の読み出しの失敗は storage にせず reject で返す（L2・R3）', async () => {
+  it('退避の範囲の読み出しの失敗は storage として配信を続ける（m4-t1 で L2・R3 の reject を改めた。I1a・R-I1）', async () => {
     const err = new DOMException('read failed', 'UnknownError');
     vi.spyOn(store, 'getSource').mockRejectedValue(err);
-    await expect(run()).rejects.toBe(err);
+    const upstream = vi.fn<Up>(async () => ok(10));
+    const res = await run({ upstream });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-weiwudi-status')).toBe('miss');
+    expect(res.headers.get('x-weiwudi-error')).toBe('storage');
+    expect(await bytesOf(res)).toEqual(bodyOf(10, 2));
+    expect(upstream).toHaveBeenCalledTimes(1);
+    expect(await store.hasEntries([k('1_0_0')])).toEqual([false]);
+    expect(await store.getResource(RID)).toMatchObject({ count: 0, bytes: 0 });
   });
 
   it('putEntry の書き込みの失敗だけを storage にする（読み出しは成功）', async () => {
@@ -977,5 +985,61 @@ describe('revalidate と同時要求のまとめ（L1 Minor-1）', () => {
     expect(normal.headers.get('x-weiwudi-status')).toBe('hit');
     expect(revalidate.headers.get('x-weiwudi-status')).toBe('refresh');
     expect(upstream).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---- m4-t1（計画 docs/superpowers/plans/2026-11-07-m4-range-release-migration.md の m4-t1）。追記のみ ----
+// 既存の行を変えないため、import はここに足す（import 宣言は巻き上げられる）
+import { IDBObjectStore } from 'fake-indexeddb';
+import { createSwHarness } from './sw-harness';
+
+describe('保存の土台（m4-t1）', () => {
+  it('照合ルート: 退避の範囲の読み出し（sources の get）が失敗しても storage で配信し、上流の fetch は 1 回（I1a）', async () => {
+    const h = createSwHarness();
+    h.fetch.mockImplementation(async () => new Response(bodyOf(6, 4), { status: 200, headers: { 'content-type': 'image/png' } }));
+    const c = createContext();
+    const s = await c.store();
+    await s.createResource(resource({ sourceIds: ['s1'] }));
+    await h.flushRoutes();
+    await h.dispatch('https://warm.example/');
+    const original = IDBObjectStore.prototype.get;
+    vi.spyOn(IDBObjectStore.prototype, 'get').mockImplementation(function (this: IDBObjectStore, ...args: Parameters<IDBObjectStore['get']>) {
+      if (this.name === 'sources') throw new DOMException('read failed', 'UnknownError');
+      return original.apply(this, args);
+    });
+    h.fetch.mockClear();
+    const res = await h.dispatch('https://t.example/1/0/0.png');
+    expect(res!.status).toBe(200);
+    expect(res!.headers.get('x-weiwudi-error')).toBe('storage');
+    expect(await bytesOf(res!)).toEqual(bodyOf(6, 4));
+    expect(h.fetch).toHaveBeenCalledTimes(1);
+    vi.mocked(IDBObjectStore.prototype.get).mockRestore();
+    expect(await s.getResource(RID)).toMatchObject({ count: 0, bytes: 0 });
+    s.close();
+  });
+
+  it('ServeInput.pin が真の miss は pinned === 1 で保存し、偽・無しなら 0', async () => {
+    await run({ pin: true });
+    expect((await store.getEntry(k('1_0_0')))!.meta.pinned).toBe(1);
+    expect(await store.getResource(RID)).toMatchObject({ count: 1, bytes: 10, pinnedBytes: 10 });
+    await run({ key: k('1_1_0'), coord: { z: 1, x: 1, y: 0 }, pin: false });
+    expect((await store.getEntry(k('1_1_0')))!.meta.pinned).toBe(0);
+  });
+
+  it('上流を待つ間に固定されたキーは、通常の配信の保存の後も固定のまま（L1・R6）', async () => {
+    await seed('1_0_0', { fetchedAt: T - TTL - 1 });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const upstream = vi.fn<Up>(async () => {
+      await gate;
+      return ok(8);
+    });
+    const p = run({ upstream });
+    await vi.waitFor(() => expect(upstream).toHaveBeenCalled());
+    await store.setPinned([k('1_0_0')], 1);
+    release();
+    expect((await p).headers.get('x-weiwudi-status')).toBe('refresh');
+    expect((await store.getEntry(k('1_0_0')))!.meta.pinned).toBe(1);
+    expect(await store.getResource(RID)).toMatchObject({ count: 1, bytes: 8, pinnedBytes: 8 });
   });
 });

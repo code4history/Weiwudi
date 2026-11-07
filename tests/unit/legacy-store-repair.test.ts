@@ -40,7 +40,7 @@ const versionOf = async (factory: IDBFactory, dbname: string): Promise<number> =
 };
 
 describe('旧 DB が残っているときの旧 API（仕様 §13・§14.2）', () => {
-  it('fetchAll は Blob を持つ古い形のレコードを取り直し、今の形で保存し直す', async () => {
+  it('fetchAll は Blob を持つ古い形のレコードを飛ばし（m4-t1・I12・R43）、表示の要求が取り直して今の形で保存し直す', async () => {
     const h = createSwHarness();
     await h.request(ADD);
     h.fetch.mockImplementation(async () => tileResponse(3));
@@ -64,9 +64,14 @@ describe('旧 DB が残っているときの旧 API（仕様 §13・§14.2）', 
       h.self.clients.get.mockResolvedValue(client);
       await h.requestFromClient('/api/fetchAll?mapID=x', client);
       await Promise.all(h.waitUntilCalls);
+      // hasEntries はメタだけを見るので、古い形のレコードも「有る」として取得を省く
+      expect(h.fetch).toHaveBeenCalledTimes(0);
+      expect(client.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'finish', error: 0 }));
+      // 表示の要求は getEntry が miss にして取り直す
+      const res = await h.request('/api/cache/x/0/0/0');
+      expect(res.status).toBe(200);
       expect(h.fetch).toHaveBeenCalledTimes(1);
       expect(h.fetch).toHaveBeenCalledWith('https://tile.example/0/0/0.png');
-      expect(client.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'finish', error: 0 }));
       const stored = await new Promise<StoredBody>((resolve, reject) => {
         const req = db.transaction(['bodies'], 'readonly').objectStore('bodies').get(key);
         req.onsuccess = () => resolve(req.result as StoredBody);
@@ -82,10 +87,6 @@ describe('旧 DB が残っているときの旧 API（仕様 §13・§14.2）', 
       } finally {
         store.close();
       }
-      // 保存し直した後の fetchAll は取得を省く。
-      await h.requestFromClient('/api/fetchAll?mapID=x', client);
-      await Promise.all(h.waitUntilCalls);
-      expect(h.fetch).toHaveBeenCalledTimes(1);
     } finally {
       db.close();
     }

@@ -8,3 +8,10 @@ export const LEGACY_PREFIX = 'map:';
 export const DAY_MS = 24 * 60 * 60 * 1000;
 /** 制御のパスの前置き（仕様 §4.1） */
 export const V2_PREFIX = '/v2/';
+/**
+ * 保存と合成で落とすヘッダ（本体は復号済みなので、残すと再生時に矛盾する）。core の保存・合成と m4 の移行（旧 DB の headers）が使う
+ * （m4-t1 で core.ts から移した。migrate は core を import できない。仕様 §3）
+ */
+export const DROPPED_HEADERS: readonly string[] = ['content-encoding', 'content-length', 'transfer-encoding', 'set-cookie'];
+/** 上流の値を写さない名前の前置き（こちらの名前空間。上流の x-weiwudi-* はすべて落とす） */
+export const OWN_PREFIX = 'x-weiwudi-';

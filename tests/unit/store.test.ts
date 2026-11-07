@@ -864,7 +864,7 @@ describe('本体の保存の形（m3-t10。WebKit の非永続の保存領域は
     await put(s, e);
     await rawPut('bodies', { key: e.key, blob: new Blob([new Uint8Array(4)], { type: 'image/png' }), headers: {} });
     expect(await s.getEntry(e.key)).toBeUndefined();
-    expect(await s.hasEntries([e.key, key('r1', 'missing')])).toEqual([false, false]);
+    expect(await s.hasEntries([e.key, key('r1', 'missing')])).toEqual([true, false]);
     // 作り直し（同じキーの putEntry）は古い Entry を置き換え、count・bytes を二重に数えない
     const e2 = entry('r1', '1_0_0', 6, 20);
     expect(await put(s, e2)).toEqual({ saved: true });
@@ -992,5 +992,424 @@ describe('本体の保存の形（m3-t10。WebKit の非永続の保存領域は
     expect(await bytesOf(got!.body.blob)).toEqual([2]);
     expect(await s.getResource('r1')).toMatchObject({ count: 1, bytes: 1 });
     await expectCountsConsistent(s);
+  });
+});
+
+// ---- m4-t1（計画 docs/superpowers/plans/2026-11-07-m4-range-release-migration.md の m4-t1）。追記のみ ----
+// 既存の行を変えないため、import はここに足す（import 宣言は巻き上げられる）
+import { IDBIndex } from 'fake-indexeddb';
+import type { RegionRecord } from '../../src/store';
+
+/** 種を固定した擬似乱数（mulberry32） */
+const m4rng = (seed: number) => () => {
+  seed = (seed + 0x6d2b79f5) | 0;
+  let t = seed;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+
+const glyphBlob = (size: number, fill: number) => new Blob([new Uint8Array(size).fill(fill)]);
+const glyphMeta = (rid: string, fontstack: string, t: number, over: Partial<EntryMeta> = {}): EntryMeta =>
+  ({ key: key(rid, fontstack), resourceId: rid, size: 0, fetchedAt: t, accessedAt: t, pinned: 0, ...over });
+
+describe('固定の競合（m4-t1・L1・R6）', () => {
+  it('上流を待つ間に setPinned で固定したキーは、pinned: 0 の putEntry の後も固定のまま（pinnedBytes は本体の大きさ）', async () => {
+    const s = await open();
+    await s.createResource(resource('r'));
+    await put(s, entry('r', 'a', 4, 1));
+    expect(await s.setPinned([key('r', 'a')], 1)).toBe(1);
+    expect(await put(s, entry('r', 'a', 7, 2))).toEqual({ saved: true });
+    expect((await s.getEntry(key('r', 'a')))!.meta.pinned).toBe(1);
+    expect(await s.getResource('r')).toMatchObject({ count: 1, bytes: 7, pinnedBytes: 7 });
+    await expectCountsConsistent(s);
+  });
+
+  it('pinned: 1 の putEntry は、保存済みが pinned: 0 でも 1', async () => {
+    const s = await open();
+    await s.createResource(resource('r'));
+    await put(s, entry('r', 'a', 4, 1));
+    await put(s, entry('r', 'a', 5, 2, { pinned: 1 }));
+    expect((await s.getEntry(key('r', 'a')))!.meta.pinned).toBe(1);
+    expect(await s.getResource('r')).toMatchObject({ count: 1, bytes: 5, pinnedBytes: 5 });
+    await expectCountsConsistent(s);
+  });
+
+  it('putGlyphParts も保存済みの固定を保つ', async () => {
+    const G = 'https://g.example/{fontstack}/{range}.pbf';
+    const s = await open();
+    await s.createResource(resource(G, { type: 'glyph', templates: [G] }));
+    await s.putGlyphPart(glyphMeta(G, 'Noto', 1), '0-255', glyphBlob(3, 1), {}, []);
+    await s.setPinned([key(G, 'Noto')], 1);
+    await s.putGlyphPart(glyphMeta(G, 'Noto', 2), '256-511', glyphBlob(2, 2), {}, []);
+    expect((await s.getEntry(key(G, 'Noto')))!.meta.pinned).toBe(1);
+    expect(await s.getResource(G)).toMatchObject({ count: 1, bytes: 5, pinnedBytes: 5 });
+    await expectCountsConsistent(s);
+  });
+});
+
+describe('上限を超えた結合レコード（m4-t1・L3・R7）', () => {
+  const G = 'https://g.example/{fontstack}/{range}.pbf';
+  const setup = async () => {
+    const s = await open();
+    await s.createResource(resource(G, { type: 'glyph', templates: [G] }));
+    return s;
+  };
+  const cap = (maxBytes: number) => [{ resourceIds: [G], maxBytes }];
+
+  it('予算が 2 範囲分のとき、3 つ目の範囲を足すと最も古い範囲が落ちて saved: true・parts が 2 つ・size <= maxBytes', async () => {
+    const s = await setup();
+    // 古い順に 256-511（t=1）・0-255（t=2）。本体の中の順と fetchedAt の順を変えておく
+    await s.putGlyphPart(glyphMeta(G, 'Noto', 1), '256-511', glyphBlob(10, 1), {}, cap(20));
+    await s.putGlyphPart(glyphMeta(G, 'Noto', 2), '0-255', glyphBlob(10, 2), {}, cap(20));
+    expect(await s.putGlyphPart(glyphMeta(G, 'Noto', 3), '512-767', glyphBlob(10, 3), {}, cap(20))).toEqual({ saved: true });
+    const got = await s.getEntry(key(G, 'Noto'));
+    expect(Object.keys(got!.body.parts!).sort()).toEqual(['0-255', '512-767']);
+    expect(got!.meta.size).toBeLessThanOrEqual(20);
+    expect(Array.from(new Uint8Array(await got!.body.blob.arrayBuffer()))).toEqual([...Array(10).fill(2), ...Array(10).fill(3)]);
+    expect(got!.meta.fetchedAt).toBe(3);
+    await expectCountsConsistent(s);
+  });
+
+  it('本体の前が新しく後ろが古いときも、fetchedAt の古い部分（後ろ）から落とす（レビュー L1）', async () => {
+    const s = await setup();
+    // 1 回の putGlyphParts で、本体の前に新しい部分（t=20）・後ろに古い部分（t=10）を置く
+    await s.putGlyphParts(glyphMeta(G, 'Noto', 20), [
+      { part: '0-255', blob: glyphBlob(10, 2), fetchedAt: 20 },
+      { part: '256-511', blob: glyphBlob(10, 1), fetchedAt: 10 },
+    ], {}, cap(20));
+    expect(await s.putGlyphPart(glyphMeta(G, 'Noto', 30), '512-767', glyphBlob(10, 3), {}, cap(20))).toEqual({ saved: true });
+    const got = await s.getEntry(key(G, 'Noto'));
+    expect(got!.body.parts).toEqual({
+      '0-255': { offset: 0, length: 10, fetchedAt: 20 },
+      '512-767': { offset: 10, length: 10, fetchedAt: 30 },
+    });
+    expect(Array.from(new Uint8Array(await got!.body.blob.arrayBuffer()))).toEqual([...Array(10).fill(2), ...Array(10).fill(3)]);
+    await expectCountsConsistent(s);
+  });
+
+  it('新しい部分 1 つで maxBytes を超えるときは saved: false（保存済みのレコードはそのまま）', async () => {
+    const s = await setup();
+    await s.putGlyphPart(glyphMeta(G, 'Noto', 1), '0-255', glyphBlob(10, 1), {}, cap(20));
+    expect(await s.putGlyphPart(glyphMeta(G, 'Noto', 2), '256-511', glyphBlob(21, 2), {}, cap(20))).toEqual({ saved: false });
+    const got = await s.getEntry(key(G, 'Noto'));
+    expect(Object.keys(got!.body.parts!)).toEqual(['0-255']);
+    await expectCountsConsistent(s);
+  });
+
+  it('上限が 2 つあれば小さい方の予算で落とす', async () => {
+    const s = await setup();
+    await s.createResource(resource('o'));
+    const evict = [{ resourceIds: [G, 'o'], maxBytes: 100 }, { resourceIds: [G], maxBytes: 15 }];
+    await s.putGlyphPart(glyphMeta(G, 'Noto', 1), '0-255', glyphBlob(8, 1), {}, evict);
+    expect(await s.putGlyphPart(glyphMeta(G, 'Noto', 2), '256-511', glyphBlob(8, 2), {}, evict)).toEqual({ saved: true });
+    expect(Object.keys((await s.getEntry(key(G, 'Noto')))!.body.parts!)).toEqual(['256-511']);
+    await expectCountsConsistent(s);
+  });
+});
+
+/** 今の getAll の実装（m3 まで）を写した参照の関数。保存の前の entries の全件から、消える Entry のキーを返す */
+const referenceEviction = (all: readonly EntryMeta[], meta: EntryMeta, evict: { resourceIds: string[]; maxBytes: number }[]): Set<string> => {
+  const newSize = meta.size;
+  const willSave = evict.every((e) => e.maxBytes > 0 && newSize <= e.maxBytes);
+  const gone = new Set<string>();
+  for (const scope of evict) {
+    const ids = new Set(scope.resourceIds);
+    const candidates = all
+      .filter((e) => ids.has(e.resourceId) && e.pinned === 0 && !gone.has(e.key) && !(willSave && e.key === meta.key))
+      .sort((a, b) => a.accessedAt - b.accessedAt || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+    let total = candidates.reduce((sum, e) => sum + e.size, 0);
+    const budget = willSave ? scope.maxBytes - newSize : scope.maxBytes;
+    for (let i = 0; total > budget && i < candidates.length; i++) {
+      gone.add(candidates[i].key);
+      total -= candidates[i].size;
+    }
+  }
+  return gone;
+};
+
+describe('退避の走査の省略（m4-t1・P7・R7\'・R42）', () => {
+  it('予算内の保存では IDBIndex.getAll を呼ばない', async () => {
+    const s = await open();
+    await s.createResource(resource('r'));
+    const cap = [{ resourceIds: ['r'], maxBytes: 100 }];
+    await put(s, entry('r', 'a', 10, 1), cap);
+    const spy = vi.spyOn(IDBIndex.prototype, 'getAll');
+    const cursor = vi.spyOn(IDBIndex.prototype, 'openCursor');
+    expect(await put(s, entry('r', 'b', 10, 2), cap)).toEqual({ saved: true });
+    expect(spy).not.toHaveBeenCalled();
+    expect(cursor).not.toHaveBeenCalled();
+  });
+
+  it('予算を超える保存は cursor で accessedAt 昇順・同値はキー昇順に消す（getAll を呼ばない）', async () => {
+    const s = await open();
+    await s.createResource(resource('r'));
+    await put(s, entry('r', 'b', 10, 5));
+    await put(s, entry('r', 'a', 10, 5));
+    await put(s, entry('r', 'c', 10, 3));
+    const spy = vi.spyOn(IDBIndex.prototype, 'getAll');
+    expect(await put(s, entry('r', 'n', 10, 9), [{ resourceIds: ['r'], maxBytes: 20 }])).toEqual({ saved: true });
+    expect(spy).not.toHaveBeenCalled();
+    expect(await s.hasEntries(['c', 'a', 'b', 'n'].map((x) => key('r', x)))).toEqual([false, false, true, true]);
+    await expectCountsConsistent(s);
+  });
+
+  it('(a) 予算いっぱいの Resource で、固定していない同じキーの大きい Entry を小さい本体で置き換えても何も消えない', async () => {
+    const s = await open();
+    await s.createResource(resource('r'));
+    const cap = [{ resourceIds: ['r'], maxBytes: 30 }];
+    await put(s, entry('r', 'a', 10, 1), cap);
+    await put(s, entry('r', 'big', 20, 2), cap);
+    expect(await put(s, entry('r', 'big', 5, 3), cap)).toEqual({ saved: true });
+    expect(await s.hasEntries([key('r', 'a'), key('r', 'big')])).toEqual([true, true]);
+    expect(await s.getResource('r')).toMatchObject({ count: 2, bytes: 15 });
+    await expectCountsConsistent(s);
+  });
+
+  it('(b) 2 つの要素が同じ Resource を共有するとき、参照の関数（今の getAll の実装）と同じ Entry が消える（種を固定した 100 回）', async () => {
+    const s = await open();
+    const rand = m4rng(20261107);
+    const ids = ['R', 'A', 'B'] as const;
+    for (const id of ids) await s.createResource(resource(id));
+    let pinnedSeen = 0;
+    let evicted = 0;
+    for (let i = 0; i < 100; i++) {
+      const rid = ids[Math.floor(rand() * ids.length)];
+      const suffix = `${Math.floor(rand() * 6)}`;
+      const size = 1 + Math.floor(rand() * 15);
+      const pinned: 0 | 1 = rand() < 0.1 ? 1 : 0;
+      if (pinned) pinnedSeen++;
+      const meta = entry(rid, suffix, size, 1000 + Math.floor(rand() * 50), { pinned });
+      // 共有の R を、S1（R と A）と S2（R と B）が上限つきで参照する
+      const evict = [
+        { resourceIds: ['R', 'A'], maxBytes: 30 + Math.floor(rand() * 20) },
+        { resourceIds: ['R', 'B'], maxBytes: 25 + Math.floor(rand() * 20) },
+      ];
+      const before = await rawAll<EntryMeta>('entries');
+      const gone = referenceEviction(before, meta, evict);
+      evicted += gone.size;
+      const { saved } = await put(s, meta, evict);
+      const expected = new Set(before.map((e) => e.key).filter((k2) => !gone.has(k2)));
+      if (saved) expected.add(meta.key);
+      expect(new Set((await rawAll<EntryMeta>('entries')).map((e) => e.key)), `round ${i}`).toEqual(expected);
+    }
+    await expectCountsConsistent(s);
+    expect(pinnedSeen).toBeGreaterThan(0);
+    expect(evicted).toBeGreaterThan(0);
+  });
+
+  it('2 つの Resource をまたぐ要素で、cursor の併合が accessedAt の順を守る（A の古い → B の古い → A の新しい）', async () => {
+    const s = await open();
+    for (const id of ['A', 'B']) await s.createResource(resource(id));
+    await put(s, entry('A', 'old', 10, 1));
+    await put(s, entry('B', 'old', 10, 2));
+    await put(s, entry('A', 'new', 10, 3));
+    await put(s, entry('B', 'new', 10, 4));
+    const evict = [{ resourceIds: ['A', 'B'], maxBytes: 20 }];
+    expect(await put(s, entry('A', 'n', 10, 5), evict)).toEqual({ saved: true });
+    expect(await s.hasEntries(['A\0old', 'B\0old', 'A\0new', 'B\0new', 'A\0n'])).toEqual([false, false, false, true, true]);
+    await expectCountsConsistent(s);
+  });
+});
+
+describe('store の新しい操作（m4-t1）', () => {
+  it('deleteEntries・setPinned・pruneGlyphParts の後も count・bytes・pinnedBytes が全件の集計と一致する（種を固定した 100 回）', async () => {
+    const G = 'https://g.example/{fontstack}/{range}.pbf';
+    const s = await open();
+    const rand = m4rng(20261108);
+    await s.createResource(resource('r1'));
+    await s.createResource(resource('r2'));
+    await s.createResource(resource(G, { type: 'glyph', templates: [G] }));
+    const tileKeys = (n: number) => Array.from({ length: n }, () => key(rand() < 0.5 ? 'r1' : 'r2', `${Math.floor(rand() * 8)}`));
+    const kinds = { put: 0, del: 0, pin: 0, unpin: 0, glyph: 0, prune: 0 };
+    for (let i = 0; i < 100; i++) {
+      const roll = rand();
+      if (roll < 0.35) {
+        const rid = rand() < 0.5 ? 'r1' : 'r2';
+        await put(s, entry(rid, `${Math.floor(rand() * 8)}`, 1 + Math.floor(rand() * 20), i, { pinned: rand() < 0.2 ? 1 : 0 }));
+        kinds.put++;
+      } else if (roll < 0.5) {
+        await s.deleteEntries(tileKeys(3), rand() < 0.5 ? { unpinnedOnly: true } : rand() < 0.5 ? { fetchedBefore: i - 10 } : undefined);
+        kinds.del++;
+      } else if (roll < 0.65) {
+        await s.setPinned(tileKeys(3), 1);
+        kinds.pin++;
+      } else if (roll < 0.75) {
+        await s.setPinned(tileKeys(3), 0);
+        kinds.unpin++;
+      } else if (roll < 0.9) {
+        const range = ['0-255', '256-511', '512-767'][Math.floor(rand() * 3)];
+        await s.putGlyphPart(glyphMeta(G, rand() < 0.5 ? 'Noto' : 'Open', i), range, glyphBlob(1 + Math.floor(rand() * 9), i % 250), {}, []);
+        kinds.glyph++;
+      } else {
+        await s.pruneGlyphParts(key(G, rand() < 0.5 ? 'Noto' : 'Open'), i - Math.floor(rand() * 30));
+        kinds.prune++;
+      }
+    }
+    await expectCountsConsistent(s);
+    for (const [name, n] of Object.entries(kinds)) expect(n, name).toBeGreaterThan(0);
+  });
+
+  it('deleteEntries は tx の中で条件を見直す（一覧の後の固定・取り直しを消さない）。戻り値は消した数', async () => {
+    const s = await open();
+    await s.createResource(resource('r'));
+    await put(s, entry('r', 'a', 4, 10));
+    await put(s, entry('r', 'b', 4, 10));
+    await put(s, entry('r', 'c', 4, 10));
+    // 一覧を読んだ後に固定された a と、取り直されて fetchedAt が新しくなった b
+    const listed = (await s.listUnpinnedBefore(100, 10)).metas.map((m) => m.key);
+    expect(listed).toEqual([key('r', 'a'), key('r', 'b'), key('r', 'c')]);
+    await s.setPinned([key('r', 'a')], 1);
+    await put(s, entry('r', 'b', 4, 200));
+    expect(await s.deleteEntries([key('r', 'a')], { unpinnedOnly: true })).toBe(0);
+    expect(await s.deleteEntries([key('r', 'b')], { fetchedBefore: 100 })).toBe(0);
+    expect(await s.deleteEntries([key('r', 'c'), key('r', 'missing')], { unpinnedOnly: true, fetchedBefore: 100 })).toBe(1);
+    expect(await s.hasEntries(['a', 'b', 'c'].map((x) => key('r', x)))).toEqual([true, true, false]);
+    // 条件なしなら固定も消す
+    expect(await s.deleteEntries([key('r', 'a'), key('r', 'b')])).toBe(2);
+    expect(await s.getResource('r')).toMatchObject({ count: 0, bytes: 0, pinnedBytes: 0 });
+    await expectCountsConsistent(s);
+  });
+
+  it('setPinned は付けた・外した数を返し、同じ値や無いキーは数えない', async () => {
+    const s = await open();
+    await s.createResource(resource('r'));
+    await put(s, entry('r', 'a', 3, 1));
+    await put(s, entry('r', 'b', 5, 1, { pinned: 1 }));
+    expect(await s.setPinned([key('r', 'a'), key('r', 'b'), key('r', 'x')], 1)).toBe(1);
+    expect(await s.getResource('r')).toMatchObject({ pinnedBytes: 8 });
+    expect(await s.setPinned([key('r', 'a'), key('r', 'b')], 0)).toBe(2);
+    expect(await s.getResource('r')).toMatchObject({ pinnedBytes: 0, count: 2, bytes: 8 });
+    expect(await s.setPinned([], 1)).toBe(0);
+    await expectCountsConsistent(s);
+  });
+
+  it('pruneGlyphParts: 古い部分だけ落ちて size が減る・全部落ちればレコードが消える・固定のレコードは触らない', async () => {
+    const G = 'https://g.example/{fontstack}/{range}.pbf';
+    const s = await open();
+    await s.createResource(resource(G, { type: 'glyph', templates: [G] }));
+    await s.putGlyphParts(glyphMeta(G, 'Noto', 0), [
+      { part: '0-255', blob: glyphBlob(3, 1), fetchedAt: 10 },
+      { part: '256-511', blob: glyphBlob(4, 2), fetchedAt: 30 },
+      { part: '512-767', blob: glyphBlob(5, 3), fetchedAt: 20 },
+    ], {}, []);
+    expect(await s.pruneGlyphParts(key(G, 'Noto'), 25)).toBe(2);
+    const got = await s.getEntry(key(G, 'Noto'));
+    expect(got!.body.parts).toEqual({ '256-511': { offset: 0, length: 4, fetchedAt: 30 } });
+    expect(got!.meta).toMatchObject({ size: 4, fetchedAt: 30 });
+    expect(Array.from(new Uint8Array(await got!.body.blob.arrayBuffer()))).toEqual([2, 2, 2, 2]);
+    expect(await s.pruneGlyphParts(key(G, 'Noto'), 25)).toBe(0);
+    expect(await s.pruneGlyphParts(key(G, 'Noto'), 31)).toBe(1);
+    expect(await s.getEntry(key(G, 'Noto'))).toBeUndefined();
+    expect(await s.getResource(G)).toMatchObject({ count: 0, bytes: 0 });
+    // 固定のレコード
+    await s.putGlyphPart(glyphMeta(G, 'Open', 5, { pinned: 1 }), '0-255', glyphBlob(2, 1), {}, []);
+    expect(await s.pruneGlyphParts(key(G, 'Open'), 100)).toBe(0);
+    expect((await s.getEntry(key(G, 'Open')))!.meta.size).toBe(2);
+    expect(await s.pruneGlyphParts(key(G, 'missing'), 100)).toBe(0);
+    await expectCountsConsistent(s);
+  });
+
+  it('listUnpinnedBefore は固定を含めず、before 未満だけを古い順に limit 件、next で続きが読める', async () => {
+    const s = await open();
+    await s.createResource(resource('r'));
+    await put(s, entry('r', 'b', 1, 5));
+    await put(s, entry('r', 'a', 1, 5));
+    await put(s, entry('r', 'c', 1, 3));
+    await put(s, entry('r', 'p', 1, 1, { pinned: 1 }));
+    await put(s, entry('r', 'late', 1, 50));
+    const first = await s.listUnpinnedBefore(10, 2);
+    expect(first.metas.map((m) => m.key)).toEqual([key('r', 'c'), key('r', 'a')]);
+    expect(first.next).toBeDefined();
+    const second = await s.listUnpinnedBefore(10, 2, first.next);
+    expect(second.metas.map((m) => m.key)).toEqual([key('r', 'b')]);
+    expect(second.next).toBeUndefined();
+    expect((await s.listUnpinnedBefore(10, 10)).metas.map((m) => m.key)).toEqual([key('r', 'c'), key('r', 'a'), key('r', 'b')]);
+  });
+
+  it('listUnpinnedBefore は同じ fetchedAt の途中から続きを読み、続きの位置のキーが消えても欠けも重複もない（レビュー L2）', async () => {
+    const s = await open();
+    await s.createResource(resource('r'));
+    for (const x of ['a', 'b', 'c', 'd']) await put(s, entry('r', x, 1, 5));
+    const first = await s.listUnpinnedBefore(10, 2);
+    expect(first.metas.map((m) => m.key)).toEqual([key('r', 'a'), key('r', 'b')]);
+    const second = await s.listUnpinnedBefore(10, 2, first.next);
+    expect(second.metas.map((m) => m.key)).toEqual([key('r', 'c'), key('r', 'd')]);
+    // 続きの位置（b）を消してから読み直す
+    expect(await s.deleteEntries([key('r', 'b')], {})).toBe(1);
+    const again = await s.listUnpinnedBefore(10, 2, first.next);
+    expect(again.metas.map((m) => m.key)).toEqual([key('r', 'c'), key('r', 'd')]);
+  });
+
+  it('entriesOf は Resource のキーの範囲だけを limit 件ずつ読む', async () => {
+    const s = await open();
+    for (const id of ['r', 'r2']) await s.createResource(resource(id));
+    for (const x of ['a', 'b', 'c']) await put(s, entry('r', x, 1, 1));
+    await put(s, entry('r2', 'a', 1, 1));
+    const first = await s.entriesOf('r', 2);
+    expect(first.metas.map((m) => m.key)).toEqual([key('r', 'a'), key('r', 'b')]);
+    expect(first.next).toBe(key('r', 'b'));
+    const second = await s.entriesOf('r', 2, first.next);
+    expect(second.metas.map((m) => m.key)).toEqual([key('r', 'c')]);
+    expect(second.next).toBeUndefined();
+  });
+
+  it('entriesAtZoom は z の Entry だけを返す', async () => {
+    const s = await open();
+    for (const id of ['r', 'r2']) await s.createResource(resource(id));
+    await put(s, entry('r', '1_0_0', 1, 1, { z: 1, x: 0, y: 0 }));
+    await put(s, entry('r', '2_0_0', 1, 1, { z: 2, x: 0, y: 0 }));
+    await put(s, entry('r', '2_1_0', 1, 1, { z: 2, x: 1, y: 0 }));
+    await put(s, entry('r2', '2_0_0', 1, 1, { z: 2, x: 0, y: 0 }));
+    await put(s, entry('r', 'style', 1, 1));
+    expect((await s.entriesAtZoom('r', 2)).map((m) => m.key).sort()).toEqual([key('r', '2_0_0'), key('r', '2_1_0')]);
+    expect(await s.entriesAtZoom('r', 3)).toEqual([]);
+  });
+
+  it('regions の 5 操作。patchRegion は無い id で何もしない・fn が undefined なら書かない。deleteSource が regions を消す', async () => {
+    const s = await open();
+    const r1: RegionRecord = { id: 'g1', sourceId: 's1', status: 'running' };
+    const r2: RegionRecord = { id: 'g2', sourceId: 's1', status: 'complete' };
+    const r3: RegionRecord = { id: 'g3', sourceId: 's2', status: 'running' };
+    for (const r of [r1, r2, r3]) await s.putRegion(r);
+    expect(await s.getRegion('g1')).toEqual(r1);
+    expect((await s.listRegions('s1')).map((r) => r.id).sort()).toEqual(['g1', 'g2']);
+    expect(await s.patchRegion('g1', (r) => ({ ...r, status: 'complete' }))).toEqual({ ...r1, status: 'complete' });
+    expect(await s.getRegion('g1')).toEqual({ ...r1, status: 'complete' });
+    const fn = vi.fn(() => undefined);
+    expect(await s.patchRegion('g2', fn)).toBeUndefined();
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(await s.getRegion('g2')).toEqual(r2);
+    const never = vi.fn((r: RegionRecord) => r);
+    expect(await s.patchRegion('none', never)).toBeUndefined();
+    expect(never).not.toHaveBeenCalled();
+    expect(await s.getRegion('none')).toBeUndefined();
+    await s.deleteRegion('g2');
+    expect((await s.listRegions('s1')).map((r) => r.id)).toEqual(['g1']);
+    await s.deleteSource('s1');
+    expect(await s.listRegions('s1')).toEqual([]);
+    expect(await s.getRegion('g3')).toEqual(r3);
+  });
+
+  it('hasEntries（I12）: 古い形の本体を持つキーでも true。本体を読まない（bodies の get が 0 回）', async () => {
+    const s = await open();
+    await s.createResource(resource('r1'));
+    const e = entry('r1', '1_0_0', 4, 10);
+    await put(s, e);
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = factory.open(STORE_DB_NAME);
+      req.onsuccess = () => resolve(req.result as unknown as IDBDatabase);
+      req.onerror = () => reject(req.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const t = db.transaction(['bodies'], 'readwrite');
+      t.objectStore('bodies').put({ key: e.key, blob: new Blob([new Uint8Array(4)]), headers: {} });
+      t.oncomplete = () => resolve();
+      t.onabort = () => reject(t.error);
+    });
+    db.close();
+    const get = vi.spyOn(IDBObjectStore.prototype, 'get');
+    expect(await s.hasEntries([e.key, key('r1', 'missing')])).toEqual([true, false]);
+    expect(get.mock.contexts.filter((c) => (c as IDBObjectStore).name === 'bodies')).toHaveLength(0);
   });
 });
