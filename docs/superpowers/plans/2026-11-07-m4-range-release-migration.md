@@ -3,7 +3,7 @@
 - 日付: 2026-11-07（設計担当の初版。事前点検は未実施）/ サイクル: weiwudi-vector-cache（軽い道）
 - 点検の番号は m3 と同じく出どころを付けて書く（「第 1 回 S1」「X1」など）。m3 の番号は「m3-t4 の申し送り」「m3 Ruling R7」のように書く
 - 仕様: `docs/superpowers/specs/2026-11-02-new-interface-spec.md`（以下「仕様」）。該当は §4.5-3（範囲取得の CORS）・§4.6（範囲取得の認証）・§7（保持・範囲取得・解放）・§9（エラーと旧 API の既知の変化）・§11（グリフの束ね書き）・§12（`setLimits`・`estimate`・`fetchRange`・`releaseRange`・`regions`・`cancel`・`clean(range)`）・§14（版と移行）・§16
-- 起点: m3 の区切り（L2）の後の `vector-cache`。計画を書いた時点は `c5712bf`（m3-t9 まで合流）。**m3-t10（WebKit を CI で測る。store の本体を Blob から ArrayBuffer に替える直しを含む）と m3 の区切りの直しが入った commit を、進行役がここに書き直す**。各タスクは 1 PR で `vector-cache` へ入れる
+- 起点: m3 の完了後の `vector-cache` の `f6189a0`（m3-t10 と区切りの直し #95・#97・#99 が合流済み。単体試験 1367 passed・Chromium の e2e 46 passed・CI の WebKit 29 passed）。計画を書いた時点は `c5712bf`（m3-t9 まで）で、事実の表はその時点のもの。各タスクは 1 PR で `vector-cache` へ入れる
 - **`<BASE>`** は、そのタスクの分岐点（`git merge-base HEAD origin/vector-cache`）を指す
 - 拘束入力: m3 の計画（書式）・m3 の台帳（`.superpowers/sdd/2026-11-04-m3-vector/progress.md`）の「m4」宛ての申し送り・state の `m4.carried_from_precheck`（m1 第 6 回 O-3・m2 R20・m1 のまとめの「m4 への申し送り」・m2 R13・R15・m2-t2 水準 1 Minor 1）と `m4.carried_from_implementation`（10 項目）・state の `branch_policy.merge_condition`（移行が無い状態で master へ入れない）
 - 台帳: `.superpowers/sdd/2026-11-07-m4-range-release-migration/progress.md`（進行役が作る）
@@ -47,20 +47,20 @@
 | F17 | 開発用ページ `index.html` は旧 API（`registerSW('./demo-sw.js')`・`registerMap('osm_demo', { type: 'wmts', … })`・`fetchAll()`・`clean()`・`stats()` の 2 秒ごとの表示）で、Leaflet 1.9.4 を unpkg から `integrity` 付きで読む。`public/demo-sw.js` は `./workbox/workbox-sw.js` と `./weiwudi-sw.js` を `importScripts` する。`build:demo` は CI で走る（`vite.config.demo.js` → `dist-demo/`）。README の英日に画面写真は無い（`.png` の参照はテンプレートの例だけ） | `index.html`、`public/demo-sw.js`、`.github/workflows/ci.yml`、`grep -n -E '\.(png|gif|jpg)' README.md` |
 | F18 | 単体試験のハーネスは `post(path, body, { client })`・`waitUntilCalls`（偽の `FetchEvent.waitUntil` に渡した Promise）・`listeners`（`self.addEventListener` の種別ごと）・`client.postMessage` の記録を持つ。`legacy-routes.test.ts:60` は `self` のリスナが `['activate', 'install']` だけで、`Weiwudi_Internal` の呼び出しで IndexedDB を開かないことを固定している | `tests/unit/sw-harness.ts:83-113`・`:176`・`:268-280`、`tests/unit/legacy-routes.test.ts:60-67` |
 | F19 | WebKit では `context.setOffline` がページの `fetch` を先に止めるので SW の取得を測れない（§2 の 7）。m3-t10 は Chromium だけで成り立つ e2e に `@chromium-only` のタグを付け、WebKit の project を `grepInvert` で分ける方式 | 仕様 §2・m3 計画 t10・`m3-t10-webkit-ci` の枝 |
-| F20 | m3-t9 の時点の実測: 単体試験 1338 passed・e2e 44 passed（Chromium）。m3-t10 で増える（進行役が差し替える） | m3 の台帳 |
-| F21 | `m3-t10-webkit-ci` の枝（`2a94484`）の差分は tests・ci・文書だけで、store の本体を ArrayBuffer に替える直しはまだ入っていない。本計画は「新 store の本体は ArrayBuffer（＋`type`）」を前提に書く（下の「前提」） | `git diff --stat vector-cache...m3-t10-webkit-ci` |
+| F20 | m3 の完了（f6189a0）の実測: 単体試験 1367 passed・Chromium の e2e 46 passed・WebKit 29 passed・Firefox 29 passed（CI） | m3 のまとめ |
+| F21 | m3-t10 で、bodies に置く形が `StoredBody`（`data: ArrayBuffer`・`type`）に替わった。Blob との変換は store.ts に閉じ（入口は `readBlob`・読み戻しは `fromStoredBody`）、Store の呼び出し側（`EntryBody.blob`）は Blob のまま。Blob を持つ古い形のレコードは miss として作り直す。`hasEntries` は本体が今の形で読めることまで確かめる（下の「前提」） | src/store.ts・m3 の台帳の t10 の節 |
 | F22 | `legacy-store-repair.test.ts` は旧 DB を `fake-indexeddb` の `IDBFactory` で作って残す書き方を持つ（store の無い version 1 の DB・閉じない接続）。移行の試験はこの書き方を使える | `tests/unit/legacy-store-repair.test.ts:19-39` |
 | F23 | `latToMercY(90)` は有限の値（m1 のまとめ）。`lngLatBoundsToTileBox` は丸めを持たず、緯度の限界は `spec.ts` の `MERC_MAX_LAT = 85.0511287798066` にある | `src/tile_math.ts:10-26`、`src/spec.ts:109` |
 | F24 | 保存と合成で落とす 4 ヘッダ `DROPPED_HEADERS` は `core.ts` のモジュール定数（export していない）。移行（`migrate.ts`）は `core` を import できない（§3） | `src/core.ts:81`・`:96` |
 
 ## 前提: m3-t10 の後の store の本体
 
-m3-t10 で `EntryBody.blob: Blob` が **ArrayBuffer と `type`** に替わる（WebKit とプライベートブラウズで IndexedDB に Blob を保存できないため）。本計画の次の箇所はそれを前提にする。項目名（`body`・`type` など）は m3-t10 が決めたものを使い、本計画の `blob` と書いた所はそれに読み替える。
+m3-t10 で、bodies に置く形が **`StoredBody`（`data: ArrayBuffer` と `type`）** に替わった（WebKit とプライベートブラウズで IndexedDB に Blob を保存できないため）。Store の呼び出し側の `EntryBody.blob` は Blob のままで、変換は store.ts の中だけで行う。本計画の次の箇所はそれを前提にする。
 
 - t1 の `putGlyphParts` の直し（部分の詰め直しは ArrayBuffer の `slice` と連結で行う。Blob の `slice` ではない）
 - t4 のグリフの束ね書き（集めた部分は ArrayBuffer）
 - **t7 の移行（§14.2）**: 旧 `tileCache` の `blob`（Blob）は tx の外で `await blob.arrayBuffer()` と `blob.type` に変換してから新 store へ書く（tx の中で IDB 以外の Promise を待たない。m2-t2 の申し送り）。旧 DB を読む tx と新 DB へ書く tx は別の DB なので、もともと 1 つの tx にならない（§14.2「DB をまたぐトランザクションは無い」）。WebKit のプライベートブラウズでは旧 DB の Blob はもともと保存できていなかったので、移す物が無い
-- m3-t10 が合流する前に m4 を始めない（t1 が `store.ts` を触る）
+- m3-t10 は合流済み（180122b）。`hasEntries` の本体の読み出し（古い形の判定）は、t7 の移行の後にメタだけの判定へ戻してよい（m3 の申し送り）
 
 ## 順序と依存
 
