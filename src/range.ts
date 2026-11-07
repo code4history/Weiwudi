@@ -581,6 +581,8 @@ const runRangeJob = async (
       }
     }
     if (error) {
+      // 読めるスタイルの記録が既に有れば（stale）固定の対象に入れてから失敗を数える（R-t4-5 とそろえる。PR #104 L2）
+      if (readable && (await store.hasEntries([t.key]))[0]) keys.push(t.key);
       await classify(unit, t, error, status);
       return;
     }
@@ -764,7 +766,8 @@ const runRangeJob = async (
       },
       run,
       onBatch: async () => {
-        job.count = processed;
+        // job.total はタイルの枚数なので、count もタイルだけで数える（旧 API の fetch-busy の文面。PR #104 L3）
+        job.count = processedTiles;
         if (!(await store.getRegion(regionId))) {
           regionGone = true;
           keys = [];

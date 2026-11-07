@@ -245,6 +245,8 @@ describe('グリフ（§11・L4・R32）', () => {
     expect(messages(env, 'canceled')).toHaveLength(1);
     const gotA = glyphFetches(env).filter((g) => g.fontstack === 'A').map((g) => g.range);
     expect(gotA.length).toBeGreaterThanOrEqual(2);
+    // 単位の途中で抜ける（範囲の間で取り消しを見る。PR #104 L1）
+    expect(gotA.length).toBeLessThan(COMMON.length);
     expect(Object.keys(await glyphParts(env, 'A')).sort()).toEqual([...gotA].sort());
     expect(glyphFetches(env).filter((g) => g.fontstack === 'B')).toEqual([]);
     expect(await env.store.getEntry(await glyphKey(env, 'B'))).toBeUndefined();
@@ -358,5 +360,42 @@ describe('枚数と進み（§7.2・R29）', () => {
     }
     // スタイルが読めなくても fonts の fontstack は取る
     expect([...new Set(glyphFetches(env).map((g) => g.fontstack))]).toEqual(['F']);
+  });
+});
+
+// ---- PR #104 のレビュー（L2・L3）。追記のみ ----
+
+describe('PR #104 のレビュー（L2・L3）', () => {
+  it('保存済みのスタイルの取り直しが失敗しても（stale）、記録は固定され、失敗は 1 件に数える（L2）', async () => {
+    const env = await setup({ [STYLE]: { ...FULL, layers: [layers[1]] }, [TJ]: TILEJSON });
+    // cacheTtl: 0 で、保存済みのスタイルも上流へ出る
+    await register(env, { cacheTtl: 0 });
+    const styleRes = (await resourceOfType(env, 'style'))[0];
+    expect(styleRes.count).toBe(1);
+    env.bodies.set(STYLE, () => { throw new TypeError('Failed to fetch'); });
+    await ok(env, 'fetchRange', { id: 'st', range: RANGE });
+    await settle(env);
+    expect(messages(env, 'finish')[0]).toMatchObject({ error: 1 });
+    const r = (await env.store.getResource(styleRes.id))!;
+    expect(r.count).toBe(1);
+    expect(r.pinnedBytes).toBe(r.bytes);
+    // 古い本体から fontstack を集めている
+    expect([...new Set(glyphFetches(env).map((g) => g.fontstack))]).toEqual(['Noto Sans Bold']);
+  });
+
+  it('job.count はタイルの枚数で数える（job.total と同じ単位。L3）', async () => {
+    const env = await setup({ [STYLE]: { ...FULL, layers: [layers[1]] }, [TJ]: TILEJSON });
+    await register(env);
+    const seen: [number, number][] = [];
+    env.onGlyph = () => {
+      const job = env.ctx.job!;
+      seen.push([job.count, job.total]);
+    };
+    await ok(env, 'fetchRange', { id: 'st', range: RANGE, options: { concurrency: 1 } });
+    await settle(env);
+    expect(seen.length).toBeGreaterThan(0);
+    // グリフはタイルの後。タイルを全部数え終えた count は total と同じで、超えない
+    for (const [count, total] of seen) expect(count).toBe(total);
+    expect(seen[0][1]).toBe(4);
   });
 });
