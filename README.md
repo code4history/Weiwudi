@@ -296,10 +296,12 @@ pnpm dev
 ```
 
 Access `http://localhost:5173/` in your browser. The demo features:
-- Leaflet map with OSM tiles cached via Weiwudi
-- Real-time cache statistics (tile count, cache size)
-- Fetch all tiles button
-- Clear cache functionality
+- Leaflet map with OSM tiles captured via `Weiwudi.register()` (the map uses `source.url`)
+- Real-time statistics: `stats()` (count, size, percent), `usage()` by provider, `regions()`, warnings and `opaque` notices
+- "Fetch Visible Range" (`estimate()` then `fetchRange()` from the current zoom to 17) and "Release" per region (`releaseRange()`)
+- "Clear Cache" (`clean()`) and a global limit input (`Weiwudi.setLimits()`)
+
+Range fetching on OSM tiles is for minimal operation checks only: the demo refuses a range of more than 50 tiles. Bulk downloading is prohibited by the [OSM tile usage policy](https://operations.osmfoundation.org/policies/tiles/). In production, use your own tiles or an upstream whose terms allow it.
 
 #### Build
 

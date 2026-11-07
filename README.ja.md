@@ -264,10 +264,12 @@ pnpm dev
 ```
 
 ブラウザで `http://localhost:5173/` にアクセスしてください。デモには以下の機能があります:
-- Weiwudi でキャッシュされる OSM タイルを使用した Leaflet マップ
-- リアルタイムキャッシュ統計（タイル数・キャッシュサイズ）
-- すべてのタイルを取得するボタン
-- キャッシュクリア機能
+- `Weiwudi.register()` で捕捉する OSM タイルの Leaflet マップ（地図には `source.url` を渡す）
+- リアルタイムの統計: `stats()`（件数・容量・割合）、`usage()` の提供元別、`regions()`、警告と `opaque` の通知
+- 「表示範囲を取得」（`estimate()` の後に現在のズームから 17 まで `fetchRange()`）と region ごとの「解放」（`releaseRange()`）
+- 「キャッシュを消す」（`clean()`）と全体上限の入力（`Weiwudi.setLimits()`）
+
+OSM のタイルでの範囲取得は動作確認の最小限にしてください（デモは 50 枚を超える範囲を断ります）。まとめての取得は [OSM のタイルの利用規約](https://operations.osmfoundation.org/policies/tiles/)で禁じられています。本番では自前のタイルか、規約で許された上流を使ってください。
 
 #### ビルド
 
