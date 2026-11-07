@@ -20,6 +20,8 @@
 // - GET /style/data.geojson: GeoJSON（FeatureCollection・点 1 つ）
 // - GET /style/mapbox.json: mapbox:// を含むスタイル（試験が context.route で api.mapbox.com の要求にこれを返す）
 // - GET /style/mapbox-tiles.json: mapbox:// のソースの TileJSON（tiles は api.mapbox.com。同上）
+// 範囲取得の e2e（m4-t10・range.spec.js）の端点:
+// - GET /slow/{z}/{x}/{y}.png: SLOW_MS 待ってから 200・CORS あり・本体は `slow:{z}/{x}/{y}`（取得の途中で止める・取り消すため）
 //
 // 一時ディレクトリの片付け（m2-t1・第 1 回 S14・第 2 回 O19）:
 // - SIGTERM・SIGINT で一時ディレクトリを消してから process.exit(0)。exit の処理でも消す
@@ -36,6 +38,8 @@ const CORS = { 'access-control-allow-origin': '*' };
 
 const PREFIX = 'weiwudi-e2e-';
 const STALE_MS = 60 * 60 * 1000;
+/** /slow/ の応答の遅れ（ms） */
+const SLOW_MS = 250;
 
 const workDir = mkdtempSync(join(tmpdir(), PREFIX));
 const cleanup = () => {
@@ -237,6 +241,15 @@ const server = createServer((req, res) => {
         count++;
         res.writeHead(200, { ...CORS, 'content-type': 'image/png' });
         res.end(`tile:${tile[1]}/${tile[2]}/${tile[3]}`);
+        return;
+    }
+    const slow = pathname.match(/^\/slow\/(\d+)\/(\d+)\/(\d+)\.png$/);
+    if (slow) {
+        log.push({ path: pathname, mode: req.headers['sec-fetch-mode'] ?? null, cookie: false });
+        setTimeout(() => {
+            res.writeHead(200, { ...CORS, 'content-type': 'image/png' });
+            res.end(`slow:${slow[1]}/${slow[2]}/${slow[3]}`);
+        }, SLOW_MS);
         return;
     }
     if (serveHookTile(req, pathname, res)) return;

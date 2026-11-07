@@ -41,6 +41,29 @@ async function upstreamCount(request) {
     return (await res.json()).count;
 }
 
+// 外へ出た要求を数える（range.spec.js と同じ。C-O8）。localhost:5173・5174 以外と疑似ホストへ出たものが 0 件であることを
+// 試験の最後に確かめる（この describe は Chromium だけ）
+async function guardNetwork(context) {
+    const external = [];
+    await context.route('**/*', (route) => {
+        const url = new URL(route.request().url());
+        if (['localhost:5173', 'localhost:5174'].includes(url.host)) return route.continue();
+        external.push(`${route.request().method()} ${url.origin}${url.pathname}`);
+        return route.abort();
+    });
+    const pseudo = [];
+    await context.route('**://weiwudi.example.com/**', (route) => {
+        pseudo.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
+        return route.abort();
+    });
+    return { external, pseudo };
+}
+
+function expectNoLeaks(guard) {
+    expect(guard.external).toEqual([]);
+    expect(guard.pseudo).toEqual([]);
+}
+
 // どの試験も context.setOffline を使う。SW の fetch まで切るのは Chromium でだけ確かめた（仕様 §2 の 7。WebKit は
 // ページの fetch が先に失敗し SW 到達を測れない）ので、WebKit・Firefox では走らせない（m3-t10）
 test.describe('Weiwudi offline', { tag: '@chromium-only' }, () => {
@@ -106,6 +129,7 @@ test.describe('Weiwudi offline', { tag: '@chromium-only' }, () => {
 
     test('serves every tile offline after fetchAll', async ({ page, context }) => {
         test.slow();
+        const guard = await guardNetwork(context);
         await openPage(page);
         await page.evaluate(() => new Promise((resolve, reject) => {
             window.map.addEventListener('finish', () => resolve());
@@ -129,6 +153,10 @@ test.describe('Weiwudi offline', { tag: '@chromium-only' }, () => {
         const stats = await page.evaluate(() => window.map.stats());
         expect(stats.count).toBe(21);
         expect(stats.percent).toBe(100);
+        // 旧 API の地図も usage() に入る（m4-t10）
+        const report = await page.evaluate(() => window.Weiwudi.usage());
+        expect(report.count).toBe(21);
+        expectNoLeaks(guard);
     });
 
     test('serves a cached tile after the service worker restarted offline', async ({ page, context }) => {
