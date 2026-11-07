@@ -187,6 +187,18 @@ describe('clean/remove and fetch-busy (P1/R47-R49)', () => {
     expect(await e.pins()).toEqual([[0, 0], [1, 1], [2, 1]]);
   });
 
+  it('a range-only holder region protects the overlap when releasing the sourceIds holder (R12)', async () => {
+    const e = await setup();
+    await e.ok('register', SOURCE);
+    await e.ok('register', { ...SOURCE, id: 't' });
+    const resource = (await e.store.getResource(TPL))!;
+    await e.store.patchResource(TPL, () => ({ ...resource, sourceIds: ['s'], rangeOnlySourceIds: ['t'] }));
+    const a = await e.fetch('s', A);
+    await e.fetch('t', B);
+    await e.ok('releaseRange', { id: 's', regionId: a });
+    expect(await e.pins()).toEqual([[0, 0], [1, 1], [2, 1]]);
+  });
+
   it('clean() releases all regions and clears exclusive resources', async () => {
     const e = await setup();
     await e.ok('register', SOURCE);
