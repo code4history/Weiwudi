@@ -249,9 +249,10 @@ L.tileLayer(source.url as string).addTo(leafletMap);
 Chromium は手元と CI で試験しています。WebKit（Linux の Playwright の WebKit）は CI で試験しています。
 ただし Chromium でしか成り立たない試験は除きます: オフライン（`context.setOffline`）・Service Worker の停止（CDP）・
 実際の保存容量の上限・Mapbox の試験（WebKit では Service Worker の要求を Playwright が横取りできないため）。
-Linux の WebKit は iOS の Safari と同じではありません。WebKit は非永続の保存領域（プライベートブラウズを含む）で
-IndexedDB に `Blob` を保存できないので、Weiwudi は本体を `ArrayBuffer` で保存します。この形で CI の 29 件が
-WebKit ですべて通りました。Firefox も CI で WebKit と同じ 29 件の試験を走らせ、すべて通りました。ただし必須の検査にはしていません。
+Linux の WebKit は iOS の Safari と同じではありません。CI の WebKit の非永続セッションでは、旧 IndexedDB キャッシュの種となる
+`Blob` の保存が失敗します。Weiwudi の新キャッシュの本体は `ArrayBuffer` で保存します。
+CI で選ぶ 37 件のうち WebKit は 35 件が成功し、旧 `Blob` を必要とする移行の 2 件をスキップします。
+そのため、その WebKit セッションでの当該移行は未確認です。Firefox は CI で 37 件すべてが成功していますが、必須の検査にはしていません。
 
 sandbox（`allow-scripts allow-same-origin`）の `srcdoc` の iframe は、Chromium と WebKit ではページの Service Worker を
 継ぐので、その中でも API を使えます。Firefox では継がず、中での呼び出しは `sw-not-controlling` で失敗します。
@@ -586,6 +587,8 @@ interface RegionInfo {
   重なる region を `partial` にします。他の Source の region は書き換えません。
 - **共有資源の Entry は、`releaseRange()` の既定でも `clean(range, { force: true })` でも消しません。** 解放では残る
   固定つき region が必要としない固定だけ外します。範囲つき clean は共有の Entry と固定に触れず、非タイル資源も消しません。
+  asset の Source は `clean('all')` では何も消さず、それ以外の明示の範囲は `attribute-invalid` です。
+  排他の資源を空にするには、範囲なしの `clean()` を使ってください。
 - `await source.clean()` はその Source の全 region を解放した後、排他の資源の Entry を消します。共有の Entry は残し、
   他の固定つき region が必要とする固定だけ保ちます。`remove()` も全 region を解放してから子と登録を外します。
   資源の削除については上の表の `remove()` の規則が引き続き適用されます。

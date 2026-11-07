@@ -28,16 +28,22 @@ Weiwudi は MIT License のオープンソースソフトウェアです。
 - 全 Source を合わせたキャッシュ容量上限（`Weiwudi.setLimits({ maxBytes })`）と、ブラウザの容量超過のときの 10% の LRU 退避と 1 回の再試行
 - 一括取得 (`fetchAll`) と進捗イベント (`proceed` / `finish` / `stop`)
 - URL テンプレート経由で Leaflet・OpenLayers など任意のマップライブラリと連携
-- 地図ライブラリが要求する実際のタイルの URL をそのままキャッシュする Source の API（`Weiwudi.register`）
+- 地図ライブラリが要求する実際のラスタ・ベクタタイルの URL をそのままキャッシュする Source の API（`Weiwudi.register`）
+- スタイルと参照先の TileJSON・タイル・グリフ・スプライト・GeoJSON・画像の登録
+- オフライン向けの範囲取得と固定（`estimate`・`fetchRange`・`regions`・`cancel`）、範囲の解放（`releaseRange`）と掃除（`clean`）
+- キャッシュの保持期間（`cacheRetention`）。固定した Entry は期限切れの掃除から保護
+- 既存タイルキャッシュの段階的な移行と、移行中のオフラインでの読み出し
+- 標準の `mapbox://` URL 解決と独自の提供元の追加（`addProvider`）
+- 要求・キャッシュの読み出し・保存に差し込む Service Worker プラグイン（`addPlugin`）
 - MIT ライセンスのオープンソース・peer dependency は `workbox-routing`
 
 <!-- SECTION 5: Quick Start -->
 ## クイックスタート
 
 <!-- release-pinned:start -->
-> **現在のリリース: `1.1.1`**。このブロックは本リポジトリで唯一
-> リリース版数を持つ場所です（ADR-0012）。ブロックの外はすべて 1.0 正式版を前提に
-> 書かれています。
+> **現在のリリース: `1.1.1`**。下のインストール手順と旧 API の例はこのリリース向けです
+> （ADR-0012）。機能一覧と API 文書には、このブランチで実装済みの変更も記載しています。
+> [Unreleased](CHANGELOG.md#unreleased) に載せた変更は、現在の npm リリースには含まれません。
 > npm: [`@c4h/weiwudi`](https://www.npmjs.com/package/@c4h/weiwudi)
 > [![npm](https://img.shields.io/npm/v/@c4h/weiwudi)](https://www.npmjs.com/package/@c4h/weiwudi)
 
@@ -167,9 +173,10 @@ console.log(source.warnings, await source.stats());
 - Chromium は手元と CI で試験しています。**WebKit**（Linux の Playwright の WebKit）は CI で試験しています。
   ただし Chromium でしか成り立たない試験は除きます: オフライン（`context.setOffline`）・Service Worker の停止（CDP）・
   実際の保存容量の上限・Mapbox の試験（WebKit では Service Worker の要求を Playwright が横取りできないため）。
-  Linux の WebKit は iOS の Safari と同じではありません。WebKit は非永続の保存領域（プライベートブラウズを含む）で
-  IndexedDB に `Blob` を保存できないので、Weiwudi は本体を `ArrayBuffer` で保存します。この形で CI の 29 件が
-  WebKit ですべて通りました。**Firefox** も CI で WebKit と同じ 29 件の試験を走らせ、すべて通りました。ただし必須の検査にはしていません。
+  Linux の WebKit は iOS の Safari と同じではありません。CI の WebKit の非永続セッションでは、旧 IndexedDB キャッシュの種となる
+  `Blob` の保存が失敗します。Weiwudi の新キャッシュの本体は `ArrayBuffer` で保存します。
+  CI で選ぶ 37 件のうち WebKit は 35 件が成功し、旧 `Blob` を必要とする移行の 2 件をスキップします。
+  そのため、その WebKit セッションでの当該移行は未確認です。Firefox は CI で 37 件すべてが成功していますが、必須の検査にはしていません。
 - sandbox（`allow-scripts allow-same-origin`）の `srcdoc` の iframe は、Chromium と WebKit ではページの
   Service Worker を継ぐので、その中でも API を使えます。Firefox では継がず、中での呼び出しは `sw-not-controlling` で失敗します。
 - `kind` は `'raster'`・`'vector'`・`'style'`・`'asset'` です。スタイルは参照する資源（TileJSON・タイル・グリフ・

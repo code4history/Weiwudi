@@ -227,21 +227,54 @@ interface WeiwudiProvider {
 - `resolve` must not add new credentials. It may keep the query of its input.
   Names listed in `credentialParams` are then removed by the registration check;
   credentials under any other name stay in the URL.
-- `applyCredentials` changes `url` in place. Only the query is taken from it:
-  header credentials are always added the generic way. If it throws, or changes
-  the origin of `url`, no query credentials are added. The rules for credentials
-  still apply: nothing is added when a plugin's `requestWillFetch` changed the
-  origin of the request, and a request that got a header credential is sent
-  with `redirect: 'error'`.
 - `validateCredentials` receives the credentials of the registration (the
   `credentials` option and those moved out of the URL query). If it throws, the
   registration fails with `credential-rejected` and a fixed message (your
   error's message is not passed on). The generic check for secret tokens (`sk.`)
   runs as well.
-- When `applyCredentials` throws, only the provider `id` and the error's `name`
-  are logged with `console.error`.
 - `credentialParams` is added to the source's `credentialParams`.
 - `rewriteStyle` must return a new object and leave its input unchanged.
+
+### `applyCredentials`: when it runs and what it adds
+
+1. **When called:** just before an upstream request is built, after
+   `requestWillFetch`, when the resource has a registered provider and credentials
+   have been selected for the request's origin. Captured requests and range
+   fetching use the same selection. Style registration and `update()` also use
+   this upstream path when fetching their resources. A retry can call it again;
+   a cache hit does not call it.
+2. **What to add:** mutate `url` to add the provider's query credentials from `c`.
+   Keep existing credential parameters (compare names without case). The built-in
+   Mapbox provider and generic query handling add only missing names and preserve
+   the existing query's encoding. Header credentials are added separately by
+   generic handling, only when the request does not already have that header.
+   A request with an added credential header uses `redirect: 'error'`, except
+   for a `no-cors` retry, where the browser's header restrictions apply.
+3. **What is not added:** registered credentials are not added to a request that
+   already has `Authorization`, or has `mode: 'cors'` with `credentials: 'include'`.
+   They are also not added when `requestWillFetch` changes the origin, on a Range
+   pass-through, or by the range fetcher's `probeNoCors` check. If the callback
+   throws or changes the URL's origin, its URL changes are discarded; generic
+   header handling still runs. Only the provider `id` and exception `name` are
+   logged when it throws. No signature is generated automatically, and
+   this callback does not change cache keys. Use it only to add query credentials.
+
+### Default `credentialParams`
+
+`url_pattern.DEFAULT_CREDENTIAL_PARAMS` contains the following names. Matching
+is case-insensitive. Registration combines these defaults with the source's and
+provider's `credentialParams` and the explicit `credentials.query` names. They
+are treated as credentials rather than part of the cache key; declaring a name
+does not generate a value or a signature.
+
+| Default query parameter |
+|---|
+| `access_token` |
+| `token` |
+| `key` |
+| `api_key` |
+| `apikey` |
+| `sku` |
 
 ### The built-in `mapbox` provider
 
