@@ -135,3 +135,23 @@
   - 非タイル資源（style・tilejson・sprite・data・glyph）の固定は onBatch の setPinned で付いている。R11（参照する全 Source の固定つき region が残る間は保つ）の解放の判定はまだ無い
   - グリフの固定はレコード（fontstack）単位。解放もレコード単位
   - plan.resources は非タイルも含む。解放の列挙で enumerate・countRange を使うときはタイルだけに絞る
+
+## m4-t5 解放と範囲つき clean — 完了（PR #105 → e944774）
+
+- 実装: Codex（gpt-6-astra。13:59Z に枠が戻って起動）。実装と判定を終えた後、commit の直前に再び枠切れ（約 9 分で使い切り）→ orchestrator が作業ツリーの変更を確かめて commit（cdf7c9a）。レビューの試験の追加 b9686d2（orchestrator）
+- 判定: `node_modules/.bin/vitest run` 41 ファイル・1560 件 passed・`tsc --noEmit` exit 0・`eslint src tests` exit 0（warning 2 件は既存）。Codex の sandbox とレビュー担当の写しで build 3 構成と `tsc -p tests/dts/tsconfig.json` も exit 0。CI（Node 22・24、WebKit・Firefox）緑
+- 受け入れ条件の grep: `releaseRange` は docs/api 英日 4・4、README 英日 2・2。`parentId`（range.ts）2
+- 既存の試験: control.test.ts +32・client.test.ts +30・tests/dts/page-consumer.ts +11（追記のみ）。range.test.ts は b9686d2 で 1 行追記。新規 release.test.ts
+- Rulings（Codex が報告を出す前に枠切れ。レビュー担当が差分から拾い、妥当と判定したもの）
+  - R-t5-1: 解放するキーは enumerate を回さず、entriesAtZoom の保存済みの記録を rectsAt（enumerate と同じ座標の直し）で選ぶ
+  - R-t5-2: 残る region の保護範囲は、解放する側の持ち主に絞った extents（resourcesOf の写し）で計算する（安全側。対象のキーは自分の extents の中だけ）
+  - R-t5-3: force の clean で partial にする region は、Resource の extents を見ず、正規化した範囲どうしの重なりで選ぶ（安全側。消したタイルが無くても partial になり得る）
+  - R-t5-4: clean の fetch-busy は範囲の検査より先に判定する。releaseRange は計画の手順 1 どおり region の検査が先
+  - R-t5-5: asset の Source の clean(range) は 'all' 以外を attribute-invalid、'all' は何も消さない（planOf を流用しタイルだけを対象にする。文書には未記載）
+  - R-t5-6: 非タイル資源は、pin: false の region が残っていても、最後の固定つき region の解放で（keep でなく排他なら）本体まで消す（計画 R11 の文面どおり）
+  - R-t5-7: ページ側の releaseRange はいつも options: {} を送り、clean は範囲が無ければ undefined を送らない（client.test.ts で固定）
+- レビュー（L1・L2）: Claude（Codex が枠切れ・Kimi は 15:15Z ごろまで枠切れ）。判定は合流可。S 0・M 1・L 1。写しで 13 か所の変異試験を行い、効いていない試験を 2 件見つけた → b9686d2 で 2 件とも試験を足し、変異を入れると落ちることを確かめた
+  - M1: holdersOf の rangeOnlySourceIds を外しても全試験が通った（範囲だけで参照する Source の region による保護）→ release.test.ts に試験を追加
+  - L1: range.test.ts の「cancel() の後の clean() が通る」は assertSourceIdle を空にしても通った（t3 のレビュー L3 の申し送り）→ 取り消しの後・settle の前の clean が fetch-busy になる 1 行を追加
+  - 未確認（レビュー）: update で持ち主の一覧が変わった後（子が外れた後など）に、前の持ち主のときの region を解放すると、今の持ち主が参照しない Resource の固定が残るか。実ブラウザの IndexedDB での動き
+- t9・t10 への申し送り: 上の未確認 2 点。R-t5-5 の asset の clean(range) を文書に書くかは t11 の文書の見直しで決める
