@@ -19,8 +19,11 @@ const codeOf = (fn: () => unknown): string | undefined => {
   return undefined;
 };
 
+/** 登録した資格情報の値（除くのはこれと同じ値の項目だけ。§10 R32） */
+const VALUES = { access_token: 'pk.T', key: 'k' };
+
 /** a.example だけを資格情報の相手とする（R5 の判定） */
-const stripA: StripRule = { credentialParams: CP, shouldStrip: credentialTargetOf({ styleOrigin: 'https://a.example' }) };
+const stripA: StripRule = { credentialParams: CP, credentialValues: VALUES, shouldStrip: credentialTargetOf({ styleOrigin: 'https://a.example' }) };
 
 const style = (over: Record<string, unknown> = {}) => ({ version: 8, sources: {}, layers: [], ...over });
 
@@ -229,10 +232,42 @@ describe('rewriteStyleBody（本体の資格情報の除去は子の組の単位
         copy.sources.m.tiles = ['https://api.mapbox.com/v4/u.t/{z}/{x}/{y}.png?access_token=pk.T'];
         return copy;
       },
-      strip: { credentialParams: CP, shouldStrip: credentialTargetOf({ styleOrigin: 'https://a.example', providerMatches: (u) => u.startsWith('https://api.mapbox.com/') }) },
+      strip: { credentialParams: CP, credentialValues: VALUES, shouldStrip: credentialTargetOf({ styleOrigin: 'https://a.example', providerMatches: (u) => u.startsWith('https://api.mapbox.com/') }) },
     }));
     expect(out.sources.m.tiles).toEqual(['https://api.mapbox.com/v4/u.t/{z}/{x}/{y}.png']);
     expect((seen as { sources: { m: { tiles: string[] } } }).sources.m.tiles[0]).toContain('mapbox://');
+  });
+
+  it('§10 R32: 登録した資格情報と同じ値の項目だけを除き、違う値（子の固有のトークン）は残す', () => {
+    const strip: StripRule = { ...stripA, credentialValues: { access_token: 'pk.PARENT' } };
+    const out = JSON.parse(rewriteStyleBody(body({
+      sources: {
+        p: { type: 'raster', tiles: ['https://a.example/p/{z}/{x}/{y}.png?access_token=pk.PARENT&v=1'] },
+        c: { type: 'raster', tiles: ['https://a.example/c/{z}/{x}/{y}.png?access_token=pk.CHILD&v=1'] },
+        // 登録の無い名前（key）は子の固有の値なので残す
+        k: { type: 'raster', tiles: ['https://a.example/k/{z}/{x}/{y}.png?key=own'] },
+      },
+      glyphs: 'https://a.example/fonts/{fontstack}/{range}.pbf?ACCESS_TOKEN=pk.PARENT',
+      sprite: [{ id: 's1', url: 'https://a.example/sprites/s1?access_token=pk.CHILD' }],
+    }), BASE, { strip }));
+    expect(out.sources.p.tiles).toEqual(['https://a.example/p/{z}/{x}/{y}.png?v=1']);
+    expect(out.sources.c.tiles).toEqual(['https://a.example/c/{z}/{x}/{y}.png?access_token=pk.CHILD&v=1']);
+    expect(out.sources.k.tiles).toEqual(['https://a.example/k/{z}/{x}/{y}.png?key=own']);
+    expect(out.glyphs).toBe('https://a.example/fonts/{fontstack}/{range}.pbf');
+    expect(out.sprite).toEqual([{ id: 's1', url: 'https://a.example/sprites/s1?access_token=pk.CHILD' }]);
+  });
+
+  it('§10 R32: 値は percent-decode して比べる（符号化が違っても同じ値なら除く）', () => {
+    const strip: StripRule = { ...stripA, credentialValues: { access_token: 'pk.A/B' } };
+    const out = JSON.parse(rewriteStyleBody(body({
+      sources: { m: { type: 'raster', tiles: ['https://a.example/{z}/{x}/{y}.png?access_token=pk.A%2FB'] } },
+    }), BASE, { strip }));
+    expect(out.sources.m.tiles).toEqual(['https://a.example/{z}/{x}/{y}.png']);
+  });
+
+  it('§10 R32: 登録の値が無ければ（ヘッダだけの資格情報など）本体の項目を除かない', () => {
+    const text = body({ sources: { a: { type: 'raster', tiles: ['https://a.example/{z}/{x}/{y}.png?key=k'] } } });
+    expect(rewriteStyleBody(text, BASE, { strip: { ...stripA, credentialValues: {} } })).toBe(text);
   });
 
   it('JSON でない・スタイルの形でない本体は invalid-style を投げる（strip が無くても）', () => {
@@ -255,6 +290,14 @@ describe('rewriteTileJsonBody（tiles の全体が 1 つの組）', () => {
     const out = JSON.parse(rewriteTileJsonBody(JSON.stringify({ tiles: ['https://a.example/{z}/{x}/{y}.pbf?key=k&v=1', '{z}/{x}/{y}.pbf?access_token=pk.T'], name: 'n?key=k' }), TJ_BASE, { strip: stripA }));
     expect(out.tiles).toEqual(['https://a.example/{z}/{x}/{y}.pbf?v=1', '{z}/{x}/{y}.pbf']);
     expect(out.name).toBe('n?key=k');
+  });
+
+  it('§10 R32: tiles の項目も、登録した資格情報と同じ値だけを除き、違う値（子の固有のトークン）は残す', () => {
+    const strip: StripRule = { ...stripA, credentialValues: { access_token: 'pk.PARENT' } };
+    const out = JSON.parse(rewriteTileJsonBody(JSON.stringify({
+      tiles: ['https://a.example/{z}/{x}/{y}.pbf?access_token=pk.CHILD&v=1', '{z}/{x}/{y}.pbf?access_token=pk.PARENT'],
+    }), TJ_BASE, { strip }));
+    expect(out.tiles).toEqual(['https://a.example/{z}/{x}/{y}.pbf?access_token=pk.CHILD&v=1', '{z}/{x}/{y}.pbf']);
   });
 
   it('偽の URL が混ざれば 1 つも除かない（S-N1）', () => {
@@ -293,6 +336,27 @@ describe('子として受けられない組（L1 Major-1・Minor-3）', () => {
     const out = JSON.parse(rewriteStyleBody(JSON.stringify(s), BASE, { strip: stripA }));
     expect(out.glyphs).toBe('https://a.example/fonts/{fontstack}.pbf?key=k');
     expect(collectStyleRefs(s, BASE).glyphs).toBeUndefined();
+  });
+
+  it('子にできない glyphs・sprite は dropped に種類と論理名が残る（URL・トークンを入れない。仕様 §12）', () => {
+    const refs = collectStyleRefs(style({
+      glyphs: 'https://a.example/fonts/{fontstack}.pbf?key=SECRETG',
+      sprite: [
+        { id: 'bad', url: 'https://a.example/{z}/sprite?key=SECRETS' },
+        { id: 'ok', url: 'https://a.example/sprites/ok' },
+      ],
+    }), BASE);
+    expect(refs.glyphs).toBeUndefined();
+    expect(refs.sprites).toEqual(['https://a.example/sprites/ok']);
+    expect(refs.spriteIds).toEqual(['ok']);
+    expect(refs.dropped).toEqual([{ slot: 'glyphs' }, { slot: 'sprite', spriteId: 'bad' }]);
+    expect(JSON.stringify(refs.dropped)).not.toContain('SECRET');
+  });
+
+  it('子にできない文字列の sprite は dropped に spriteId なしの sprite として残る', () => {
+    const refs = collectStyleRefs(style({ sprite: 'https://a.example/{z}/sprite?key=k' }), BASE);
+    expect(refs.sprites).toEqual([]);
+    expect(refs.dropped).toEqual([{ slot: 'sprite' }]);
   });
 
   it('字句のある data・TileJSON の url・sprite は子にならず、除かない', () => {

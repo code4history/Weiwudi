@@ -133,6 +133,13 @@ const pieceName = (piece: string): string => {
   return first.done ? '' : first.value;
 };
 
+/** 1 つのクエリ片（`name=value`）の値を percent-decode して返す（`=` が無ければ空） */
+const pieceValue = (piece: string): string => {
+  const eq = piece.indexOf('=');
+  if (eq < 0) return '';
+  return new URLSearchParams(`=${piece.slice(eq + 1)}`).get('') ?? '';
+};
+
 interface SplitUrl { scheme: string; authority: string; path: string; query?: string; hash?: string }
 
 /** 文字列のまま分ける（URL の直列化で符号化を変えないため） */
@@ -182,14 +189,27 @@ export function spriteTemplateOf(base: string): string {
 
 /**
  * 文字列のテンプレートから資格情報の項目を除く（並びは変えない・字句はそのまま）。spec.ts が url の返却に、
- * style_body.ts が本体の除去に使う。相対 URL（スタイルの中の `tiles/{z}/{x}/{y}.pbf?key=k`）も相対の形のまま扱う（m3-t6）
+ * style_body.ts が本体の除去に使う。相対 URL（スタイルの中の `tiles/{z}/{x}/{y}.pbf?key=k`）も相対の形のまま扱う（m3-t6）。
+ * values（登録した資格情報の値）を渡すと、values と同じ値の項目だけを除く（違う値・values に無い名前＝子の固有の値は
+ * 残す。§10 R32。本体の除去の唯一の判定）。values を渡さなければ名前だけで除く（url の返却）
  */
-export function stripTemplateParams(t: string, params: readonly string[]): string {
+export function stripTemplateParams(t: string, params: readonly string[], values?: Readonly<Record<string, string>>): string {
   const held = hold(t);
   // クエリは最初の ? から # の前まで（# が先にあればクエリは無い）。スキームの有無を問わない
   const m = /^([^?#]*)(?:\?([^#]*))?(#[\s\S]*)?$/.exec(held.text);
   if (!m || m[2] === undefined) return t;
-  const query = dropQueryPieces(m[2], lowerSet(params)).join('&');
+  const drop = lowerSet(params);
+  const registered = values === undefined ? undefined
+    : new Map(Object.entries(values).map(([n, v]) => [n.toLowerCase(), v]));
+  const query = m[2].split('&').filter((p) => {
+    if (p === '') return false;
+    const name = pieceName(p).toLowerCase();
+    if (!drop.has(name)) return true;
+    if (registered === undefined) return false;
+    // 登録した値と同じ項目だけを除く（違う値・登録の無い名前は子の固有の値なので本体に残す）
+    const want = registered.get(name);
+    return want === undefined || pieceValue(p) !== want;
+  }).join('&');
   return release(`${m[1]}${query !== '' ? `?${query}` : ''}${m[3] ?? ''}`, held.tokens);
 }
 
