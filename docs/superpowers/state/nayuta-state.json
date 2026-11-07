@@ -76,10 +76,10 @@
     {
       "id": "m4",
       "title": "範囲取得と解放・保持期間・移行・#41・master への合流",
-      "status": "in_progress",
+      "status": "completed",
       "plan": "docs/superpowers/plans/2026-11-07-m4-range-release-migration.md",
       "ledger": ".superpowers/sdd/2026-11-07-m4-range/progress.md",
-      "security_review": "pending",
+      "security_review": "passed",
       "carried_from_precheck": "m1 の事前点検の第 6 回から O-3 持ち主の Source の削除で範囲だけの region が残る（region は範囲取得と一緒に作る）と、m2 の R20（opaque イベント）と、m1 のまとめの「m4 への申し送り」（dist の 4 点・latToMercY(90) が有限・移行無しで master へ入れない）、m2 の R13・R15（範囲取得の CORS・認証、容量超過時の退避と再試行）、m2-t2 の水準 1 Minor 1（上限つきの putEntry が保存のたびに全件 getAll する。bytes−pinnedBytes で予算内なら走査を省き、超えるときだけ索引の cursor で古い順に引く）",
       "carried_from_implementation": [
         "serve が reject すると（save の evictScopesFor の読み出しの失敗）上流へ 2 回出る／容量の判定の読み出しの失敗を storage として配信を続ける形に（§9 に記録済み）",
@@ -99,7 +99,7 @@
     "docs/superpowers/reports/2026-11-02-onboard-summary.md",
     "docs/superpowers/specs/2026-11-02-new-interface-spec.md"
   ],
-  "next_action": "m4 の t1〜t11 と区切り（水準 2 は Claude。PR #112 → e3ac007）を vector-cache へ合流した。次は vector-cache → master の PR（merge commit・vector-cache は残す）。1.2.0 の公開は次の月次トレイン。その後 #78（設計 PR #96）",
+  "next_action": "vector-cache を master へ合流した（PR #113 → 964fd3a。#32〜#34・#36〜#42 を閉じた）。1.2.0 の npm 公開は次の月次トレインで行う。次は #78（設計 PR #96 のレビューと実装）。vector-cache は残す",
   "delegation_environment": {
     "order": "Codex（gpt-6-astra）→ Kimi（dsh・kimi-coding/k3）→ Claude。並行は 2 まで（2026-11-07 人間の指示）",
     "codex": "5 時間の枠を 2026-11-07 08:45Z ごろと 14:08Z ごろに使い切った（戻ってから約 9 分で再び切れた）",

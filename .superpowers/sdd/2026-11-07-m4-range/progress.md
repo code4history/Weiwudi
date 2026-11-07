@@ -335,3 +335,11 @@
   - R-cp-2: L1・L5 は実害が無いか型で防げるので m4 では直さない
   - R-cp-3: P4 の 2 点目（`grep -c 'class WeiwudiError' dist/weiwudi.d.ts` が 1 以上）は 0 件だった。class は dist/errors.d.ts に `export declare class WeiwudiError` として宣言され、dist/weiwudi.d.ts は `export { WeiwudiError, … } from './errors'` で再公開している（tests/dts の check-dts も両方 ok）。型は意図どおり公開されているので満たしたとみなす。計画の grep は d.ts の分割を想定していなかった
 - master への合流の条件（wv-cp・e41900c で build して確かめた）: dist の 4 点は errors.d.ts あり・WeiwudiError の再公開（R-cp-3）・es.js の export 1・umd.js の WeiwudiError 1・public/weiwudi-sw.js の x-weiwudi-error 1。`check-dts.mjs` を weiwudi.d.ts と weiwudi_gw.d.ts で exit 0・`tsc -p tests/dts/tsconfig.json` exit 0。CHANGELOG の Unreleased あり・version 1.1.1 のまま
+
+## master への合流 — 完了（PR #113 → 964fd3a）
+
+- 合流の条件 1〜6 を満たした（上の区切りの節の「master への合流の条件」）。merge commit で合流し、vector-cache は残した
+- CI（PR #113）: Node 22・24 緑（Chromium 58 passed）。e2e-engines の log で WebKit 35 passed・2 skipped、Firefox 37 passed・失敗 0
+- 本文の Closes で #32・#33・#34・#36・#37・#38・#39・#40・#41・#42 を閉じた（仕様の §「マイルストーンの割り当て」の表のとおり。gh で CLOSED を確かめた）
+- master 側の 8 commit（依存の更新・公開ジョブ）とは衝突なし
+- 次: 1.2.0 の npm 公開は次の月次トレイン。#78 は設計 PR #96 のレビューから
