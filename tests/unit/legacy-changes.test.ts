@@ -328,3 +328,13 @@ describe('載せ替えで決めた旧 API の扱い（Ruling）', () => {
     expect(finish).toMatchObject({ error: 0, errors: { network: 0, upstream: 0, quota: 0, storage: 0 } });
   });
 });
+
+describe('NUL を含む mapID（m4-t7・I7c・R19。仕様 §9 の既知の変化）', () => {
+  it('add は mapID に NUL を含むと包括の文字列で拒否し、地図を登録しない', async () => {
+    const h = createSwHarness();
+    const res = await h.request(`/api/add?mapID=a%00b&type=xyz&url=${encodeURIComponent(TEMPLATE)}&width=256&height=256`);
+    expect(await res.text()).toBe('Error: MapID must not contain a NUL character');
+    expect(await (await h.request('/api/info?mapID=a%00b')).text()).toBe('Error: MapID "a\u0000b" not found');
+    expect(await (await h.request('/api/info?mapID=a')).text()).toBe('Error: MapID "a" not found');
+  });
+});

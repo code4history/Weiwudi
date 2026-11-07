@@ -2,6 +2,8 @@
 // 旧 API（https://weiwudi.example.com/api/*）の翻訳（仕様 §13）。現行の apiFunc の分岐と検査の順をそのまま移し、
 // 保存と取得を store・core に置き換えた。キャッシュの処理（範囲外・鮮度・上流・保存・退避）は core.serve() だけが持つ。
 // 値の依存は core・context・store・tile_math・constants・errors だけ（仕様 §3。m4 で migrate）。
+// 旧 DB（1.1.x）の移行は migrate.ts が持つ（m4-t7）。ここは IndexedDB を直接触らず、第 1 段の待ち・読み通し・
+// clean／delete の旧 DB の始末を migrate の関数で呼ぶだけ。地図の登録と退避の範囲は migrationDeps で渡す（R50）。
 //
 // 決まり:
 // - Source と Resource の id はどちらも map:<mapID>（第 1 回 S6）。Source.legacy に現行の設定（query）をそのまま持つ
@@ -14,7 +16,7 @@
 //   現行の getImage の読み出し（設定と Entry）の失敗と同じ経路・同じ形（m2-t5 の Ruling）
 import type { RouteHandlerCallbackOptions } from 'workbox-core';
 import type { Context, JobState } from './context';
-import { passThrough, runJob, serve, sweepOnce } from './core';
+import { evictScopesFor, passThrough, runJob, serve, sweepOnce } from './core';
 import type { MapSetting, ResourceMeta, Store, TileExtent } from './store';
 import { nextOrder } from './store';
 import { DAY_MS, LEGACY_PREFIX } from './constants';
@@ -23,6 +25,9 @@ import {
   expandTileTemplate, tileKeySuffix, type TileBox,
 } from './tile_math';
 import { WeiwudiError, legacyMessage, type TileFailure } from './errors';
+import {
+  forgetLegacyTiles, pullTile, readLegacySetting, settingsPending, waitForSettings, type MigrateDeps,
+} from './migrate';
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -42,10 +47,15 @@ const emptyFailures = (): Record<TileFailure, number> => ({ network: 0, upstream
 const json = (value: unknown): Response =>
   new Response(JSON.stringify(value), { headers: new Headers({ 'content-type': 'application/json' }) });
 
-/** 登録した地図の設定。無ければ undefined */
-const getSetting = async (store: Store, mapID: unknown): Promise<MapSetting | undefined> => {
+/**
+ * 登録した地図の設定。無ければ undefined。移行の第 1 段が済んでいない（失敗した）間は、sources に無ければ
+ * 旧 Weiwudi.mapSetting も見る（m4-t7。次の契機で第 1 段をやり直す）
+ */
+const getSetting = async (ctx: Context, store: Store, mapID: unknown): Promise<MapSetting | undefined> => {
   const rec = await store.getSource(sourceIdOf(mapID));
-  return rec && rec.kind === 'legacy' ? rec.legacy : undefined;
+  if (rec && rec.kind === 'legacy') return rec.legacy;
+  if (!rec && typeof mapID === 'string' && settingsPending(ctx)) return readLegacySetting(ctx, mapID);
+  return undefined;
 };
 
 /** maxZoom での範囲（現行の範囲外の判定と fetchAll の列挙と同じ `|| 0` の既定） */
@@ -91,6 +101,9 @@ const registerMap = async (store: Store, s: MapSetting, t: number): Promise<void
   await store.putSource({ id, kind: 'legacy', spec: {}, order, warnings: [], createdAt: existing?.createdAt ?? t, legacy: s });
 };
 
+/** 移行が使う地図の登録と退避の範囲（m4-t7・R50）。legacy の中の呼び出しと配線（weiwudi_gw_logic）が同じものを渡す */
+export const migrationDeps: Readonly<MigrateDeps> = Object.freeze({ registerMap, evictScopesFor });
+
 /** 現行どおりミラーから無作為に 1 つ選んで展開する */
 const tileUrl = (s: MapSetting, z: number, x: number, y: number): string => {
   let template = '';
@@ -132,9 +145,11 @@ const passRange = (s: MapSetting, z: number, x: number, y: number, range: string
 
 const getImage = async (ctx: Context, mapID: string, z: number, x: number, y: number, range: string | null) => {
   const store = await ctx.store();
-  const setting = await getSetting(store, mapID);
+  const setting = await getSetting(ctx, store, mapID);
   if (!setting) return legacyMessage('map-not-found', { mapID });
   if (range !== null) return passRange(setting, z, x, y, range);
+  // 移行の途中は、旧 Weiwudi_<mapID> にあれば新 DB へ移してから配信する（読み通し。R18。配信の経路は serve 1 つ）
+  await pullTile(ctx, migrationDeps, mapID, z, x, y);
   return serveTile(ctx, setting, z, x, y);
 };
 
@@ -236,7 +251,7 @@ const apiFunc = async (
       case 'info':
         retVal = checkAttributes(query, ['mapID']);
         if (!retVal) {
-          const setting = await getSetting(await ctx.store(), query.mapID);
+          const setting = await getSetting(ctx, await ctx.store(), query.mapID);
           if (!setting) retVal = legacyMessage('map-not-found', { mapID: query.mapID });
           else retVal = json(setting);
         }
@@ -244,6 +259,8 @@ const apiFunc = async (
       case 'add': {
         const store = await ctx.store();
         retVal = checkAttributes(query, ['mapID', 'type', 'url']);
+        // Entry のキーの区切り（\0）を含む mapID は受けない（m4-t7・I7c・R19。仕様 §9 の既知の変化）
+        if (!retVal && String(query.mapID).indexOf('\0') >= 0) retVal = 'Error: MapID must not contain a NUL character';
         if (!retVal) {
           query.tileSize = parseInt(query.tileSize || 256);
           if (query.cacheTtl !== undefined) query.cacheTtl = parseInt(query.cacheTtl);
@@ -309,10 +326,11 @@ const apiFunc = async (
         } else if (!retVal) {
           const store = await ctx.store();
           // 未登録の地図は stats と同じ文面（仕様 §9 の既知の変化）
-          if (!(await getSetting(store, query.mapID))) {
+          if (!(await getSetting(ctx, store, query.mapID))) {
             retVal = legacyMessage('map-not-found', { mapID: query.mapID });
           } else {
-            await store.clearEntries(sourceIdOf(query.mapID));
+            // 移行の途中のバッチ・読み通しを待ってから消し、旧 Weiwudi_<mapID> も消す（m4-t7・第 2 回 M2）
+            await forgetLegacyTiles(ctx, String(query.mapID));
             retVal = `Cleaned: ${query.mapID}`;
           }
         }
@@ -323,6 +341,8 @@ const apiFunc = async (
           retVal = legacyMessage('map-busy', { mapID: query.mapID });
         } else if (!retVal) {
           const store = await ctx.store();
+          // 移行の途中のバッチ・読み通しを待ち、旧 Weiwudi_<mapID> を消して maps から外す（m4-t7・F13）
+          await forgetLegacyTiles(ctx, String(query.mapID), { remove: true });
           await store.deleteResource(sourceIdOf(query.mapID));
           await store.deleteSource(sourceIdOf(query.mapID));
           retVal = `Deleted: ${query.mapID}`;
@@ -341,7 +361,7 @@ const apiFunc = async (
         retVal = checkAttributes(query, ['mapID']);
         if (!retVal) {
           const store = await ctx.store();
-          const setting = await getSetting(store, query.mapID);
+          const setting = await getSetting(ctx, store, query.mapID);
           if (!setting) retVal = legacyMessage('map-not-found', { mapID: query.mapID });
           else {
             const resource = await store.getResource(sourceIdOf(query.mapID));
@@ -367,7 +387,7 @@ const apiFunc = async (
       case 'fetchAll':
         retVal = checkAttributes(query, ['mapID']);
         if (!retVal && client && event) {
-          const setting = await getSetting(await ctx.store(), query.mapID);
+          const setting = await getSetting(ctx, await ctx.store(), query.mapID);
           if (!setting) retVal = legacyMessage('map-not-found', { mapID: query.mapID });
           else if (!setting.totalTile) retVal = legacyMessage('cannot-fetch-all', { mapID: query.mapID });
           else if (ctx.job) {
@@ -406,6 +426,8 @@ export const handleLegacy = async (ctx: Context, { url, request, event }: RouteH
   const matched = url.pathname.match(/^\/api\/([\w\d]+)(?:\/(.+))?$/);
   if (matched) {
     if (matched[1] !== 'ping' && matched[1] !== 'fetchAll') ctx.maintain?.(event);
+    // 移行の第 1 段を待つ（SW の更新直後の最初の要求でも地図が sources にあり、読み通しが効く。m4-t7・R51）
+    if (matched[1] !== 'ping') await waitForSettings(ctx, migrationDeps);
     const query = [...url.searchParams.entries()].reduce((obj: Query, e) => {
       const values = url.searchParams.getAll(e[0]);
       if (values.length === 1) obj[e[0]] = values[0];

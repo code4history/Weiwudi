@@ -136,3 +136,44 @@ describe('旧 DB が残っているときの旧 API（仕様 §13・§14.2）', 
     connection.close();
   });
 });
+
+// 仕様 §13 の表の「移す」（m4-t7）。:526・:535 → 旧 Weiwudi が store を持たなくても移行が空で完了して add が通る。
+// :575 → 旧 DB が blocked でも delete は成功し、旧 DB の削除は次の起動へ回る
+describe('旧 DB の移行（m4-t7・仕様 §13 の「移す」・§14.2）', () => {
+  const client = { id: 'client-1', postMessage: vi.fn() };
+  const migrationOf = async () => {
+    const store = await openStore();
+    try {
+      return (await store.kvGet('migration')) as { stage: string; pendingDelete: string[] } | undefined;
+    } finally {
+      store.close();
+    }
+  };
+
+  it('旧 Weiwudi が store を持たなくても、移行が空で完了して add が通る', async () => {
+    const { factory, connection } = await brokenFactory('Weiwudi');
+    connection.close();
+    const h = startSw(factory);
+    expect(await (await h.requestFromClient(ADD, client)).json()).toMatchObject({ mapID: 'x' });
+    await Promise.all(h.waitUntilCalls);
+    await h.requestFromClient('/api/info?mapID=x', client);
+    await Promise.all(h.waitUntilCalls);
+    expect((await migrationOf())?.stage).toBe('done');
+    expect(await versionOf(factory, 'Weiwudi')).toBe(0);
+    expect(await (await h.request('/api/info?mapID=x')).json()).toMatchObject({ mapID: 'x' });
+  });
+
+  it('旧 Weiwudi_x が blocked でも delete は成功し、旧 DB の削除は次の起動へ回る', async () => {
+    const { factory, connection } = await brokenFactory('Weiwudi_x');
+    const h = startSw(factory);
+    await h.request(ADD);
+    expect(await (await h.request('/api/delete?mapID=x')).text()).toBe('Deleted: x');
+    expect((await migrationOf())?.pendingDelete).toContain('Weiwudi_x');
+    connection.close();
+    const next = startSw(factory);
+    await next.requestFromClient('/api/info?mapID=x', client);
+    await Promise.all(next.waitUntilCalls);
+    expect((await migrationOf())?.pendingDelete).toEqual([]);
+    expect(await versionOf(factory, 'Weiwudi_x')).toBe(0);
+  });
+});

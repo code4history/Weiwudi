@@ -8,6 +8,8 @@ import { createContext, type Context } from './context';
 import { sweepOnce } from './core';
 import { createControl } from './control';
 import { handleLegacy } from './legacy';
+import { migrationDeps } from './legacy';
+import { migrateStep } from './migrate';
 import { installHook } from './hook';
 import { credentialSourceFor } from './registry';
 import { getProviders } from './plugins';
@@ -23,6 +25,8 @@ const runMaintenance = (ctx: Context): Promise<void> => {
   if (state.running) return state.running;
   const running = Promise.resolve().then(async () => {
     if (!state.swept) await sweepOnce(ctx);
+    // 旧 DB の移行（m4-t7・仕様 §14.2）。第 1 段か 1 バッチだけ進める。activate は待たせない
+    await migrateStep(ctx, migrationDeps);
   }).catch(e => { console.error(e); }).finally(() => { state.running = undefined; });
   state.running = running;
   return running;
