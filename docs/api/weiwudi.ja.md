@@ -45,6 +45,7 @@ await Weiwudi.registerSW('./sw.js', {scope: './'});
 **例外:**
 - `"Weiwudi service worker is not implemented."`: サービスワーカーがアクティブでない場合
 - `"Error: {message}"`: マップ登録に失敗した場合
+- `"Error: MapID must not contain a NUL character"`: `mapID` に NUL 文字（`\0`）が含まれる場合。キャッシュの移行と同じ版で足した包括の `Error: …` の文面で、`WeiwudiError.from` は `internal` を返します
 
 **例:**
 ```js
@@ -55,6 +56,11 @@ const map = await Weiwudi.registerMap('my_map', {
     url: 'https://example.com/{z}/{x}/{y}.jpg'
 });
 ```
+
+**1.1.x のキャッシュ:**
+- 1.1.x のキャッシュは、更新後の最初の要求から順に引き継ぎます（数 GB でも止まりません。移行中もオフラインで読めます）。
+- 1.1.x へ戻しても壊れません（キャッシュは取り直しになります）。`indexedDB.databases()` の無い環境（古い Firefox）では、1.1.x に戻している間に作り直されたキャッシュは、もう一度は移しません。
+- 移行の途中の `fetchAll` と `stats` は、移し終えたタイルだけを数えます（`fetchAll` はまだ移していないタイルをオンラインなら取り直し、`stats` の `percent` は一時的に低く出ます）。
 
 ---
 
