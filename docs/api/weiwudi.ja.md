@@ -318,7 +318,10 @@ interface TileBox { minX: number; maxX: number; minY: number; maxY: number }
   （クエリの資格情報だけなら元の `redirect` のまま）。クエリの資格情報だけを足した要求はリダイレクトを辿ります。
   リダイレクト先の URL は上流が `Location` で決めるもので、元の要求のクエリは引き継がれません
   （上流自身が書き込む場合を除き、上流は信頼する前提です）
-- 名前か値が `sk.` で始まるクエリ項目は、キャッシュのキーに入れません
+- スタイルの資格情報を足す相手は、スタイルの URL がリダイレクトしても、登録した URL のオリジンと提供元だけです。
+  リダイレクト先が返した本体の中の、登録した URL のオリジンの URL にも足すので、信頼できない上流へリダイレクトする
+  スタイルの URL を登録しないでください
+- 名前か値が `sk.` で始まるクエリ項目は、キャッシュのキーに入れません（値は、先頭の `Bearer `・`Token `・`Basic ` と空白を剥がした値も見ます）
 - **Resource の id は書き換えない**。`credentialParams` を宣言しない Source が先に作った Resource の id には、その項目が残る。資格情報のクエリ項目は先に登録する Source で宣言する
 - 明示の `credentials.query` を持つ Source を、Entry のある Resource へ後から登録すると `resource-conflict` になる（キーの形が変わるため）
 
@@ -327,6 +330,10 @@ interface TileBox { minX: number; maxX: number; minY: number; maxY: number }
 
 同じ要求に当たる別の形のテンプレート（`{y}` と `{-y}` など）は `template-shadowed` で知らせるだけで、後の登録は捕捉されない
 ので注意してください。
+
+`register`・`update`・`clean`・`remove`・`removeResource`・`releaseRange` は、サービスワーカーの待ち行列で 1 つずつ
+通ります。待ち行列はサービスワーカーをまたぎません。同じオリジンの別スコープのサービスワーカーが制御するページから
+同時に呼んだものは、互いに直列になりません。Source の登録は 1 つのスコープで行ってください。
 
 ### スタイル（`kind: 'style'`）
 
@@ -371,6 +378,7 @@ TileJSON（とその中の `tiles`）・`sources.*.tiles`・`glyphs`・`sprite`�
 - スタイルの登録は、`register`・`update`・`clean`・`remove` を通す待ち行列の中で上流を待つので、その間これらの呼び出しは
   待たされます。`source()`・`sources()`・`stats()` は待たないので、登録の途中のスタイル（資源が一部だけ・`warnings` が前の
   まま）が見えることがあります
+- この上流の待ちには上限を置かない（遅い上流を失敗にすると、登録そのものが `invalid-style` か `fetch-failed` で失敗するため）
 
 ### `Weiwudi.source(id)`
 
@@ -447,6 +455,8 @@ interface SourceStats {
   byResource: Record<string, { count: number; bytes: number }>;
 }
 ```
+
+範囲が決まるとき、`count` は範囲の中の Entry の数で、`percent` は 100 で止まります。`size` と `byResource` は資源の全体を数えます。
 
 ### 範囲取得
 
@@ -579,6 +589,7 @@ interface RegionInfo {
 | `fetch-failed` | スタイル: 資源（TileJSON）が取れず、保存した Entry も無かった。subject はその資源の id |
 | `same-origin-skipped` | スタイル: 別オリジンのスタイルか TileJSON が指す、ページと同じオリジンの URL を登録しなかった。subject はクエリを落とした URL。パスに秘密トークンがあるか userinfo を持てば、スタイルの中の名前（`sources.<名前>`・`glyphs`・`sprite`・`sprite.<id>`） |
 | `unsupported-source` | スタイル: 登録しない source（`video`・知らない `type`・テンプレートにできない URL）。subject は `sources.<名前>`・`glyphs`・`sprite`・`sprite.<id>`（`sprite` の配列の要素）・`imports` |
+| `credential-undeclared` | テンプレートのクエリの項目の値がトークンらしい（`pk.`・`tk.`）のに、名前が `credentialParams`（既定と宣言したもの）に無い。登録は成功するが、その項目はキャッシュのキーと `url` に残る。subject はクエリの名前（値は書かない）。名前を `credentialParams` に挙げてください |
 
 知らない code は無視してください。code は minor の版で増えることがあります。
 
@@ -693,6 +704,8 @@ try {
 
 **ほかのコード:** `db-blocked`・`quota`・`internal`（包んだ例外から。上を参照）と、
 `network`・`upstream`・`storage`（タイルの失敗。下を参照）。
+Source の API は、IndexedDB が `quota`・`db-blocked` 以外の例外で失敗したときも `storage`（`detail.name` は例外の名前）で
+reject します。ほかの例外は `internal` のままです。
 
 **Source の API のコード**（`WeiwudiError` で reject します。[Source の API](#source-の-api) を参照）:
 `unsupported-template`・`credential-rejected`（`register`）、

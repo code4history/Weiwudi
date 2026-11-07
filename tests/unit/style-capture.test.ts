@@ -189,9 +189,10 @@ describe('スタイルの捕捉', () => {
     expect(await store.getCredentials(b.source.id)).toEqual({ query: { key: 'k' } });
     expect(await store.getCredentials(b.source.id)).not.toHaveProperty('query.access_token');
     // 表を読み直させる（ハーネスの SW へ届く）
-    const { tableChanged } = await import('../../src/hook');
+    const { tableChanged, NOTIFY_DEBOUNCE_MS } = await import('../../src/hook');
     await tableChanged(createContext());
-    await new Promise((res) => setTimeout(res, 0));
+    // 通知は最後の変更から NOTIFY_DEBOUNCE_MS 後（m4-t8・I8b・R34）
+    await new Promise((res) => setTimeout(res, NOTIFY_DEBOUNCE_MS + 20));
     h.fetch.mockClear();
     const tile = await get(h, 'https://b.example/1/0/0.png?key=k');
     expect(tile.headers.get('x-weiwudi-status')).toBe('miss');

@@ -217,3 +217,37 @@ describe('I1（R21）: 資格情報は差し込み口の後の要求が元と同
     expect((await up(original, { hasEntry: false, requestChanged: false })).kind).toBe('network');
   });
 });
+
+describe('m4-t8 L7・L8（R35・R36）', () => {
+  it('?auth=Bearer%20sk.eyJ… はキーから除かれる（url_pattern.isSecretValue）', () => {
+    const T = 'https://a.example/{z}/{x}/{y}.png';
+    const url = new URL('https://a.example/3/1/2.png?auth=Bearer%20sk.eyJabc&b=1');
+    const k = entryKey('R', 'tile', matchUrl(compileTemplate(T), url)!, url, []);
+    expect(k.endsWith('?b=1')).toBe(true);
+    expect(k.toLowerCase()).not.toContain('sk.');
+  });
+
+  it('SW: ?mytoken=pk.abc の登録は成功し、SourceInfo と保存した warnings に credential-undeclared: mytoken（値は無い）', async () => {
+    const h = createSwHarness();
+    h.fetch.mockImplementation(async () => png());
+    const reg = await (await h.post('/v2/register', { kind: 'raster', id: 'u', url: `${A}?mytoken=pk.abc` }))!.json();
+    expect(reg.ok).toBe(true);
+    expect(reg.result.warnings).toEqual(['credential-undeclared: mytoken']);
+    expect(JSON.stringify(reg.result.warnings)).not.toContain('pk.abc');
+    const again = await (await h.post('/v2/source', { id: 'u' }))!.json();
+    expect(again.result.warnings).toEqual(['credential-undeclared: mytoken']);
+    // update() でも消えない
+    const up = await (await h.post('/v2/update', { id: 'u' }))!.json();
+    expect(up.result.warnings).toEqual(['credential-undeclared: mytoken']);
+  });
+
+  it('SW: credentialParams: [\'mytoken\'] なら出ず、sk. は credential-rejected のまま', async () => {
+    const h = createSwHarness();
+    h.fetch.mockImplementation(async () => png());
+    const reg = await (await h.post('/v2/register', { kind: 'raster', id: 'd', url: `${A}?mytoken=pk.abc`, credentialParams: ['mytoken'] }))!.json();
+    expect(reg.ok).toBe(true);
+    expect(reg.result.warnings).toEqual([]);
+    const bad = await (await h.post('/v2/register', { kind: 'raster', id: 's', url: `${A}?mytoken=sk.abc` }))!.json();
+    expect(bad.error.code).toBe('credential-rejected');
+  });
+});

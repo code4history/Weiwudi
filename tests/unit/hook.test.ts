@@ -474,3 +474,34 @@ describe('credentialsForResource（m4-t3・R3・第 1 回 M4）', () => {
     expect(await credentialsForResource(ctx, resource, 'https://a.example')).toEqual({});
   });
 });
+
+describe('m4-t8 I8b（R34）: tableChanged の通知を 100 ms でまとめる', () => {
+  it('3 回の tableChanged で postMessage は最後の変更から 100 ms 後に 1 回。表はその場で作り直す', async () => {
+    harness();
+    const ctx = otherSw();
+    const ch = ctx.table.channel!;
+    const post = vi.spyOn(ch, 'postMessage');
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    await tableChanged(ctx);
+    await vi.advanceTimersByTimeAsync(60);
+    await register(ctx, { url: TPL });
+    await tableChanged(ctx);
+    expect(ctx.table.current!.table.size).toBe(1);
+    expect(post).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(99);
+    expect(post).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post).toHaveBeenCalledWith({ type: 'table' });
+  });
+
+  it('withTimeout を export する（control が GATE_WAIT_MS で待つ。F34）', async () => {
+    const { withTimeout } = await import('../../src/hook');
+    await expect(withTimeout(Promise.resolve(1), 10)).resolves.toBe(1);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const p = withTimeout(new Promise<never>(() => undefined), GATE_WAIT_MS);
+    const settled = expect(p).rejects.toThrow('timeout');
+    await vi.advanceTimersByTimeAsync(GATE_WAIT_MS);
+    await settled;
+  });
+});

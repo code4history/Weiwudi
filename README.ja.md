@@ -186,6 +186,9 @@ console.log(source.warnings, await source.stats());
 - サービスワーカーが `credentials` を足すのはページの要求と同じオリジンの要求だけで、ヘッダの資格情報を足した要求は
   `redirect: 'error'` で出します。秘密トークン（クエリの `sk.`・`sk.eyJ…` のパスの区画）は拒否し、同じ資格情報の項目に
   違う値を持つミラーは `attribute-invalid` で拒否します。
+- 署名つき URL（`X-Amz-Signature` を持つ S3 の署名つき URL など）は、署名のクエリ項目を `credentialParams` に挙げてください。
+  キャッシュのキーに残らず、同じタイルが 1 つの Entry になります。サービスワーカーは署名を作れないので、`credentials` で
+  足すことはできません。
 - `mapbox://` の URL は標準で `https://api.mapbox.com/…` へ解決します（アクセストークンは
   `credentials: { query: { access_token } }` で渡します）。オフライン保存の可否を含め、提供元の利用規約の確認は
   利用者の責任です。**第三者のスタイルの中の `mapbox://` は対象外です**。解決するのは、利用者が `mapbox://` か
@@ -200,6 +203,9 @@ console.log(source.warnings, await source.stats());
 - サービスワーカーでは **Weiwudi の import を先に書き**（`import '@c4h/weiwudi/sw'` か `importScripts` の行）、
   自分の Workbox のルートはその後に登録してください。Weiwudi より前に登録した全捕捉のルート（`/.*/` など）は、
   タイルの要求をすべて先に取ります。
+- Weiwudi の門番のルート（サービスワーカーの起動後、URL の表を読み込む間のタイルの要求を受けます）は、サービスワーカーの
+  スクリプトの評価の直後に登録されます。評価の後に登録したルート（イベントのハンドラの中や `await` の後）と既定のハンドラ
+  （`setDefaultHandler`）より先に、それらの要求を受けます。
 
 `cacheRetention` は `fetchedAt` からの削除期限をミリ秒で指定します（既定は無期限）。
 期限を過ぎた Entry は配信で無いものとして扱い、SW の起動後の最初の store を使う Weiwudi の要求と、

@@ -490,3 +490,19 @@ describe('expandTemplate（m4-t3・R2）', () => {
     }
   });
 });
+
+describe('m4-t8 L7（R35）: isSecretValue を spec と url_pattern で共有する', () => {
+  it('Bearer・Token・Basic と空白を剥がして sk. で始まる値（大文字小文字を問わない）', async () => {
+    const { isSecretValue } = await import('../../src/url_pattern');
+    for (const v of ['sk.abc', 'SK.abc', 'Bearer sk.eyJabc', 'bearer  sk.x', ' Token sk.x', 'Basic sk.x']) expect(isSecretValue(v)).toBe(true);
+    for (const v of ['pk.abc', 'disk.png', 'Bearer pk.x', 'xsk.abc', '']) expect(isSecretValue(v)).toBe(false);
+  });
+
+  it('?auth=Bearer%20sk.eyJ… はキーの残りのクエリから除かれる（他の項目は残る）', () => {
+    const c = compileTemplate('https://a.example/{z}/{x}/{y}.png');
+    const url = new URL('https://a.example/3/1/2.png?auth=Bearer%20sk.eyJabc&v=1');
+    const k = entryKey('R', 'tile', matchUrl(c, url)!, url, CP);
+    expect(k).toBe('R\x003_1_2?v=1');
+    expect(k.toLowerCase()).not.toContain('sk.');
+  });
+});

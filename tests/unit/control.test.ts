@@ -739,3 +739,177 @@ describe('m4-t5 releaseRange control', () => {
     expect(clear).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('m4-t8 I2b（R38）: 表の作り直しを GATE_WAIT_MS で待つ', () => {
+  it('tableChanged が解決しない（buildTable が止まる）とき、register は GATE_WAIT_MS 後に成功し ctx.table.current が消える', async () => {
+    const { GATE_WAIT_MS } = await import('../../src/hook');
+    let stall = false;
+    let stalled!: () => void;
+    const reached = new Promise<void>((resolve) => { stalled = resolve; });
+    const { ctx, post } = direct(async () => {
+      const s = await openStore();
+      return {
+        ...s,
+        getCredentials: (id: string) => {
+          if (!stall) return s.getCredentials(id);
+          stalled();
+          return new Promise<never>(() => undefined);
+        },
+      };
+    });
+    expect((await post('register', { kind: 'raster', id: 'a', url: TPL })).ok).toBe(true);
+    expect(ctx.table.current).toBeDefined();
+    stall = true;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let done = false;
+    const p = post('register', { kind: 'raster', id: 'b', url: 'https://b.example/{z}/{x}/{y}.png' }).then((r) => { done = true; return r; });
+    // buildTable が止まった時点で、refreshTable の上限のタイマは既に置かれている
+    await reached;
+    await vi.advanceTimersByTimeAsync(GATE_WAIT_MS - 1);
+    expect(done).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const r = await p;
+    expect(r.ok).toBe(true);
+    expect(r.result.id).toBe('b');
+    expect(ctx.table.current).toBeUndefined();
+  });
+});
+
+describe('m4-t8 I3（R41・第 1 回 M14）: stats の count・percent は範囲の中だけ', () => {
+  const putAt = async (store: Store, resourceId: string, z: number, x: number, y: number) => {
+    const key = `${resourceId}\0${z}_${x}_${y}`;
+    await store.putEntry({ key, resourceId, z, x, y, size: 3, fetchedAt: 1, accessedAt: 1, pinned: 0 },
+      { key, blob: new Blob([new Uint8Array([1, 2, 3])]), headers: {} }, []);
+  };
+  const RANGE = { minZoom: 0, maxZoom: 1, box: { minX: 0, maxX: 1, minY: 0, maxY: 1 } };
+
+  it('共有の Resource に範囲の外の Entry があっても、count は box の中だけで percent は 100 を超えない', async () => {
+    const { ctx, post } = direct();
+    expect((await post('register', { kind: 'raster', id: 'a', url: TPL })).ok).toBe(true);
+    expect((await post('register', { kind: 'raster', id: 'b', url: TPL, ...RANGE })).ok).toBe(true);
+    const store = await ctx.store();
+    expect((await store.getResource(TPL))!.sourceIds.sort()).toEqual(['a', 'b']);
+    await putAt(store, TPL, 0, 0, 0);
+    await putAt(store, TPL, 1, 1, 1);
+    for (let x = 0; x < 6; x++) await putAt(store, TPL, 3, x, 0);
+    await putAt(store, TPL, 1, 0, 0);
+    const s = (await post('stats', { id: 'b' })).result;
+    expect(s).toMatchObject({ count: 3, total: 5, percent: 60 });
+    // byResource と size は今のまま（Resource の数）
+    expect(s.byResource[TPL].count).toBe(9);
+    expect(s.size).toBe(27);
+  });
+
+  it('範囲だけの Resource も z ごとに box の中を数える', async () => {
+    const { ctx, post } = direct();
+    expect((await post('register', { kind: 'raster', id: 'a', url: TPL })).ok).toBe(true);
+    const store = await ctx.store();
+    await putAt(store, TPL, 5, 9, 9);
+    // Entry のある Resource に credentialParams を広げて合流 → 範囲だけ足す
+    const b = (await post('register', { kind: 'raster', id: 'b', url: TPL, credentialParams: ['foo'], ...RANGE })).result;
+    expect(b.resources[0].rangeOnly).toBe(true);
+    await putAt(store, TPL, 1, 0, 1);
+    expect((await post('stats', { id: 'b' })).result).toMatchObject({ count: 1, total: 5, percent: 20 });
+  });
+
+  it('排他の Resource だけの Source の stats は entriesAtZoom を呼ばず Resource の count を使う。percent は 100 で止める', async () => {
+    const { ctx, post } = direct();
+    expect((await post('register', { kind: 'raster', id: 's', url: TPL, ...RANGE })).ok).toBe(true);
+    const store = await ctx.store();
+    for (let x = 0; x < 7; x++) await putAt(store, TPL, 1, x % 2, Math.floor(x / 2) % 2);
+    for (let x = 0; x < 4; x++) await putAt(store, TPL, 4, x, 0);
+    const spy = vi.spyOn(store, 'entriesAtZoom');
+    const s = (await post('stats', { id: 's' })).result;
+    expect(spy).not.toHaveBeenCalled();
+    expect(s.total).toBe(5);
+    expect(s.count).toBe((await store.getResource(TPL))!.count);
+    expect(s.count).toBeGreaterThan(5);
+    expect(s.percent).toBe(100);
+  });
+});
+
+describe('m4-t8 I4a（R39）: DOMException の失敗は storage', () => {
+  const failing = (make: () => unknown) => direct(async () => {
+    const s = await openStore();
+    return { ...s, listSources: async () => { throw make(); } };
+  });
+
+  it('IndexedDB の DOMException（internal に分類されるもの）は storage で detail に name', async () => {
+    const r = await failing(() => new DOMException('read failed', 'UnknownError')).post('sources', {});
+    expect(r).toMatchObject({ ok: false, error: { code: 'storage', detail: { name: 'UnknownError' } } });
+  });
+
+  it('QuotaExceededError は quota のまま', async () => {
+    const r = await failing(() => new DOMException('full', 'QuotaExceededError')).post('sources', {});
+    expect(r.error!.code).toBe('quota');
+  });
+
+  it('TypeError など DOMException でない例外は internal のまま', async () => {
+    const r = await failing(() => new TypeError('bug')).post('sources', {});
+    expect(r.error!.code).toBe('internal');
+  });
+});
+
+describe('m4-t8 I4b（R40）: 直列の op の途中の失敗の後も表を作り直す', () => {
+  it('register の途中の store の失敗の後に tableChanged が呼ばれている（表の世代が進む）', async () => {
+    let fail = false;
+    const { ctx, post } = direct(async () => {
+      const s = await openStore();
+      return {
+        ...s,
+        putSource: async (r: Parameters<Store['putSource']>[0]) => {
+          if (fail) throw new DOMException('write failed', 'UnknownError');
+          return s.putSource(r);
+        },
+      };
+    });
+    expect((await post('register', { kind: 'raster', id: 'a', url: TPL })).ok).toBe(true);
+    const before = ctx.table.generation;
+    fail = true;
+    const r = await post('register', { kind: 'raster', id: 'b', url: 'https://b.example/{z}/{x}/{y}.png' });
+    expect(r.ok).toBe(false);
+    expect(r.error!.code).toBe('storage');
+    expect(ctx.table.generation).toBe(before + 1);
+  });
+
+  it('remove の途中の失敗の後も同じ（update・removeResource も同じ serial の包み）', async () => {
+    let fail = false;
+    const { ctx, post } = direct(async () => {
+      const s = await openStore();
+      return {
+        ...s,
+        clearEntries: async (id: string) => {
+          if (fail) throw new DOMException('write failed', 'UnknownError');
+          return s.clearEntries(id);
+        },
+      };
+    });
+    expect((await post('register', { kind: 'raster', id: 'a', url: TPL })).ok).toBe(true);
+    const before = ctx.table.generation;
+    fail = true;
+    const r = await post('removeResource', { id: 'a', resourceId: TPL });
+    expect(r.error!.code).toBe('storage');
+    expect(ctx.table.generation).toBe(before + 1);
+  });
+});
+
+describe('m4-t8 PR #106 M1: 範囲だけの Resource の scheme が Source と違うときも Resource の座標で数える', () => {
+  const putAt = async (store: Store, resourceId: string, z: number, x: number, y: number) => {
+    const key = `${resourceId}\0${z}_${x}_${y}`;
+    await store.putEntry({ key, resourceId, z, x, y, size: 3, fetchedAt: 1, accessedAt: 1, pinned: 0 },
+      { key, blob: new Blob([new Uint8Array([1, 2, 3])]), headers: {} }, []);
+  };
+
+  it('tms の Source b が xyz の Resource を範囲だけで参照: xyz の (2,0,3) は数え、(2,0,0) は数えない', async () => {
+    const { ctx, post } = direct();
+    expect((await post('register', { kind: 'raster', id: 'a', url: TPL })).ok).toBe(true);
+    const b = (await post('register', { kind: 'raster', id: 'b', url: TPL, scheme: 'tms', minZoom: 2, maxZoom: 2, box: { minX: 0, maxX: 0, minY: 0, maxY: 0 } })).result;
+    expect(b.resources[0].rangeOnly).toBe(true);
+    const store = await ctx.store();
+    // tms の (2,0,0) は xyz の (2,0,3)
+    await putAt(store, TPL, 2, 0, 3);
+    expect((await post('stats', { id: 'b' })).result).toMatchObject({ count: 1, total: 1, percent: 100 });
+    await putAt(store, TPL, 2, 0, 0);
+    expect((await post('stats', { id: 'b' })).result).toMatchObject({ count: 1, total: 1, percent: 100 });
+  });
+});

@@ -152,6 +152,9 @@
 - 利用者のルートは SW スクリプトの評価中に同期で登録する前提である（Workbox の通常の書き方）。評価の後で登録したルートは門番より後ろになる
 - 利用者のルートが門番より先に評価されるので、プリキャッシュは表が空の間も奪われない（§2 の 9）。利用者が `/.*/` のような全捕捉ルートを持つ場合は、`@c4h/weiwudi/sw` の import より後に登録すればこの窓の間だけ負け、前に登録すれば常に負ける。README に「import を先に書く」と書く
 - 表の更新は登録を処理した SW のメモリに即時反映し、同じオリジンの別スコープの SW へは `BroadcastChannel('weiwudi')` で再読込を伝える
+- 別スコープの SW への通知は 100 ms でまとめる（最後の変更から 100 ms 後に 1 回。スタイルの登録は段ごとに表を作り直すため。m4-t8・I8b・R34）。制御が表の作り直しを待つのも門番と同じ 3 秒までで、超えたら作り直しの失敗と同じく表を捨てる（登録は成功。m4-t8・I2b・R38）
+- 門番は `queueMicrotask` で登録するので、利用者がスクリプトの評価の後に登録したルート（イベントのハンドラの中など）と既定のハンドラ（`setDefaultHandler`）より先に、表が無い間の候補を受ける（m4-t8・I8c）。README の英日にも書く
+- 書き換えの op の直列の待ち行列は 1 つの SW の中だけで、同じオリジンの別スコープの SW からの同時の登録は直列にならない。直さず文書に書く（1 つのスコープで登録する。m4-t8・I6・R-I6）
 - `Weiwudi_Internal` が受ける `registerRoute` の第 1 引数の型を `RegExp | RouteMatchCallback`（`workbox-core`）にする。呼び方は変えない
 - `sw-harness.ts` は「`registerRoute` の呼び出しは 1 回」を前提にしている。m2 で複数ルートに合わせて直す
 
@@ -636,6 +639,10 @@ type Credentials = { query?: Record<string, string>; headers?: Record<string, st
 - 足すのは、差し込み口を通した後の要求の URL のオリジンが、ページから届いた要求のオリジンと同じときだけ（違えば足さない。m3-t3 I1）。ヘッダの資格情報を足した要求は `redirect: 'error'` で出す（別オリジンへのリダイレクトに `Authorization` 以外のヘッダが付いて行くのを止める。no-cors の要求を除く（ヘッダが送られないため。follow 以外の `redirect` は no-cors では network error になる））。リダイレクトはネットワークの失敗として §6 の 6・7 になる。クエリの資格情報だけを足した要求は元の `redirect` のまま。クエリの資格情報だけを足した要求はリダイレクトを辿る。リダイレクト先の URL は上流が `Location` で決めるもので、元の要求のクエリは引き継がれない（上流自身が書き込む場合を除き、上流は信頼する前提）
 - テンプレートのクエリから資格情報を移すとき、同じ名前（大文字小文字を問わない）に違う値がミラーの間にあれば `attribute-invalid`（`URL templates carry different values for credential "<名前>"; register each mirror as its own source`。値は文面に入れない）。明示の `credentials.query` にある名前はテンプレートの値を見ない（明示が勝つ。m3-t3 I2）
 - Entry のキーの残りのクエリ（§5.3）からは、名前か値が `sk.` で始まる項目も除く（decode した後の形で見る。m3-t3 I9）
+- 秘密トークンの値の判定（先頭の `Bearer `・`Token `・`Basic ` と空白を剥がして `sk.` で始まる）は `url_pattern.isSecretValue` 1 か所で、登録の検査とキーの残りのクエリの両方が使う。キーからは `?auth=Bearer%20sk.…` のような値の項目も除く（m4-t8・L7・R35）
+- テンプレートのクエリのうち `credentialParams`（既定＋宣言）に無い名前の値が `^(pk|sk|tk)\.` に当たれば、`warnings` に `credential-undeclared: <名前>` を書く（値は書かない。`sk.` は上の拒否が先）。登録は成功する（m4-t8・L8・R36）
+- 署名つき URL（`X-Amz-Signature` など）は、署名の項目を `credentialParams` に挙げる（キーに残さず、同じタイルを 1 つにする）。SW は署名を作れないので、`credentials` では足せない（m4-t8・I8a・R-I8。README の英日）
+- スタイルの「同じオリジン」の判定と資格情報を足す相手は、登録 URL のオリジンと提供元だけで、リダイレクト先（`Response.url`）は見ない。リダイレクト先が返した本体の中の、登録 URL のオリジンの URL にも足すので、信頼できない上流へリダイレクトするスタイルの URL を登録しないことを `docs/api` の英日に書く（m4-t8・I11・R44）
 - エラー文面と `warnings` に URL を入れるときは、クエリを落とす。`Resource.id`（§5.1 の正規化で資格情報を除いた形）は URL ではなく id としてそのまま書く（§5.6・§12。クエリを落とすと `layer=a` と `layer=b` の Resource を区別できない）
 - `credentials` を IndexedDB に置くのは、ページが閉じた後の再開と SW 再起動のため。同じオリジンのスクリプトからは読めるが、そのトークンはもともとページの JS が持っている
 
@@ -729,12 +736,15 @@ export interface SourceStats {
 
 - `WeiwudiSource.resources` も呼び出し時点の写しで、後の変化は `stats()` か `source()` で読み直す
 - 上の `class` の宣言のうち、各版の d.ts と文書には、その版で入るメンバだけを書く（m2 は `register`・`source`・`sources` と、`WeiwudiSource` の `id`・`url`・`resources`・`warnings`・`stats`・`update`・`clean`（範囲なし）・`remove`・`release`。m3 は `usage` と `removeResource` を足す。m4-t3 は `estimate`・`fetchRange`・`regions`・`cancel` と型 `RangeSpec`・`FetchRangeOptions`・`RegionInfo` を足す（§7.2））
-- `warnings` の書式は `"<code>: <subject>"`（`subject` は `Resource.id`。利用者は知らない `code` を無視する）。`code` は次の 5 つ（m3-t7・R20）
+- `warnings` の書式は `"<code>: <subject>"`（`subject` は `Resource.id`。利用者は知らない `code` を無視する）。`code` は次の 6 つ（m3-t7・R20。`credential-undeclared` は m4-t8・L8）
   - `resource-conflict`（§5.6）
   - `template-shadowed`（同じ要求に当たる別の照合の形が先に評価され、その Resource が捕捉されない。その Source が参照する Resource のものだけを書く。スタイルは子の Resource のもの。I10・R26: 警告のまま）
   - `fetch-failed`（スタイル: 段 A 以外の取得の失敗。subject は取れなかった子の `Resource.id`）
   - `same-origin-skipped`（スタイル: §5.5-5。subject はクエリを落とした URL（オリジン＋パス）。パスの区画に秘密（`sk.eyJ`）があるか userinfo を持てば、スタイルの中の名前（`sources.<名前>`・`glyphs`・`sprite`・`sprite.<id>`））
   - `unsupported-source`（スタイル: video・知らない type・子として受けられない URL の source。subject は `sources.<名前>`・`glyphs`・`sprite`・`sprite.<id>`（`sprite` の配列の要素）・`imports`）
+  - `credential-undeclared`（テンプレートのクエリの値がトークンらしい（`pk.`・`tk.`）のに、名前が `credentialParams` に無い。subject はクエリの名前で、値は書かない。登録は成功する。§10・m4-t8・L8・R36）
+- `stats()` の `count` は、範囲が決まる Source では範囲（`box`）の中の Entry の数。その Source だけが参照する Resource は Resource の `count`、共有・範囲だけの Resource は z ごとに `entriesAtZoom` で数える。`percent = min(100, floor(count × 100 / total))`。`size`・`byResource` は Resource の数のまま（m4-t8・I3・R41）
+- 制御の失敗のうち、`WeiwudiError` でなく `from` が `internal` にする DOMException（IndexedDB の例外）は `storage`（`detail: { name }`）。`quota`・`db-blocked` は `from` のまま、DOMException でない例外は `internal` のまま（m4-t8・I4a・R39）
 - 登録を拒否するもの: `map:` から始まる `id`・空の `id`・`\0` を含む `id`（§5.1・§10。`attribute-invalid`）・userinfo を含むテンプレート（§10。`attribute-invalid`）・`weiwudi.example.com` のテンプレート（`unsupported-template`）・その版が扱わない `kind`（`unsupported-kind`。m2 では `style`・`asset`。m3 では作られない）・`sk.` の資格情報（`credential-rejected`）・同じ id で違う `kind`（`attribute-invalid`。R37）・読めないスタイル（`invalid-style`）
 - 提供元別の使用量（#38）は `usage().byProvider`。鍵は `ResourceMeta.provider`、無ければ先頭のテンプレートの origin（旧 API の相対の URL は SW の場所で解決する。origin が無ければ `'unknown'`）。全 Resource（旧 API の `map:` も、スタイルの子も）を 1 回ずつ数える。`byProvider` は null プロトタイプ（m3-t8・R19）
 

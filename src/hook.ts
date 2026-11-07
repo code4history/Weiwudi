@@ -32,6 +32,8 @@ export const TABLE_CHANNEL = 'weiwudi';
 export const TABLE_MESSAGE: Readonly<{ type: 'table' }> = Object.freeze({ type: 'table' });
 /** 門番が読み込みを待つ上限（仕様 §4.3） */
 export const GATE_WAIT_MS = 3000;
+/** 表の更新の通知をまとめる間隔（最後の変更から。m4-t8・I8b・R34） */
+export const NOTIFY_DEBOUNCE_MS = 100;
 /** 読み込みのやり直しの間隔（1 秒から倍々に 30 秒まで） */
 export const RETRY_MIN_MS = 1000;
 export const RETRY_MAX_MS = 30000;
@@ -177,7 +179,8 @@ const ensureLoad = (ctx: Context, t: number): Promise<LoadedTable> | undefined =
   return startLoad(ctx);
 };
 
-const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T> => new Promise<T>((resolve, reject) => {
+/** p を ms まで待つ。超えたら Error('timeout') で reject（門番と control.refreshTable が使う。m4-t8・F34） */
+export const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T> => new Promise<T>((resolve, reject) => {
   const timer = setTimeout(() => reject(new Error('timeout')), ms);
   p.then((v) => { clearTimeout(timer); resolve(v); }, (e: unknown) => { clearTimeout(timer); reject(e); });
 });
@@ -190,15 +193,21 @@ const reload = (ctx: Context): Promise<LoadedTable> => {
 
 /**
  * 登録の書き換え（registry の applyRegister・applyUpdate・applyRemove）の後に呼ぶ（t8 の control）。
- * この SW の表を即時に作り直し、同じオリジンの別の SW へ { type: 'table' } を伝える。照合表の warnings を返す
+ * この SW の表を即時に作り直し、同じオリジンの別の SW へ { type: 'table' } を伝える。照合表の warnings を返す。
+ * 通知は NOTIFY_DEBOUNCE_MS でまとめる（最後の変更から 1 回。ctx.table.notifyTimer。m4-t8・I8b・R34）
  */
 export async function tableChanged(ctx: Context): Promise<string[]> {
   const p = reload(ctx);
-  try {
-    channelOf(ctx)?.postMessage(TABLE_MESSAGE);
-  } catch (_e) {
-    // 閉じた・無い母線は伝えない（相手は次の起動で読み直す）
-  }
+  const s = ctx.table;
+  if (s.notifyTimer !== undefined) clearTimeout(s.notifyTimer);
+  s.notifyTimer = setTimeout(() => {
+    s.notifyTimer = undefined;
+    try {
+      channelOf(ctx)?.postMessage(TABLE_MESSAGE);
+    } catch (_e) {
+      // 閉じた・無い母線は伝えない（相手は次の起動で読み直す）
+    }
+  }, NOTIFY_DEBOUNCE_MS);
   return (await p).warnings.slice();
 }
 
