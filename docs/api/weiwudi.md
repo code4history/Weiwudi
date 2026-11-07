@@ -252,10 +252,11 @@ L.tileLayer(source.url as string).addTo(leafletMap);
 Chromium is tested locally and in CI. WebKit (Playwright's WebKit on Linux) is tested in CI, except the
 tests that only work on Chromium: going offline (`context.setOffline`), stopping the service worker (CDP),
 the real storage quota, and the Mapbox tests (Playwright cannot intercept requests from a service worker on
-WebKit). Linux WebKit is not the same as Safari on iOS. WebKit cannot store a `Blob` in IndexedDB in a
-non-persistent session (private browsing included), so Weiwudi stores bodies as `ArrayBuffer`; all 29 CI
-tests pass on WebKit in this form. Firefox is run in CI on the same 29 tests as WebKit and all pass, but it
-is not a required check.
+WebKit). Linux WebKit is not the same as Safari on iOS. In CI's non-persistent WebKit session, seeding the legacy IndexedDB cache with a
+`Blob` fails. Weiwudi stores new cache bodies as `ArrayBuffer`. Of the 37 selected
+CI tests, WebKit passes 35 and skips the two migration tests that need legacy
+`Blob` data; those migration cases are therefore unverified in that WebKit session.
+Firefox passes all 37 selected tests in CI, but it is not a required check.
 
 A sandboxed `srcdoc` iframe (`allow-scripts allow-same-origin`) inherits the page's service worker on Chromium
 and WebKit, so it can use the API there. On Firefox it does not, and calls in it reject with `sw-not-controlling`.
@@ -705,7 +706,9 @@ through the same path as a captured request and pinned the same way:
   its default options, or by `clean(range, { force: true })`.** Release only
   removes pins no remaining pinned region needs; range cleaning leaves shared
   entries and their pins untouched. Range cleaning does not delete non-tile
-  resources.
+  resources. For an asset source, `clean('all')` deletes nothing; any other
+  explicit range rejects with `attribute-invalid`. Use `clean()` without a range
+  to clear its exclusive resource.
 - `await source.clean()` releases all of this source's regions, then clears
   entries of exclusive resources. Shared entries stay, with pins retained
   only where other pinned regions need them. `remove()` also releases all

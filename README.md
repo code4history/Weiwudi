@@ -31,16 +31,23 @@ Weiwudi is open-source under the MIT License.
 - Global cache limit across all sources (`Weiwudi.setLimits({ maxBytes })`), and a 10% least-recently-used eviction with one retry when the browser's storage quota is exceeded
 - Bulk prefetch (`fetchAll`) with progress events (`proceed` / `finish` / `stop`)
 - Works with any map library (Leaflet, OpenLayers, etc.) through the URL template
-- Source API (`Weiwudi.register`) that caches the real tile URLs the map library already requests
+- Source API (`Weiwudi.register`) that caches the real raster and vector tile URLs the map library already requests
+- Style registration with referenced TileJSON, tiles, glyphs, sprites, GeoJSON and images
+- Offline range fetching and pinning (`estimate`, `fetchRange`, `regions`, `cancel`), range release (`releaseRange`) and cleaning (`clean`)
+- Cache retention deadlines (`cacheRetention`), with pinned entries protected from expiry
+- Gradual migration of existing tile caches, with offline reads during migration
+- Built-in `mapbox://` URL resolution and custom providers (`addProvider`)
+- Service worker plugins (`addPlugin`) for requests, cache reads and cache writes
 - Open-source (MIT) with a peer dependency on `workbox-routing`
 
 <!-- SECTION 5: Quick Start -->
 ## Quick Start
 
 <!-- release-pinned:start -->
-> **Current release: `1.1.1`**. This block is the only place in
-> this repository that carries a release version (ADR-0012); everything outside it is
-> written against the 1.0 release.
+> **Current release: `1.1.1`**. The installation instructions and legacy API examples
+> below target this release (ADR-0012). The feature list and API documentation also describe changes
+> implemented on this branch; changes listed in [Unreleased](CHANGELOG.md#unreleased)
+> are not included in the current npm release.
 > npm: [`@c4h/weiwudi`](https://www.npmjs.com/package/@c4h/weiwudi)
 > [![npm](https://img.shields.io/npm/v/@c4h/weiwudi)](https://www.npmjs.com/package/@c4h/weiwudi)
 
@@ -174,10 +181,11 @@ console.log(source.warnings, await source.stats());
 - Chromium is tested locally and in CI. **WebKit** (Playwright's WebKit on Linux) is tested in CI, except
   the tests that only work on Chromium: going offline (`context.setOffline`), stopping the service worker
   (CDP), the real storage quota, and the Mapbox tests (Playwright cannot intercept requests from a service
-  worker on WebKit). Linux WebKit is not the same as Safari on iOS. WebKit cannot store a `Blob` in
-  IndexedDB in a non-persistent session (private browsing included), so Weiwudi stores bodies as
-  `ArrayBuffer`; all 29 CI tests pass on WebKit in this form. **Firefox** is run
-  in CI on the same 29 tests as WebKit and all pass, but it is not a required check.
+  worker on WebKit). Linux WebKit is not the same as Safari on iOS. In CI's non-persistent WebKit session, seeding the legacy IndexedDB cache with a
+  `Blob` fails. Weiwudi stores new cache bodies as `ArrayBuffer`. Of the 37 selected
+  CI tests, WebKit passes 35 and skips the two migration tests that need legacy
+  `Blob` data; those migration cases are therefore unverified in that WebKit session.
+  Firefox passes all 37 selected tests in CI, but it is not a required check.
 - A sandboxed `srcdoc` iframe (`allow-scripts allow-same-origin`) inherits the page's service worker on
   Chromium and WebKit, so it can use the API there. On Firefox it does not, and calls in it reject with
   `sw-not-controlling`.

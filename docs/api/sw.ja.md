@@ -200,16 +200,43 @@ interface WeiwudiProvider {
   （`cannot be resolved by the provider "<id>"`。投げた例外の文面は外へ出しません）。
 - `resolve` は資格情報を新たに足さないでください。入力のクエリは残してかまいません。`credentialParams` に
   挙げた名前は登録の検査が取り除きます。それ以外の名前の資格情報は URL に残ります。
-- `applyCredentials` は `url` を直に書き換えます。使うのはクエリだけで、ヘッダの資格情報は常に汎用の方法で
-  足します。投げたとき、または `url` のオリジンを替えたときは、クエリの資格情報を足しません。資格情報の規則は
-  そのまま当たります: 差し込み口の `requestWillFetch` が要求のオリジンを替えたときは何も足さず、ヘッダの
-  資格情報を足した要求は `redirect: 'error'` で出します。
 - `validateCredentials` は登録の資格情報（`credentials` の指定と、URL のクエリから移したもの）を受け取ります。
   投げると登録は `credential-rejected` で失敗し、文面は固定です（投げた例外の文面は外へ出しません）。
   秘密トークン（`sk.`）の汎用の検査も行います。
-- `applyCredentials` が投げたとき、`console.error` に出すのは提供元の `id` と例外の `name` だけです。
 - `credentialParams` は Source の `credentialParams` に足します。
 - `rewriteStyle` は新しい object を返し、入力を書き換えないでください。
+
+### `applyCredentials`: いつ呼び、何を足すか
+
+1. **いつ呼ぶか:** `requestWillFetch` の後、上流への要求を組み立てる直前に、Resource の提供元が登録され、
+   要求のオリジンに対応する資格情報が選ばれているときに呼びます。捕捉と範囲取得は同じ選択処理を使います。
+   スタイルの登録と `update()` で資源を取るときも、この上流の経路を通ります。再試行では再び呼ばれることがあり、
+   キャッシュの hit では呼びません。
+2. **何を足すか:** `c` の提供元のクエリ資格情報を `url` に直接足します。既存の資格情報の項目は残してください
+   （名前は大文字小文字を区別せず比較します）。標準の Mapbox と汎用のクエリ処理は、無い名前だけを足し、既存の
+   クエリの符号化を保ちます。ヘッダの資格情報は別の汎用処理で、要求にそのヘッダが無いときだけ足します。
+   ヘッダの資格情報を足した要求は `redirect: 'error'` で出します。ただし `no-cors` の再試行は除き、
+   ブラウザのヘッダ制限が適用されます。
+3. **何を足さないか:** 元の要求に `Authorization` があるか、`mode: 'cors'` かつ `credentials: 'include'` なら、
+   登録の資格情報を足しません。`requestWillFetch` がオリジンを替えた場合、Range の素通し、範囲取得の
+   `probeNoCors` の確認でも足しません。コールバックが投げるか URL のオリジンを替えたときは、その URL の変更を
+   捨てますが、ヘッダの汎用処理は行います。投げた場合のログは提供元の `id` と例外の `name` だけです。
+   署名は自動生成しません。このコールバックはキャッシュのキーを変えず、クエリ資格情報の追加だけに使ってください。
+
+### `credentialParams` の既定値
+
+`url_pattern.DEFAULT_CREDENTIAL_PARAMS` の実値は次の 6 つで、名前は大文字小文字を区別しません。
+登録時に、この既定値と Source・提供元の `credentialParams`、明示した `credentials.query` の名前を合わせます。
+これらの項目はキャッシュのキーではなく資格情報として扱います。名前を宣言しても値や署名を生成するわけではありません。
+
+| 既定のクエリ項目名 |
+|---|
+| `access_token` |
+| `token` |
+| `key` |
+| `api_key` |
+| `apikey` |
+| `sku` |
 
 ### 標準の提供元 `mapbox`
 
