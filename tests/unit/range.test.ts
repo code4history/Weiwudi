@@ -393,6 +393,26 @@ describe('regions() と終わりの書き込み（R5・第 1 回 M7）', () => {
     expect((await env.store.getResource(TPL))!.pinnedBytes).toBe(0);
   });
 
+  it('最後のバッチの途中で region を消す → finish でなく canceled で終え、固定を残さない（R57・m4 区切り L4）', async () => {
+    const env = await setup();
+    await ok(env, 'register', SOURCE);
+    let id = '';
+    let n = 0;
+    env.h.fetch.mockImplementation(async () => {
+      // 最後（5 枚目）のバッチの取得中に消す（バッチの前の確かめは通り、バッチの後の確かめで気づく）
+      if (++n === 5) await env.store.deleteRegion(id);
+      return png();
+    });
+    id = (await ok(env, 'fetchRange', { id: 's', range: RANGE, options: { concurrency: 1 } })).id;
+    await settle(env);
+    expect(env.h.fetch).toHaveBeenCalledTimes(5);
+    expect(await env.store.getRegion(id)).toBeUndefined();
+    expect(messages(env, 'finish')).toEqual([]);
+    expect(messages(env, 'canceled')).toEqual([{ type: 'canceled', sourceId: 's', regionId: id }]);
+    // 消したバッチの分は固定しない
+    expect((await allEntries(env, TPL)).filter((e) => e.pinned === 1)).toHaveLength(4);
+  });
+
   it('ジョブの途中で partial に書き換える → 終わりに complete で上書きしない', async () => {
     const env = await setup();
     await ok(env, 'register', SOURCE);
@@ -471,6 +491,15 @@ describe('job/resume（§7.2・R45・R57）', () => {
     await fails(env, 'job/resume', { id: 't', regionId: 'g' }, 'attribute-invalid');
   });
 
+  it('終わった（complete の）他の Source の region も attribute-invalid で、その RegionInfo を返さない（m4 区切り L4）', async () => {
+    const env = await restarted();
+    await ok(env, 'register', { ...SOURCE, id: 't', url: 'https://u.example/{z}/{x}/{y}.png' });
+    await env.store.patchRegion('g', (r) => ({ ...r, status: 'complete' }));
+    const e = await fails(env, 'job/resume', { id: 't', regionId: 'g' }, 'attribute-invalid');
+    expect(e.detail).toEqual({ attribute: 'regionId' });
+    expect(env.jobs).toHaveLength(0);
+  });
+
   it('clean() が直列で進んでいる最中の job/resume はジョブを始めず、clean() の後に attribute-invalid（第 2 回 M3）', async () => {
     const env = await restarted();
     const [cleaned, resumed] = await Promise.all([
@@ -536,6 +565,24 @@ describe('固定分の上限（§7.1・R55・第 1 回 M8）', () => {
     const [region] = await env.store.listRegions('s');
     expect(region).toMatchObject({ status: 'stopped', code: 'quota' });
   });
+
+  it('固定がすでに cacheMaxBytes に届いていれば、最初のバッチを取らずに stop（quota）（開始のときの判定。m4 区切り L3）', async () => {
+    const env = await setup();
+    await ok(env, 'register', { ...SOURCE, cacheMaxBytes: 9 });
+    // 3 枚（9 byte）を固定して上限に届かせる
+    await ok(env, 'fetchRange', { id: 's', range: { box: { minX: 0, maxX: 2, minY: 0, maxY: 0 }, minZoom: 2, maxZoom: 2 } });
+    await settle(env);
+    expect((await env.store.getResource(TPL))!.pinnedBytes).toBe(9);
+    env.h.fetch.mockClear();
+    env.client.postMessage.mockClear();
+    const range = { box: { minX: 0, maxX: 3, minY: 3, maxY: 3 }, minZoom: 2, maxZoom: 2 };
+    const info = await ok(env, 'fetchRange', { id: 's', range, options: { concurrency: 1 } });
+    await settle(env);
+    expect(env.h.fetch).not.toHaveBeenCalled();
+    expect(messages(env, 'proceed')).toEqual([]);
+    expect(messages(env, 'stop')).toMatchObject([{ regionId: info.id, code: 'quota', processed: 0 }]);
+    expect(await env.store.getRegion(info.id)).toMatchObject({ status: 'stopped', code: 'quota' });
+  });
 });
 
 describe('直列の外・range の写し・asset・資格情報', () => {
@@ -600,6 +647,34 @@ describe('直列の外・range の写し・asset・資格情報', () => {
     await ok(env, 'fetchRange', { id: 'B', range: { box: { minX: 0, maxX: 1, minY: 1, maxY: 1 }, minZoom: 1, maxZoom: 1 } });
     await settle(env);
     expect(fetched(env)).toEqual(['https://b.example/1/0/1.png', 'https://b.example/1/1/1.png']);
+  });
+});
+
+describe('opaque イベントの送り先（R20・m4 区切り L2）', () => {
+  it('スタイルの子の Resource の opaque は親の sourceId で、map: は送らず、全 window の client に 1 回ずつ届く', async () => {
+    const env = await setup();
+    const policy = { cacheTtl: 1, store: true, outOfRange: { extent: 'transparent' as const, zoom: 'transparent' as const }, credentialParams: [] };
+    const child = (id: string): SourceRecord => ({
+      id, kind: 'child', parentId: 'p', order: 2, warnings: [], createdAt: 1,
+      spec: { kind: 'child', type: 'tile', id, url: TPL, templates: [TPL], policy,
+        extent: { minZoom: 0, maxZoom: 2, box: { minX: 0, maxX: 3, minY: 0, maxY: 3 }, sourceId: id } },
+    });
+    await env.store.putSource({
+      id: 'p', kind: 'style', order: 1, warnings: [], createdAt: 1,
+      spec: { kind: 'style', id: 'p', url: 'https://st.example/style.json', templates: ['https://st.example/style.json'], policy,
+        children: [{ id: 'c1', logicalName: 'a', type: 'tile' }, { id: 'c2', logicalName: 'b', type: 'tile' }] },
+    });
+    await env.store.putSource(child('c1'));
+    await env.store.putSource(child('c2'));
+    await env.store.putSource({ id: 'map:x', kind: 'legacy', spec: {}, order: 3, warnings: [], createdAt: 1, legacy: { mapID: 'x' } } as never);
+    const other = { id: 'other-page', url: `${SW_SELF_ORIGIN}/other.html`, type: 'window', postMessage: vi.fn() };
+    (env.h.self.clients as unknown as { matchAll: unknown }).matchAll = vi.fn(async () => [env.client, other]);
+    env.ctx.notify!({ type: 'opaque', resourceId: TPL, sourceIds: ['c1', 'c2', 'map:x'] });
+    await vi.waitFor(() => expect(other.postMessage).toHaveBeenCalled());
+    await sleep(20);
+    for (const c of [env.client, other]) {
+      expect(c.postMessage.mock.calls.map((m) => m[0])).toEqual([{ type: 'opaque', sourceId: 'p', resourceId: TPL }]);
+    }
   });
 });
 

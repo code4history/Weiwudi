@@ -57,7 +57,7 @@ const STATUSES: readonly MigrationMapStatus[] = ['pending', 'copying', 'done', '
 
 const mapDbName = (mapID: string): string => `${MAP_DB_PREFIX}${mapID}`;
 const resourceIdOf = (mapID: string): string => `${LEGACY_PREFIX}${mapID}`;
-/** 新 DB の Entry のキー（legacy.keyOf と同じ形。旧キー z_x_y は tile_math.tileKeySuffix と同じ形） */
+/** 新 DB の Entry のキー（legacy.keyOf と同じ形。旧キー z_x_y は新 DB のタイルのキーの suffix と同じ形なので、そのまま使う。仕様 §5.3） */
 const entryKeyOf = (mapID: string, oldKey: string): string => `${resourceIdOf(mapID)}\0${oldKey}`;
 const isLegacyDbName = (name: string): boolean => name === SETTINGS_DB || name.startsWith(MAP_DB_PREFIX);
 const isActive = (m: MigrationMap): boolean => m.status === 'pending' || m.status === 'copying';
