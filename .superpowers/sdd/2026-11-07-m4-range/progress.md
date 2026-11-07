@@ -106,3 +106,32 @@
   - control.clean は「region を消す → clearEntries」。region を消す行を releaseAllOf に置き換え、ジョブ中の fetch-busy（R48）を足す。あわせてレビュー L3 の試験が効くことを確かめる
   - 解放の列挙は enumerate と countRange を使える。resourcesOf は extents を持ち主の分に絞った写しを返す
   - 子を親に読み替える処理は createNotifier にある（parentId）
+
+## m4-t4 スタイルの範囲取得 — 完了（PR #104 → 135b448）
+
+- 実装: Claude（Codex・Kimi が 5 時間の枠切れ）。1a96cd6、レビューの直し fab7181
+- 判定: `node_modules/.bin/vitest run` 40 ファイル・1535 件 passed・`tsc --noEmit` exit 0・`eslint src tests` exit 0（warning 2 件は既存）。CI（Node 22・24、WebKit・Firefox）緑
+- 受け入れ条件の grep: `text-font` は style_body.ts 4・range.ts 0。`putEntry|putGlyphPart`（store.ts・core.ts 以外）は src/migrate.ts の 3 行だけ当たる（t7 の移行が新 DB へ直接書く行。起点 aa3f4a2 から同じ）。range.ts は 0
+  - R-t4-11（orchestrator）: m3 の区切りの grep は t7 より前に書かれたもの。移行（migrate.ts）は store から store への引き継ぎで、配信の経路ではないので対象から外す。以後の grep は `grep -v '^src/migrate.ts'` を足して 0 件で判定する
+- 既存の試験: style-body.test.ts +5・glyph.test.ts +2（追記のみ）。新規 range-style.test.ts 12 件
+- Rulings（実装担当）
+  - R-t4-1: スタイルは先の段（別の runJob）で取り、後の段のグリフの単位は style の段の後に作る（同じバッチだと fontstack が欠ける）
+  - R-t4-2: opaque の連続数（確かめの起点）はタイルの単位だけで数える。非タイルは範囲のタイルで確かめられない
+  - R-t4-3: グリフの単位の失敗は 1 単位 1 件。flush の失敗（quota・storage）を先に、無ければ最初の範囲の上流の失敗を数える
+  - R-t4-4: グリフの単位は範囲の間で job.cancel を見て抜ける。取れた範囲は finally の flush で書く
+  - R-t4-5: 範囲の一部が失敗しても、レコードが有るか 1 範囲でも取れたら fontstack のキーを固定の対象に入れる。スタイルも、読める記録が既に有れば取り直しの失敗でも固定する（レビュー L2）
+  - R-t4-6: スタイルが 200 でも読めなければ upstream。stale の本体が読めれば fontstack は集めて失敗も数える
+  - R-t4-7: collectFonts の式の判定は、先頭の要素が MapLibre の式の演算子名の集合に入るか（MapLibre の isExpression と同じ考え方）
+  - R-t4-8: GlyphCollector.flush は Resource を読み直してから evictScopesFor を作る。meta は pinned: 0（既存の固定は commitEntry が保つ）。headers・contentType は最後の部分
+  - R-t4-9: 試験の「evictScopesFor が fontstack ごとに 1 回」は getSource の呼び出し数で見る（同じモジュールの中の呼び出しは spy できない）
+  - R-t4-10: 固定分の上限（overPinnedLimit）は非タイルの Resource も含めて見る
+  - R-t4-12: job.count はタイルだけ（processedTiles）で数え、job.total と単位をそろえる（レビュー L3。旧 API の fetch-busy の表示）
+- レビュー（L1）: Claude（Codex・Kimi が枠切れ）。判定は合流可。S 0・M 0・L 3 → fab7181 で全部直し、直しを外すと新しい試験が落ちることを確かめた
+  - L1: 取り消しの試験が単位の途中の break を確かめていない → `toBeLessThan(COMMON.length)` を足した
+  - L2: 保存済みのスタイルが取り直しの失敗で固定されない → R-t4-5 に含めた
+  - L3: job.count が全単位の数で「14 / 4」になる → R-t4-12
+  - 未確認（レビュー）: gone・region 消失のときはグリフの単位の範囲を取りきる（'all' で最大 256 件。F37 どおり）の所要時間。'all' で 256 範囲を同時実行数ぶんメモリに溜める量
+- t5 への申し送り
+  - 非タイル資源（style・tilejson・sprite・data・glyph）の固定は onBatch の setPinned で付いている。R11（参照する全 Source の固定つき region が残る間は保つ）の解放の判定はまだ無い
+  - グリフの固定はレコード（fontstack）単位。解放もレコード単位
+  - plan.resources は非タイルも含む。解放の列挙で enumerate・countRange を使うときはタイルだけに絞る
