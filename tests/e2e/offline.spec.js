@@ -129,6 +129,9 @@ test.describe('Weiwudi offline', { tag: '@chromium-only' }, () => {
         const stats = await page.evaluate(() => window.map.stats());
         expect(stats.count).toBe(21);
         expect(stats.percent).toBe(100);
+        // 旧 API の地図も usage() に入る（m4-t10）
+        const report = await page.evaluate(() => window.Weiwudi.usage());
+        expect(report.count).toBe(21);
     });
 
     test('serves a cached tile after the service worker restarted offline', async ({ page, context }) => {
