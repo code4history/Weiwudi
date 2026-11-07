@@ -812,6 +812,16 @@ describe('本体の保存の形（m3-t10。WebKit の非永続の保存領域は
   };
   const bytesOf = async (b: Blob) => Array.from(new Uint8Array(await b.arrayBuffer()));
   const isArrayBuffer = (x: unknown) => Object.prototype.toString.call(x) === '[object ArrayBuffer]';
+  const deferredBody = (meta: EntryMeta) => {
+    const b = body(meta);
+    let resolve!: (data: ArrayBuffer) => void;
+    let reject!: (error: unknown) => void;
+    const converted = new Promise<ArrayBuffer>((yes, no) => { resolve = yes; reject = no; });
+    vi.spyOn(b.blob, 'arrayBuffer').mockReturnValue(converted);
+    return { body: b, resolve, reject };
+  };
+  // microtask の変換・待機列を進める。Blob のサイズや実時間の待ちには頼らない。
+  const flushConversions = () => new Promise<void>((resolve) => setImmediate(resolve));
 
   it('putEntry は本体を ArrayBuffer・型を type で保存し、getEntry は同じ型とバイト列の Blob を返す', async () => {
     const s = await open();
@@ -854,10 +864,12 @@ describe('本体の保存の形（m3-t10。WebKit の非永続の保存領域は
     await put(s, e);
     await rawPut('bodies', { key: e.key, blob: new Blob([new Uint8Array(4)], { type: 'image/png' }), headers: {} });
     expect(await s.getEntry(e.key)).toBeUndefined();
+    expect(await s.hasEntries([e.key, key('r1', 'missing')])).toEqual([false, false]);
     // 作り直し（同じキーの putEntry）は古い Entry を置き換え、count・bytes を二重に数えない
     const e2 = entry('r1', '1_0_0', 6, 20);
     expect(await put(s, e2)).toEqual({ saved: true });
     expect((await s.getEntry(e.key))!.body.blob.size).toBe(6);
+    expect(await s.hasEntries([e.key])).toEqual([true]);
     expect(await s.getResource('r1')).toMatchObject({ count: 1, bytes: 6 });
     await expectCountsConsistent(s);
   });
@@ -886,16 +898,99 @@ describe('本体の保存の形（m3-t10。WebKit の非永続の保存領域は
     await s.createResource(resource('r1'));
     const a = entry('r1', 'a', 2, 10);
     const b = entry('r1', 'b', 3, 10);
-    // put の直後に clear: clear が後なので、どちらの Entry も残らない
-    await Promise.all([put(s, a), s.clearEntries('r1'), put(s, b), s.clearEntries('r1')]);
+    const prepA = deferredBody(a);
+    const prepB = deferredBody(b);
+    // B の変換を先に終える。A を解放するまで clear も B も tx を作れない。
+    const txSpy = vi.spyOn(IDBDatabase.prototype, 'transaction');
+    const writes = Promise.all([
+      s.putEntry(a, prepA.body, []), s.clearEntries('r1'),
+      s.putEntry(b, prepB.body, []), s.clearEntries('r1'),
+    ]);
+    prepB.resolve(new ArrayBuffer(b.size));
+    await flushConversions();
+    const earlyTransactions = txSpy.mock.calls.length;
+    prepA.resolve(new ArrayBuffer(a.size));
+    await writes;
+    expect(earlyTransactions).toBe(0);
     expect(await s.getEntry(a.key)).toBeUndefined();
     expect(await s.getEntry(b.key)).toBeUndefined();
     expect(await s.getResource('r1')).toMatchObject({ count: 0, bytes: 0 });
-    // 同じキーへの 2 つの put は後のものが残る（大きい本体が先でも）
-    const big = entry('r1', 'k', 5000, 10);
-    const small = entry('r1', 'k', 1, 20);
-    await Promise.all([put(s, big), put(s, small)]);
-    expect((await s.getEntry(big.key))!.meta.size).toBe(1);
+    // 同じサイズ・同じキーでも、後から呼んだ put が残る（変換は逆順に完了）。
+    const first = entry('r1', 'k', 1, 10);
+    const last = entry('r1', 'k', 1, 20);
+    const prepFirst = deferredBody(first);
+    const prepLast = deferredBody(last);
+    const sameKey = Promise.all([s.putEntry(first, prepFirst.body, []), s.putEntry(last, prepLast.body, [])]);
+    prepLast.resolve(Uint8Array.from([2]).buffer);
+    await flushConversions();
+    prepFirst.resolve(Uint8Array.from([1]).buffer);
+    await sameKey;
+    const got = await s.getEntry(first.key);
+    expect(got!.meta.fetchedAt).toBe(20);
+    expect(await bytesOf(got!.body.blob)).toEqual([2]);
+    await expectCountsConsistent(s);
+  });
+
+  it.each(['entry', 'glyph'] as const)('変換が失敗しても先の保留中の put を clear が追い越さない（%s）', async (kind) => {
+    const s = await open();
+    await s.createResource(resource('r1', { type: kind === 'glyph' ? 'glyph' : 'tile' }));
+    const a = entry('r1', 'a', 2, 10);
+    const b = entry('r1', 'b', 3, 20);
+    const prepA = deferredBody(a);
+    const prepB = deferredBody(b);
+    const write = (meta: EntryMeta, prepared: ReturnType<typeof deferredBody>) => kind === 'entry'
+      ? s.putEntry(meta, prepared.body, [])
+      : s.putGlyphParts(meta, [{ part: '0-255', blob: prepared.body.blob, fetchedAt: meta.fetchedAt }], {}, []);
+    const txSpy = vi.spyOn(IDBDatabase.prototype, 'transaction');
+    const putA = write(a, prepA);
+    const failure = new Error('conversion failed');
+    const putB = write(b, prepB).catch((error: unknown) => error);
+    const clear = s.clearEntries('r1');
+    prepB.reject(failure);
+    await flushConversions();
+    const earlyTransactions = txSpy.mock.calls.length;
+    prepA.resolve(new ArrayBuffer(a.size));
+    expect(await putA).toEqual({ saved: true });
+    expect(await putB).toBe(failure);
+    await clear;
+    expect(await s.getResource('r1')).toMatchObject({ count: 0, bytes: 0 });
+    expect(await s.getEntry(a.key)).toBeUndefined();
+    expect(await s.getEntry(b.key)).toBeUndefined();
+    expect(earlyTransactions).toBe(0);
+    // 失敗後も待機数が戻り、次の書き込みを受け付ける。
+    expect(await put(s, b)).toEqual({ saved: true });
+    await expectCountsConsistent(s);
+  });
+
+  it('putGlyphParts は不正なキーなら Blob の変換を始めない', async () => {
+    const s = await open();
+    const invalid = entry('r1', 'x', 1, 10, { key: 'invalid' });
+    const blob = new Blob(['x']);
+    // 変換を保留し、キーの検査が変換の結果を待たないことも確かめる。
+    const convert = vi.spyOn(blob, 'arrayBuffer').mockReturnValue(new Promise(() => {}));
+    await expect(s.putGlyphParts(invalid, [{ part: '0-255', blob, fetchedAt: 10 }], {}, []))
+      .rejects.toMatchObject({ name: 'DataError' });
+    expect(convert).not.toHaveBeenCalled();
+  });
+
+  it('本体を超える parts は全体を読めないものとして新しい部分だけで作り直す', async () => {
+    const s = await open();
+    await s.createResource(resource('r1', { type: 'glyph' }));
+    const m = entry('r1', 'Noto', 3, 10);
+    await s.putGlyphPart(m, '0-255', new Blob([Uint8Array.from([1, 1, 1])]), {}, []);
+    await rawPut('bodies', {
+      key: m.key, data: Uint8Array.from([1, 1, 1]).buffer, type: '', headers: {},
+      parts: {
+        '0-255': { offset: 0, length: 2, fetchedAt: 10 },
+        '256-511': { offset: 2, length: 2, fetchedAt: 10 },
+      },
+    });
+    expect(await s.putGlyphPart({ ...m, fetchedAt: 20 }, '512-767', new Blob([Uint8Array.from([2])]), {}, []))
+      .toEqual({ saved: true });
+    const got = await s.getEntry(m.key);
+    expect(got!.body.parts).toEqual({ '512-767': { offset: 0, length: 1, fetchedAt: 20 } });
+    expect(await bytesOf(got!.body.blob)).toEqual([2]);
+    expect(await s.getResource('r1')).toMatchObject({ count: 1, bytes: 1 });
     await expectCountsConsistent(s);
   });
 });

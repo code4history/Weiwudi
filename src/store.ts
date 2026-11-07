@@ -7,7 +7,8 @@
 // - Entry の増減と同じ tx で Resource の count・bytes・pinnedBytes を直す
 // - 本体は ArrayBuffer で保存し、型は type に分けて持つ（StoredBody）。WebKit の非永続の保存領域（Safari の
 //   プライベートブラウズと Playwright の WebKit）は IndexedDB に Blob を put できない（UnknownError。m3-t10）。
-//   Blob との変換はここの toStoredBody・fromStoredBody だけで行い、Store の呼び出し側は Blob のまま使う。
+//   Blob との変換はここに閉じる（Blob → ArrayBuffer の入口は readBlob 1 つで、toStoredBody と putGlyphParts の
+//   部分の変換が使う。読み戻しは fromStoredBody）。Store の呼び出し側は Blob のまま使う。
 //   Blob を持つ古いレコード（開発の途中の形）は読めないものとして miss にする（t4 の parts の無いレコードと同じ考え方）
 import type { TileBox } from './tile_math';
 import type { StoredSpec, StyleSpec } from './spec';
@@ -104,7 +105,7 @@ export interface EntryBody {
   parts?: GlyphPartIndex;
 }
 
-/** bodies に置く形（m3-t10）。本体は ArrayBuffer、Blob の型は type。EntryBody との変換は下の 2 つだけ */
+/** bodies に置く形（m3-t10）。本体は ArrayBuffer、Blob の型は type。EntryBody との変換は toStoredBody・fromStoredBody */
 export interface StoredBody {
   key: string;
   data: ArrayBuffer;
@@ -122,11 +123,16 @@ export const isStoredBody = (x: unknown): x is StoredBody => {
     && typeof r.type === 'string' && !!r.headers && typeof r.headers === 'object';
 };
 
-/** 書く前に Blob を ArrayBuffer にする（非同期。tx の外で行う） */
+/** Blob → ArrayBuffer と型の変換の入口（非同期。tx の外で行う。toStoredBody と putGlyphParts の部分の変換が使う） */
+const readBlob = async (blob: Blob): Promise<{ data: ArrayBuffer; type: string }> => ({
+  data: await blob.arrayBuffer(),
+  type: blob.type,
+});
+
+/** 書く前に EntryBody を保存の形にする */
 const toStoredBody = async (body: EntryBody): Promise<StoredBody> => ({
   key: body.key,
-  data: await body.blob.arrayBuffer(),
-  type: body.blob.type,
+  ...(await readBlob(body.blob)),
   headers: body.headers,
   ...(body.parts ? { parts: body.parts } : {}),
 });
@@ -294,7 +300,7 @@ export interface Store {
   clearEntries(resourceId: string): Promise<void>;
 
   getEntry(key: string): Promise<{ meta: EntryMeta; body: EntryBody } | undefined>;
-  /** getKey だけ */
+  /** メタがあり、かつ本体が今の形（StoredBody）で読めるものだけ true（古い形・壊れた本体は取り直しの対象として false） */
   hasEntries(keys: string[]): Promise<boolean[]>;
   /** entries だけ。接続があれば tx は呼び出しの中で同期に作る */
   touch(key: string, accessedAt: number): Promise<void>;
@@ -491,25 +497,27 @@ export const openStore = async (): Promise<Store> => {
   };
 
   // 本体の変換（Blob → ArrayBuffer）は非同期なので、それを待つ書き込みは tx を後で作る。そのあいだに来た呼び出しも
-  // 後ろに並べ、tx を作る順を呼び出しの順に保つ（同じキーの書き込みや clearEntries が追い越さない）。並ぶものが無ければ同期に作る
+  // 後ろに並べ、tx を作る順を呼び出しの順に保つ（同じキーの書き込みや clearEntries が追い越さない）。並ぶものが無ければ同期に作る。
+  // 変換の成否は値として受け止める: Promise.all の reject で伝えると先の order を待たずに抜け、後続の呼び出しが
+  // 先の書き込みを追い越す（prep が失敗しても先の order を待ってから進む）
   let order: Promise<void> = Promise.resolve();
   let queued = 0;
   const txAfter = <P, T>(
     prep: Promise<P>, names: string[], mode: IDBTransactionMode, fn: (t: IDBTransaction, p: P) => T | Promise<T>,
   ): Promise<T> => {
     queued++;
-    const turn = Promise.all([order, prep]);
-    // turn の後の callback は登録順に走る: この tx を作ってから order が進む
-    const result = turn.then(
-      ([, p]) => {
-        queued--;
-        return txNow(names, mode, (t) => fn(t, p));
-      },
-      (err: unknown) => {
-        queued--;
-        throw err;
-      },
+    // 成否を値にする（outcome・turn は reject しない。失敗は result だけが返す）
+    const outcome = prep.then(
+      (p): { ok: true; value: P } => ({ ok: true, value: p }),
+      (err: unknown): { ok: false; error: unknown } => ({ ok: false, error: err }),
     );
+    const turn = order.then(() => outcome);
+    // turn の後の callback は登録順に走る: この tx を作ってから order が進む
+    const result = turn.then((o) => {
+      queued--;
+      if (!o.ok) throw o.error;
+      return txNow(names, mode, (t) => fn(t, o.value));
+    });
     order = turn.then(() => undefined, () => undefined);
     return result;
   };
@@ -659,9 +667,14 @@ export const openStore = async (): Promise<Store> => {
       const entryBody = fromStoredBody(body);
       return meta && entryBody ? { meta, body: entryBody } : undefined;
     }),
-    hasEntries: (keys) => tx([S_ENTRIES], 'readonly', (t) => {
-      const s = t.objectStore(S_ENTRIES);
-      return Promise.all(keys.map(async (k) => (await req2p(s.getKey(k))) !== undefined));
+    hasEntries: (keys) => tx([S_ENTRIES, S_BODIES], 'readonly', (t) => {
+      const entries = t.objectStore(S_ENTRIES);
+      const bodies = t.objectStore(S_BODIES);
+      // 取得を省く判定にも使うので、本体が今の形で読めることまで確かめる（古い形は取り直す。m3-t10）
+      return Promise.all(keys.map(async (k) => {
+        const [meta, body] = await Promise.all([req2p(entries.getKey(k)), req2p(bodies.get(k))]);
+        return meta !== undefined && isStoredBody(body);
+      }));
     }),
     touch: (key, accessedAt) => tx([S_ENTRIES], 'readwrite', async (t) => {
       const s = t.objectStore(S_ENTRIES);
@@ -681,10 +694,12 @@ export const openStore = async (): Promise<Store> => {
       // 同じ範囲は後のものが勝つ（並びは最後に現れた順）
       const fresh = input.filter((p, i) => input.findIndex((q, j) => j > i && q.part === p.part) < 0);
       if (fresh.length === 0) return Promise.resolve({ saved: false });
+      // キーの検査を先に: 通ったときだけ Blob の変換（prep）を始める
+      const keyError = entryKeyError(meta, meta.key);
+      if (keyError) return keyError;
       // 新しい部分は tx の前に ArrayBuffer にする（同じ範囲は後のものが勝つ並びのまま）
-      const prep = Promise.all(fresh.map(async (p) => ({ ...p, data: await p.blob.arrayBuffer() })));
-      return entryKeyError(meta, meta.key)
-      ?? txAfter(prep, [S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t, freshData) => {
+      const prep = Promise.all(fresh.map(async (p) => ({ ...p, ...(await readBlob(p.blob)) })));
+      return txAfter(prep, [S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t, freshData) => {
         const target = (await req2p(t.objectStore(S_RESOURCES).get(meta.resourceId))) as ResourceMeta | undefined;
         if (!target) return { saved: false };
         const [old, oldRaw] = await Promise.all([
@@ -696,8 +711,12 @@ export const openStore = async (): Promise<Store> => {
         // 古い形（Blob を持つ）の本体は読めないので、その部分は残さない（作り直す）
         const oldBody = isStoredBody(oldRaw) ? oldRaw : undefined;
         const replaced = new Set(freshData.map((p) => p.part));
-        const kept = oldBody?.parts && old
-          ? Object.entries(oldBody.parts).filter(([name]) => !replaced.has(name)).sort((a, b) => a[1].offset - b[1].offset)
+        const oldParts = oldBody?.parts && old
+          ? Object.entries(oldBody.parts).filter(([name]) => !replaced.has(name))
+          : [];
+        // 本体を超える部分が 1 つでもあれば全体を読めないものとして kept を空にし、新しい部分だけで作り直す（例外にしない）
+        const kept = oldParts.every(([, p]) => p.offset + p.length <= oldBody!.data.byteLength)
+          ? oldParts.sort((a, b) => a[1].offset - b[1].offset)
           : [];
         const pieces: Uint8Array[] = [];
         const parts: GlyphPartIndex = {};
@@ -718,7 +737,7 @@ export const openStore = async (): Promise<Store> => {
           joined.set(piece, at);
           at += piece.byteLength;
         }
-        const type = freshData[freshData.length - 1].blob.type;
+        const type = freshData[freshData.length - 1].type;
         const next: EntryMeta = {
           ...meta,
           size: joined.byteLength,

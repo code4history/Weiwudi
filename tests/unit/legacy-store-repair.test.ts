@@ -7,6 +7,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
 import { createSwHarness, tileResponse } from './sw-harness';
+import { openStore, STORE_DB_NAME, type StoredBody } from '../../src/store';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -39,6 +40,57 @@ const versionOf = async (factory: IDBFactory, dbname: string): Promise<number> =
 };
 
 describe('旧 DB が残っているときの旧 API（仕様 §13・§14.2）', () => {
+  it('fetchAll は Blob を持つ古い形のレコードを取り直し、今の形で保存し直す', async () => {
+    const h = createSwHarness();
+    await h.request(ADD);
+    h.fetch.mockImplementation(async () => tileResponse(3));
+    await h.request('/api/cache/x/0/0/0');
+    const key = 'map:x\u00000_0_0';
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = h.factory.open(STORE_DB_NAME);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const t = db.transaction(['bodies'], 'readwrite');
+        t.objectStore('bodies').put({ key, blob: new Blob([new Uint8Array(3)], { type: 'image/png' }), headers: {} });
+        t.oncomplete = () => resolve();
+        t.onabort = () => reject(t.error);
+      });
+      h.fetch.mockClear();
+      h.fetch.mockImplementation(async () => tileResponse(5));
+      const client = { id: 'client-1', postMessage: vi.fn() };
+      h.self.clients.get.mockResolvedValue(client);
+      await h.requestFromClient('/api/fetchAll?mapID=x', client);
+      await Promise.all(h.waitUntilCalls);
+      expect(h.fetch).toHaveBeenCalledTimes(1);
+      expect(h.fetch).toHaveBeenCalledWith('https://tile.example/0/0/0.png');
+      expect(client.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'finish', error: 0 }));
+      const stored = await new Promise<StoredBody>((resolve, reject) => {
+        const req = db.transaction(['bodies'], 'readonly').objectStore('bodies').get(key);
+        req.onsuccess = () => resolve(req.result as StoredBody);
+        req.onerror = () => reject(req.error);
+      });
+      expect(Object.prototype.toString.call(stored.data)).toBe('[object ArrayBuffer]');
+      expect(stored.data.byteLength).toBe(5);
+      expect('blob' in stored).toBe(false);
+      const store = await openStore();
+      try {
+        expect((await store.getEntry(key))!.body.blob.size).toBe(5);
+        expect(await store.getResource('map:x')).toMatchObject({ count: 1, bytes: 5 });
+      } finally {
+        store.close();
+      }
+      // 保存し直した後の fetchAll は取得を省く。
+      await h.requestFromClient('/api/fetchAll?mapID=x', client);
+      await Promise.all(h.waitUntilCalls);
+      expect(h.fetch).toHaveBeenCalledTimes(1);
+    } finally {
+      db.close();
+    }
+  });
+
   it('store の無い旧 Weiwudi が残っていても、add に成功し、地図の情報が読める（旧 DB には触らない）', async () => {
     const { factory, connection } = await brokenFactory('Weiwudi');
     connection.close();
