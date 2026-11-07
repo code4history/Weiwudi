@@ -303,6 +303,8 @@ Access `http://localhost:5173/` in your browser. The demo features:
 
 Range fetching on OSM tiles is for minimal operation checks only: the demo refuses a range of more than 50 tiles. Bulk downloading is prohibited by the [OSM tile usage policy](https://operations.osmfoundation.org/policies/tiles/). In production, use your own tiles or an upstream whose terms allow it.
 
+To load the demo offline, reload it once online first so that the service worker controls the page.
+
 #### Build
 
 ```bash

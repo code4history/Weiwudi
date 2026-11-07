@@ -277,6 +277,7 @@
             more than 50 tiles at once). Bulk downloading is prohibited by the
             <a href="https://operations.osmfoundation.org/policies/tiles/">OSM tile usage policy</a>.
             In production, use your own tiles or an upstream whose terms allow it.
+            To load this page offline, reload it once online first (so that the service worker controls it).
         </p>
 
         <div class="warnings" id="warnings"></div>
@@ -301,12 +302,16 @@
         let source = null;
         let statsInterval = null;
 
+        let messageTimer = null;
+
         function showMessage(message, type = 'info') {
             const statusEl = document.getElementById('status-message');
             statusEl.textContent = message;
             statusEl.className = `status-message status-${type}`;
 
-            setTimeout(() => {
+            if (messageTimer !== null) clearTimeout(messageTimer);
+            messageTimer = setTimeout(() => {
+                messageTimer = null;
                 statusEl.textContent = '';
                 statusEl.className = '';
             }, 5000);
@@ -517,6 +522,10 @@
 
                 // 見積もりが上限を超えたら取得しない（OSM のタイルの利用規約はまとめての取得を禁じる）
                 const estimate = await source.estimate(range);
+                if (estimate.tiles === 0) {
+                    showMessage('Refused: no tiles to fetch in the visible range.', 'error');
+                    return;
+                }
                 if (estimate.tiles > MAX_FETCH_TILES) {
                     showMessage(
                         `Refused: ${estimate.tiles} tiles exceeds the ${MAX_FETCH_TILES}-tile limit of this demo. ` +
@@ -530,7 +539,7 @@
 
                 showMessage(`Fetching ${estimate.tiles} tiles...`, 'info');
                 const region = await source.fetchRange(range);
-                showMessage(`Region ${region.id}: ${region.status}`, 'success');
+                showMessage(`Region ${region.id}: ${region.status}`, region.status === 'complete' ? 'success' : 'error');
                 await updateRegions();
                 await updateStats();
                 await updateUsage();
