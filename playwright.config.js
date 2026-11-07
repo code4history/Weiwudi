@@ -1,5 +1,22 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// WebKit・Firefox は環境変数 WEIWUDI_E2E_ENGINES（webkit・firefox をカンマで）があるときだけ足す（m3-t10・R14'）。
+// 手元は Chromium だけ（共有キャッシュに playwright install をしない）。CI の e2e-engines の job が足して走らせる。
+// Chromium だけで成り立つ試験（CDP・context.setOffline・SW の要求を context.route で数えるもの）は @chromium-only で外す
+const ENGINE_DEVICES = { webkit: 'Desktop Safari', firefox: 'Desktop Firefox' };
+const engines = (process.env.WEIWUDI_E2E_ENGINES ?? '')
+    .split(',')
+    .map((e) => e.trim())
+    .filter((e) => e !== '');
+for (const e of engines) {
+    if (!(e in ENGINE_DEVICES)) throw new Error(`WEIWUDI_E2E_ENGINES: unknown engine "${e}" (webkit, firefox)`);
+}
+const engineProjects = [...new Set(engines)].map((name) => ({
+    name,
+    use: { ...devices[ENGINE_DEVICES[name]] },
+    grepInvert: /@chromium-only/,
+}));
+
 export default defineConfig({
     testDir: './tests/e2e',
     fullyParallel: false,
@@ -16,6 +33,7 @@ export default defineConfig({
             name: 'chromium',
             use: { ...devices['Desktop Chrome'] },
         },
+        ...engineProjects,
     ],
     webServer: [
         {

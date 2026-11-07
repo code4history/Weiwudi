@@ -5,6 +5,11 @@
 // - モジュール変数を持たない。接続などの状態は openStore() が返す Store の中に閉じる（context が 1 つ持つ）
 // - reject する値は tx.error・req.error・投げられた DOMException（Event を reject しない。仕様 §9）
 // - Entry の増減と同じ tx で Resource の count・bytes・pinnedBytes を直す
+// - 本体は ArrayBuffer で保存し、型は type に分けて持つ（StoredBody）。WebKit の非永続の保存領域（Safari の
+//   プライベートブラウズと Playwright の WebKit）は IndexedDB に Blob を put できない（UnknownError。m3-t10）。
+//   Blob との変換はここに閉じる（Blob → ArrayBuffer の入口は readBlob 1 つで、toStoredBody と putGlyphParts の
+//   部分の変換が使う。読み戻しは fromStoredBody）。Store の呼び出し側は Blob のまま使う。
+//   Blob を持つ古いレコード（開発の途中の形）は読めないものとして miss にする（t4 の parts の無いレコードと同じ考え方）
 import type { TileBox } from './tile_math';
 import type { StoredSpec, StyleSpec } from './spec';
 import { LEGACY_PREFIX } from './constants';
@@ -99,6 +104,49 @@ export interface EntryBody {
   /** §11 の結合保存 */
   parts?: GlyphPartIndex;
 }
+
+/** bodies に置く形（m3-t10）。本体は ArrayBuffer、Blob の型は type。EntryBody との変換は toStoredBody・fromStoredBody */
+export interface StoredBody {
+  key: string;
+  data: ArrayBuffer;
+  type: string;
+  headers: Record<string, string>;
+  parts?: GlyphPartIndex;
+}
+
+const isArrayBuffer = (x: unknown): x is ArrayBuffer => Object.prototype.toString.call(x) === '[object ArrayBuffer]';
+
+/** bodies のレコードが今の形か（Blob を持つ古いレコード・壊れたレコードは false） */
+export const isStoredBody = (x: unknown): x is StoredBody => {
+  const r = x as Partial<StoredBody> | null | undefined;
+  return !!r && typeof r === 'object' && typeof r.key === 'string' && isArrayBuffer(r.data)
+    && typeof r.type === 'string' && !!r.headers && typeof r.headers === 'object';
+};
+
+/** Blob → ArrayBuffer と型の変換の入口（非同期。tx の外で行う。toStoredBody と putGlyphParts の部分の変換が使う） */
+const readBlob = async (blob: Blob): Promise<{ data: ArrayBuffer; type: string }> => ({
+  data: await blob.arrayBuffer(),
+  type: blob.type,
+});
+
+/** 書く前に EntryBody を保存の形にする */
+const toStoredBody = async (body: EntryBody): Promise<StoredBody> => ({
+  key: body.key,
+  ...(await readBlob(body.blob)),
+  headers: body.headers,
+  ...(body.parts ? { parts: body.parts } : {}),
+});
+
+/** 読んだレコードを EntryBody に戻す。今の形でなければ undefined（呼び出し側は miss として作り直す） */
+const fromStoredBody = (x: unknown): EntryBody | undefined => {
+  if (!isStoredBody(x)) return undefined;
+  return {
+    key: x.key,
+    blob: new Blob([x.data], x.type ? { type: x.type } : undefined),
+    headers: x.headers,
+    ...(x.parts ? { parts: x.parts } : {}),
+  };
+};
 
 /** ページ側の API と差し込み口へ渡す射影（保存の型は渡さない） */
 export interface ResourceInfo {
@@ -252,7 +300,7 @@ export interface Store {
   clearEntries(resourceId: string): Promise<void>;
 
   getEntry(key: string): Promise<{ meta: EntryMeta; body: EntryBody } | undefined>;
-  /** getKey だけ */
+  /** メタがあり、かつ本体が今の形（StoredBody）で読めるものだけ true（古い形・壊れた本体は取り直しの対象として false） */
   hasEntries(keys: string[]): Promise<boolean[]>;
   /** entries だけ。接続があれば tx は呼び出しの中で同期に作る */
   touch(key: string, accessedAt: number): Promise<void>;
@@ -443,10 +491,38 @@ export const openStore = async (): Promise<Store> => {
   };
 
   /** 接続があれば tx を同期に作る。無ければ開いてから作る */
-  const tx = <T>(names: string[], mode: IDBTransactionMode, fn: (t: IDBTransaction) => T | Promise<T>): Promise<T> => {
+  const txNow = <T>(names: string[], mode: IDBTransactionMode, fn: (t: IDBTransaction) => T | Promise<T>): Promise<T> => {
     if (db) return runTx(db, names, mode, fn);
     return connect().then((conn) => runTx(conn, names, mode, fn));
   };
+
+  // 本体の変換（Blob → ArrayBuffer）は非同期なので、それを待つ書き込みは tx を後で作る。そのあいだに来た呼び出しも
+  // 後ろに並べ、tx を作る順を呼び出しの順に保つ（同じキーの書き込みや clearEntries が追い越さない）。並ぶものが無ければ同期に作る。
+  // 変換の成否は値として受け止める: Promise.all の reject で伝えると先の order を待たずに抜け、後続の呼び出しが
+  // 先の書き込みを追い越す（prep が失敗しても先の order を待ってから進む）
+  let order: Promise<void> = Promise.resolve();
+  let queued = 0;
+  const txAfter = <P, T>(
+    prep: Promise<P>, names: string[], mode: IDBTransactionMode, fn: (t: IDBTransaction, p: P) => T | Promise<T>,
+  ): Promise<T> => {
+    queued++;
+    // 成否を値にする（outcome・turn は reject しない。失敗は result だけが返す）
+    const outcome = prep.then(
+      (p): { ok: true; value: P } => ({ ok: true, value: p }),
+      (err: unknown): { ok: false; error: unknown } => ({ ok: false, error: err }),
+    );
+    const turn = order.then(() => outcome);
+    // turn の後の callback は登録順に走る: この tx を作ってから order が進む
+    const result = turn.then((o) => {
+      queued--;
+      if (!o.ok) throw o.error;
+      return txNow(names, mode, (t) => fn(t, o.value));
+    });
+    order = turn.then(() => undefined, () => undefined);
+    return result;
+  };
+  const tx = <T>(names: string[], mode: IDBTransactionMode, fn: (t: IDBTransaction) => T | Promise<T>): Promise<T> =>
+    queued === 0 ? txNow(names, mode, fn) : txAfter(Promise.resolve(undefined), names, mode, (t) => fn(t));
 
   const getOne = <T>(name: string, key: IDBValidKey): Promise<T | undefined> =>
     tx([name], 'readonly', (t) => req2p(t.objectStore(name).get(key)) as Promise<T | undefined>);
@@ -467,7 +543,7 @@ export const openStore = async (): Promise<Store> => {
    */
   const commitEntry = async (
     t: IDBTransaction, target: ResourceMeta, old: EntryMeta | undefined,
-    meta: EntryMeta, body: EntryBody, evict: EvictionScope[],
+    meta: EntryMeta, body: StoredBody, evict: EvictionScope[],
   ): Promise<{ saved: boolean }> => {
     const resources = t.objectStore(S_RESOURCES);
     const entries = t.objectStore(S_ENTRIES);
@@ -585,67 +661,90 @@ export const openStore = async (): Promise<Store> => {
     getEntry: (key) => tx([S_ENTRIES, S_BODIES], 'readonly', async (t) => {
       const [meta, body] = await Promise.all([
         req2p(t.objectStore(S_ENTRIES).get(key)) as Promise<EntryMeta | undefined>,
-        req2p(t.objectStore(S_BODIES).get(key)) as Promise<EntryBody | undefined>,
+        req2p(t.objectStore(S_BODIES).get(key)),
       ]);
-      return meta && body ? { meta, body } : undefined;
+      // 古い形（Blob を持つ）の本体は読めないので miss（次の取得で作り直す）
+      const entryBody = fromStoredBody(body);
+      return meta && entryBody ? { meta, body: entryBody } : undefined;
     }),
-    hasEntries: (keys) => tx([S_ENTRIES], 'readonly', (t) => {
-      const s = t.objectStore(S_ENTRIES);
-      return Promise.all(keys.map(async (k) => (await req2p(s.getKey(k))) !== undefined));
+    hasEntries: (keys) => tx([S_ENTRIES, S_BODIES], 'readonly', (t) => {
+      const entries = t.objectStore(S_ENTRIES);
+      const bodies = t.objectStore(S_BODIES);
+      // 取得を省く判定にも使うので、本体が今の形で読めることまで確かめる（古い形は取り直す。m3-t10）
+      return Promise.all(keys.map(async (k) => {
+        const [meta, body] = await Promise.all([req2p(entries.getKey(k)), req2p(bodies.get(k))]);
+        return meta !== undefined && isStoredBody(body);
+      }));
     }),
     touch: (key, accessedAt) => tx([S_ENTRIES], 'readwrite', async (t) => {
       const s = t.objectStore(S_ENTRIES);
       const meta = (await req2p(s.get(key))) as EntryMeta | undefined;
       if (meta) s.put({ ...meta, accessedAt });
     }),
-    putEntry: (meta, body, evict) => entryKeyError(meta, body.key) ?? tx([S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t) => {
+    putEntry: (meta, body, evict) => entryKeyError(meta, body.key)
+    ?? txAfter(toStoredBody(body), [S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t, stored) => {
       const target = (await req2p(t.objectStore(S_RESOURCES).get(meta.resourceId))) as ResourceMeta | undefined;
       // 消された Resource へ書き込みを残さない（第 1 回 O-7）
       if (!target) return { saved: false };
       const old = (await req2p(t.objectStore(S_ENTRIES).get(meta.key))) as EntryMeta | undefined;
-      return commitEntry(t, target, old, meta, body, evict);
+      return commitEntry(t, target, old, meta, stored, evict);
     }),
     putGlyphPart: (meta, part, blob, headers, evict) => store.putGlyphParts(meta, [{ part, blob, fetchedAt: meta.fetchedAt }], headers, evict),
     putGlyphParts: (meta, input, headers, evict) => {
       // 同じ範囲は後のものが勝つ（並びは最後に現れた順）
       const fresh = input.filter((p, i) => input.findIndex((q, j) => j > i && q.part === p.part) < 0);
       if (fresh.length === 0) return Promise.resolve({ saved: false });
-      return entryKeyError(meta, meta.key)
-      ?? tx([S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t) => {
+      // キーの検査を先に: 通ったときだけ Blob の変換（prep）を始める
+      const keyError = entryKeyError(meta, meta.key);
+      if (keyError) return keyError;
+      // 新しい部分は tx の前に ArrayBuffer にする（同じ範囲は後のものが勝つ並びのまま）
+      const prep = Promise.all(fresh.map(async (p) => ({ ...p, ...(await readBlob(p.blob)) })));
+      return txAfter(prep, [S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t, freshData) => {
         const target = (await req2p(t.objectStore(S_RESOURCES).get(meta.resourceId))) as ResourceMeta | undefined;
         if (!target) return { saved: false };
-        const [old, oldBody] = await Promise.all([
+        const [old, oldRaw] = await Promise.all([
           req2p(t.objectStore(S_ENTRIES).get(meta.key)) as Promise<EntryMeta | undefined>,
-          req2p(t.objectStore(S_BODIES).get(meta.key)) as Promise<EntryBody | undefined>,
+          req2p(t.objectStore(S_BODIES).get(meta.key)),
         ]);
         // 残す部分を本体の中の順に詰め直し、新しい部分を最後に足す（同じ範囲の古い部分は落とす。空きを残さない）。
-        // Blob の slice と new Blob は同期なので、tx の中で IDB 以外の Promise を待たない
-        const replaced = new Set(fresh.map((p) => p.part));
-        const kept = oldBody?.parts && old
-          ? Object.entries(oldBody.parts).filter(([name]) => !replaced.has(name)).sort((a, b) => a[1].offset - b[1].offset)
+        // ArrayBuffer の切り出しと連結は同期なので、tx の中で IDB 以外の Promise を待たない。
+        // 古い形（Blob を持つ）の本体は読めないので、その部分は残さない（作り直す）
+        const oldBody = isStoredBody(oldRaw) ? oldRaw : undefined;
+        const replaced = new Set(freshData.map((p) => p.part));
+        const oldParts = oldBody?.parts && old
+          ? Object.entries(oldBody.parts).filter(([name]) => !replaced.has(name))
           : [];
-        const pieces: Blob[] = [];
+        // 本体を超える部分が 1 つでもあれば全体を読めないものとして kept を空にし、新しい部分だけで作り直す（例外にしない）
+        const kept = oldParts.every(([, p]) => p.offset + p.length <= oldBody!.data.byteLength)
+          ? oldParts.sort((a, b) => a[1].offset - b[1].offset)
+          : [];
+        const pieces: Uint8Array[] = [];
         const parts: GlyphPartIndex = {};
         let offset = 0;
         for (const [name, p] of kept) {
-          pieces.push(oldBody!.blob.slice(p.offset, p.offset + p.length));
+          pieces.push(new Uint8Array(oldBody!.data, p.offset, p.length));
           parts[name] = { offset, length: p.length, fetchedAt: p.fetchedAt };
           offset += p.length;
         }
-        for (const p of fresh) {
-          pieces.push(p.blob);
-          parts[p.part] = { offset, length: p.blob.size, fetchedAt: p.fetchedAt };
-          offset += p.blob.size;
+        for (const p of freshData) {
+          pieces.push(new Uint8Array(p.data));
+          parts[p.part] = { offset, length: p.data.byteLength, fetchedAt: p.fetchedAt };
+          offset += p.data.byteLength;
         }
-        const type = fresh[fresh.length - 1].blob.type;
-        const joined = new Blob(pieces, type ? { type } : undefined);
+        const joined = new Uint8Array(offset);
+        let at = 0;
+        for (const piece of pieces) {
+          joined.set(piece, at);
+          at += piece.byteLength;
+        }
+        const type = freshData[freshData.length - 1].type;
         const next: EntryMeta = {
           ...meta,
-          size: joined.size,
+          size: joined.byteLength,
           // 最も新しい部分の fetchedAt（R7。新しい部分がある間はレコードを掃除の対象にしない）
           fetchedAt: Object.values(parts).reduce((m, p) => Math.max(m, p.fetchedAt), -Infinity),
         };
-        return commitEntry(t, target, old, next, { key: meta.key, blob: joined, headers, parts }, evict);
+        return commitEntry(t, target, old, next, { key: meta.key, data: joined.buffer, type, headers, parts }, evict);
       });
     },
 

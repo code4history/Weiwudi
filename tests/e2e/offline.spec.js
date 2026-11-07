@@ -41,7 +41,9 @@ async function upstreamCount(request) {
     return (await res.json()).count;
 }
 
-test.describe('Weiwudi offline', () => {
+// どの試験も context.setOffline を使う。SW の fetch まで切るのは Chromium でだけ確かめた（仕様 §2 の 7。WebKit は
+// ページの fetch が先に失敗し SW 到達を測れない）ので、WebKit・Firefox では走らせない（m3-t10）
+test.describe('Weiwudi offline', { tag: '@chromium-only' }, () => {
 
     test('setOffline cuts the service worker network', async ({ page, context, request }) => {
         await openPage(page);

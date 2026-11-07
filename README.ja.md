@@ -157,7 +157,14 @@ L.tileLayer(source.url as string).addTo(leafletMap);
 console.log(source.warnings, await source.stats());
 ```
 
-- 試験しているのは Chromium だけです。**WebKit・Firefox は未確認です。**
+- Chromium は手元と CI で試験しています。**WebKit**（Linux の Playwright の WebKit）は CI で試験しています。
+  ただし Chromium でしか成り立たない試験は除きます: オフライン（`context.setOffline`）・Service Worker の停止（CDP）・
+  実際の保存容量の上限・Mapbox の試験（WebKit では Service Worker の要求を Playwright が横取りできないため）。
+  Linux の WebKit は iOS の Safari と同じではありません。WebKit は非永続の保存領域（プライベートブラウズを含む）で
+  IndexedDB に `Blob` を保存できないので、Weiwudi は本体を `ArrayBuffer` で保存します。この形で CI の 29 件が
+  WebKit ですべて通りました。**Firefox** も CI で WebKit と同じ 29 件の試験を走らせ、すべて通りました。ただし必須の検査にはしていません。
+- sandbox（`allow-scripts allow-same-origin`）の `srcdoc` の iframe は、Chromium と WebKit ではページの
+  Service Worker を継ぐので、その中でも API を使えます。Firefox では継がず、中での呼び出しは `sw-not-controlling` で失敗します。
 - `kind` は `'raster'`・`'vector'`・`'style'`・`'asset'` です。スタイルは参照する資源（TileJSON・タイル・グリフ・
   スプライト・GeoJSON・画像）をすべて登録します。`register()` の完了を待ってから `source.url` を MapLibre に渡します:
 
