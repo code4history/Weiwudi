@@ -1071,6 +1071,23 @@ describe('上限を超えた結合レコード（m4-t1・L3・R7）', () => {
     await expectCountsConsistent(s);
   });
 
+  it('本体の前が新しく後ろが古いときも、fetchedAt の古い部分（後ろ）から落とす（レビュー L1）', async () => {
+    const s = await setup();
+    // 1 回の putGlyphParts で、本体の前に新しい部分（t=20）・後ろに古い部分（t=10）を置く
+    await s.putGlyphParts(glyphMeta(G, 'Noto', 20), [
+      { part: '0-255', blob: glyphBlob(10, 2), fetchedAt: 20 },
+      { part: '256-511', blob: glyphBlob(10, 1), fetchedAt: 10 },
+    ], {}, cap(20));
+    expect(await s.putGlyphPart(glyphMeta(G, 'Noto', 30), '512-767', glyphBlob(10, 3), {}, cap(20))).toEqual({ saved: true });
+    const got = await s.getEntry(key(G, 'Noto'));
+    expect(got!.body.parts).toEqual({
+      '0-255': { offset: 0, length: 10, fetchedAt: 20 },
+      '512-767': { offset: 10, length: 10, fetchedAt: 30 },
+    });
+    expect(Array.from(new Uint8Array(await got!.body.blob.arrayBuffer()))).toEqual([...Array(10).fill(2), ...Array(10).fill(3)]);
+    await expectCountsConsistent(s);
+  });
+
   it('新しい部分 1 つで maxBytes を超えるときは saved: false（保存済みのレコードはそのまま）', async () => {
     const s = await setup();
     await s.putGlyphPart(glyphMeta(G, 'Noto', 1), '0-255', glyphBlob(10, 1), {}, cap(20));
@@ -1308,6 +1325,20 @@ describe('store の新しい操作（m4-t1）', () => {
     expect(second.metas.map((m) => m.key)).toEqual([key('r', 'b')]);
     expect(second.next).toBeUndefined();
     expect((await s.listUnpinnedBefore(10, 10)).metas.map((m) => m.key)).toEqual([key('r', 'c'), key('r', 'a'), key('r', 'b')]);
+  });
+
+  it('listUnpinnedBefore は同じ fetchedAt の途中から続きを読み、続きの位置のキーが消えても欠けも重複もない（レビュー L2）', async () => {
+    const s = await open();
+    await s.createResource(resource('r'));
+    for (const x of ['a', 'b', 'c', 'd']) await put(s, entry('r', x, 1, 5));
+    const first = await s.listUnpinnedBefore(10, 2);
+    expect(first.metas.map((m) => m.key)).toEqual([key('r', 'a'), key('r', 'b')]);
+    const second = await s.listUnpinnedBefore(10, 2, first.next);
+    expect(second.metas.map((m) => m.key)).toEqual([key('r', 'c'), key('r', 'd')]);
+    // 続きの位置（b）を消してから読み直す
+    expect(await s.deleteEntries([key('r', 'b')], {})).toBe(1);
+    const again = await s.listUnpinnedBefore(10, 2, first.next);
+    expect(again.metas.map((m) => m.key)).toEqual([key('r', 'c'), key('r', 'd')]);
   });
 
   it('entriesOf は Resource のキーの範囲だけを limit 件ずつ読む', async () => {
