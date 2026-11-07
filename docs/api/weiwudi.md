@@ -484,7 +484,11 @@ interface UsageReport {
 | `clean()` | Deletes cached entries. Entries of resources shared with another source are kept |
 | `removeResource(resourceId)` | Deletes the cached entries of one resource of this source (for a style, of the resources it registered), **even when the resource is shared with another source or only referred to by range** (`rangeOnly`), because you named it. All glyph records (every fontstack) of a glyph resource are deleted. The resource and its capture stay: the next request fetches and stores it again. Rejects with `resource-not-found` when the source does not refer to that resource id. For a style, the ids it accepts are those of the resources of the children that `remove()` removes (including orphaned children left by an interrupted update) |
 | `remove()` | Deletes the registration and its entries and calls `release()`. Entries of a resource that another source still has in its `sourceIds` are kept; a resource whose `sourceIds` becomes empty is deleted with its entries, even when another source still refers to it only by range (`rangeOnly`) |
-| `release()` | Removes the page-side listener. Other methods then reject with `instance-released` |
+| `release()` | Removes the page-side listener. Other methods then reject with `instance-released` (a pending `fetchRange()` or `cancel()` is rejected the same way) |
+| `estimate(range)` | `Promise<{ tiles: number }>`, the number of tiles `fetchRange(range)` would fetch. See [Range fetching](#range-fetching) |
+| `fetchRange(range, opts?)` | Fetches and pins every tile of the range and resolves with the final `RegionInfo` |
+| `regions()` | `Promise<RegionInfo[]>`, the regions of this source |
+| `cancel()` | Stops the running `fetchRange()` of this source |
 
 ```typescript
 interface SourceStats {
@@ -495,6 +499,104 @@ interface SourceStats {
   byResource: Record<string, { count: number; bytes: number }>;
 }
 ```
+
+### Range fetching
+
+`fetchRange()` fetches every tile of a range through the same path as a captured
+request and pins it (`pin: true`, the default), so that it stays available
+offline and is never evicted by `cacheMaxBytes` or deleted by `cacheRetention`.
+Each run is recorded as a *region*.
+
+```typescript
+type RangeSpec =
+  | { bounds: [west: number, south: number, east: number, north: number]; minZoom: number; maxZoom: number }
+  | { box: TileBox; minZoom: number; maxZoom: number }
+  | 'all';
+
+interface FetchRangeOptions {
+  pin?: boolean;                               // default true
+  concurrency?: number;                        // default 5 (1 to 20)
+  glyphRanges?: 'common' | 'all' | string[];   // styles; default 'common'
+  fonts?: string[];                            // styles; extra fontstacks
+  ratio?: '' | '@2x';                          // value of {ratio}
+}
+
+interface RegionInfo {
+  id: string; sourceId: string; range: RangeSpec;
+  status: 'running' | 'complete' | 'partial' | 'canceled' | 'stopped';
+  pinned: boolean; total: number;
+  error: number; errors: Record<TileFailure, number>;
+  code?: WeiwudiErrorCode;                     // when stopped
+  createdAt: number; updatedAt: number;
+}
+```
+
+- `bounds` is in degrees. Latitudes are clamped to ±85.0511°, and `west > east`
+  is a range across the antimeridian. `box` is the x/y range at `maxZoom` **in
+  the scheme of the source** (the same coordinates as the `box` of `register`;
+  for `scheme: 'tms'` the y axis points up). `minZoom` and `maxZoom` are
+  integers from 0 to 30 with `minZoom <= maxZoom`; anything else rejects with
+  `attribute-invalid`
+- `'all'` is the range of the source **at the time of the call** (for a style,
+  the ranges of its tile resources). A later `update()` does not change a
+  region. A source without a `box` or `bounds` rejects `'all'` with
+  `cannot-fetch-all`
+- Only the tiles inside both the range and the registered range of the
+  source are fetched. `estimate()` and `RegionInfo.total` count tiles only.
+  In this version a style fetches the tiles of its tile resources; its style,
+  TileJSON, sprites and glyphs follow in a later version
+- A source of `kind: 'asset'` accepts `'all'` only (any other range rejects
+  with `attribute-invalid`) and fetches and pins its resources. Its
+  `estimate()` is `{ tiles: 0 }`
+- `ratio` fills `{ratio}`. When it is not given, `fetchRange()` sends `'@2x'`
+  if `devicePixelRatio > 1` and `''` otherwise, because the cached key
+  includes `@2x` the same way the map library requests it
+- `fetchRange()` first asks for persistent storage
+  (`navigator.storage.persist()`; a refusal is ignored)
+- Tiles that are already cached are not requested again; they are only pinned.
+  Running the same range again therefore resumes an interrupted run
+- Requests are made like `fetch(url)` (`mode: 'cors'`,
+  `credentials: 'same-origin'`). The registered `credentials` are added for
+  the same sources and origins as for captured requests. **A server of another
+  origin that authenticates by cookies only is not supported**
+- With no CORS record for the resource yet, a tile that fails with a network
+  error is checked once with `mode: 'no-cors'` (without credentials or
+  cookies). After 3 opaque results in a row, 5 random tiles of the range are
+  fetched again with CORS. If one passes, fetching continues; otherwise the
+  run stops with `opaque` (or `network` when every request failed). Other
+  opaque results count as `upstream`. With no stored tile yet, three 401 or 403
+  responses in a row stop the run with `upstream`
+- When the pinned entries of a source reach its `cacheMaxBytes`, the run stops
+  with `quota` (checked at the start and after each batch)
+- One run at a time in the service worker, shared with the legacy
+  `fetchAll()`. Another run rejects with `fetch-busy`. `cancel()` stops only
+  the run of its own source and rejects with `no-fetch-process` otherwise. It
+  resolves after the run reports `canceled` (the batch already started is
+  finished first, so up to `concurrency` tiles are still fetched)
+- `fetchRange()` resolves with the `RegionInfo` (`complete`, `partial` or
+  `canceled`) and rejects with `WeiwudiError(code)` when the run stops. When no
+  event arrives for 30 seconds, the page asks the service worker to resume the
+  run (`POST /v2/job/resume`), so a run interrupted by a stopped service worker
+  continues. If another run is busy, it rejects with `fetch-busy`
+- `regions()` shows a `running` region whose run is no longer active (the
+  service worker stopped, or another region is being fetched) as `partial`.
+  A region keeps its status when it is written; a region removed by `clean()`
+  during a run is not written back. `clean()` deletes the regions of the
+  source
+
+Events of a `WeiwudiSource` (`addEventListener(type, e => e.detail)`), sent to
+the page that called `fetchRange()`:
+
+| type | `detail` |
+|---|---|
+| `proceed` | `{ type, sourceId, regionId, percent, processed, total, error, errors }` after each batch. `percent` counts tiles only |
+| `finish` | `{ type, sourceId, regionId, percent, processed, total, error, errors }` |
+| `stop` | `{ type, sourceId, regionId, code, message, processed, total }` |
+| `canceled` | `{ type, sourceId, regionId }` |
+| `opaque` | `{ type, sourceId, resourceId }`, sent to every page once when a resource is found to have no CORS support (24 hours of no-CORS handling start, or a run stops with `opaque`) |
+
+The shapes follow the legacy `fetchAll()` events, with `sourceId`,
+`regionId` and `errors` added.
 
 ### `warnings`
 
@@ -649,12 +751,15 @@ above) and `network`, `upstream`, `storage` (tile failures, see below).
 `sw-outdated` (the controlling service worker lacks the source API),
 `source-not-found` (`source()` and the `WeiwudiSource` methods for an unknown id),
 `resource-conflict` (`update()` only; `register()` writes it to `warnings`),
-`resource-not-found` (`removeResource()` with a resource id the source does not refer to).
+`resource-not-found` (`removeResource()` with a resource id the source does not refer to),
+`opaque` (`fetchRange()` stopped because the upstream has no CORS support).
 The source API also uses `attribute-invalid`, `sw-not-controlling`,
-`instance-released` and `api-not-found` from the table above, with its own messages.
+`instance-released`, `api-not-found`, `fetch-busy` (another range fetching
+or `fetchAll()` is running), `no-fetch-process` (`cancel()` with nothing to
+cancel) and `cannot-fetch-all` (`'all'` for a source without a range) from the
+table above, with its own messages, and `network`, `upstream`, `quota` as the
+code of a stopped `fetchRange()`.
 
-**Codes reserved for the upcoming API:** `opaque`.
-It is part of the `WeiwudiErrorCode` type but is not produced yet.
 `unsupported-kind` stays in the type but is no longer produced (every `kind` is
 handled).
 

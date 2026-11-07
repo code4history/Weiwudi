@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { createContext, type Context } from '../../src/context';
 import { serve, type ServeInput, type UpstreamResult } from '../../src/core';
-import { createUpstream, isAuthenticated, isStorable, CORSLESS_PERIOD_MS } from '../../src/upstream';
+import { createUpstream, isAuthenticated, isStorable, probeNoCors, CORSLESS_PERIOD_MS } from '../../src/upstream';
 import type { Credentials, EntryMeta, ResourceMeta, ResourcePolicy, Store } from '../../src/store';
 import { opaqueResponse } from './sw-harness';
 
@@ -426,5 +426,52 @@ describe('§4.5-3 S-F: no-cors の 401・403', () => {
     for (let i = 0; i < 3; i++) await call(img());
     expect(ctx.corslessStreak.get(RID) ?? 0).toBe(0);
     expect((await meta()).corslessUntil).toBeUndefined();
+  });
+});
+
+describe('opaque イベントの口（ctx.notify）と probeNoCors（m4-t3・R20・R4）', () => {
+  const opaqueOnce = () => fetchMock.mockRejectedValueOnce(new TypeError('cors')).mockResolvedValueOnce(opq());
+
+  it('countCorsless が corslessUntil を書いたとき ctx.notify が 1 回（resourceId と sourceIds）', async () => {
+    const notify = vi.fn();
+    ctx.notify = notify;
+    for (let i = 0; i < 3; i++) {
+      opaqueOnce();
+      await call(img());
+    }
+    expect((await meta()).corslessUntil).toBe(T + CORSLESS_PERIOD_MS);
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledWith({ type: 'opaque', resourceId: RID, sourceIds: ['s1'] });
+  });
+
+  it('書かなかった（実績あり）ときは 0 回。notify が投げても配信を止めない', async () => {
+    const notify = vi.fn(() => { throw new Error('x'); });
+    ctx.notify = notify;
+    await store.patchResource(RID, (m) => ({ ...m, corsOk: true }));
+    for (let i = 0; i < 3; i++) {
+      opaqueOnce();
+      await call(img());
+    }
+    expect(notify).not.toHaveBeenCalled();
+    await store.patchResource(RID, (m) => ({ ...m, corsOk: undefined }));
+    ctx.corslessStreak.clear();
+    for (let i = 0; i < 3; i++) {
+      opaqueOnce();
+      expect((await call(img())).kind).toBe('opaque');
+    }
+    expect(notify).toHaveBeenCalledTimes(1);
+  });
+
+  it("probeNoCors: opaque は 'opaque'、TypeError は 'network'。要求は no-cors で資格情報を付けない", async () => {
+    fetchMock.mockResolvedValueOnce(opq());
+    expect(await probeNoCors(TILE)).toBe('opaque');
+    fetchMock.mockRejectedValueOnce(new TypeError('offline'));
+    expect(await probeNoCors(TILE)).toBe('network');
+    for (const [input, init] of fetchMock.mock.calls) {
+      expect(input).toBe(TILE);
+      expect(init).toEqual({ mode: 'no-cors', credentials: 'omit' });
+    }
+    fetchMock.mockResolvedValueOnce(png());
+    expect(await probeNoCors(TILE)).toBe('response');
   });
 });

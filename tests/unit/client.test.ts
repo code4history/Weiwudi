@@ -432,3 +432,202 @@ describe('removeResource・usage（m3-t8・R18・R19）', () => {
     await rejectsWith(m.default.usage(), 'storage', m);
   });
 });
+
+describe('範囲取得（m4-t3・§7.2・R22・R45・R58・R-ratio・I5b）', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const RANGE = { box: { minX: 0, maxX: 1, minY: 0, maxY: 1 }, minZoom: 1, maxZoom: 2 };
+  const region = (over: Record<string, unknown> = {}) => ({
+    id: 'g1', sourceId: TPL, range: RANGE, status: 'running', pinned: true, total: 5, error: 0,
+    errors: { network: 0, upstream: 0, quota: 0, storage: 0 }, createdAt: 1, updatedAt: 1, ...over,
+  });
+  /** SW からのメッセージ（navigator.serviceWorker の message） */
+  const fromSw = (data: Record<string, unknown>) => container.fire('message', { data: { sourceId: TPL, regionId: 'g1', ...data } });
+  const bodies = (op: string) => posts().filter((p) => p.url.endsWith(`/v2/${op}`)).map((p) => JSON.parse(String(p.init!.body)));
+
+  /** op ごとの答え（無い op は INFO） */
+  const answer = (table: Record<string, () => unknown>) => {
+    postReply = async (op) => {
+      const f = table[op];
+      if (!f) return jsonRes({ ok: true, result: INFO });
+      const v = f();
+      return v instanceof Response ? v : jsonRes({ ok: true, result: v });
+    };
+  };
+  const flush = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+
+  it('estimate・fetchRange・regions・cancel の POST の形。fetchRange は persist を試し、ratio の既定は devicePixelRatio（1 なら ""）', async () => {
+    const m = await setup();
+    const persist = vi.fn(async () => { throw new Error('denied'); });
+    (navigator as unknown as { storage: unknown }).storage = { persist };
+    vi.stubGlobal('devicePixelRatio', 1);
+    answer({ estimate: () => ({ tiles: 5 }), fetchRange: () => region({ status: 'complete' }), regions: () => [region({ status: 'complete' })], cancel: () => ({ regionId: null }) });
+    const src = await m.default.register({ kind: 'raster', url: TPL });
+    expect(await src.estimate(RANGE)).toEqual({ tiles: 5 });
+    expect(await src.fetchRange(RANGE)).toMatchObject({ id: 'g1', status: 'complete' });
+    expect(await src.regions()).toMatchObject([{ id: 'g1' }]);
+    await src.cancel();
+    expect(bodies('estimate')).toEqual([{ id: TPL, range: RANGE }]);
+    expect(bodies('fetchRange')).toEqual([{ id: TPL, range: RANGE, options: { ratio: '' } }]);
+    expect(bodies('regions')).toEqual([{ id: TPL }]);
+    expect(bodies('cancel')).toEqual([{ id: TPL }]);
+    expect(persist).toHaveBeenCalledTimes(1);
+  });
+
+  it("ratio の既定は devicePixelRatio > 1 なら '@2x'。指定があればそのまま", async () => {
+    const m = await setup();
+    vi.stubGlobal('devicePixelRatio', 2);
+    answer({ fetchRange: () => region({ status: 'complete' }) });
+    const src = await m.default.register({ kind: 'raster', url: TPL });
+    await src.fetchRange(RANGE, { concurrency: 2 });
+    await src.fetchRange(RANGE, { ratio: '' });
+    expect(bodies('fetchRange').map((b) => b.options)).toEqual([{ concurrency: 2, ratio: '@2x' }, { ratio: '' }]);
+  });
+
+  it('POST の応答（running）の後、その regionId の finish を待って regions() の RegionInfo で解決する。別の region の finish では解決しない', async () => {
+    const m = await setup();
+    answer({ fetchRange: () => region(), regions: () => [region({ status: 'complete' })] });
+    const src = await m.default.register({ kind: 'raster', url: TPL });
+    let settled: unknown;
+    const p = src.fetchRange(RANGE).then((r) => { settled = r; });
+    await flush();
+    fromSw({ type: 'finish', regionId: 'other' });
+    fromSw({ type: 'proceed', percent: 40 });
+    await flush();
+    expect(settled).toBeUndefined();
+    fromSw({ type: 'finish', error: 0 });
+    await p;
+    expect(settled).toMatchObject({ id: 'g1', status: 'complete' });
+  });
+
+  it('POST の応答より先に届いた finish でも解決する', async () => {
+    const m = await setup();
+    answer({
+      fetchRange: () => { fromSw({ type: 'finish', error: 0 }); return region(); },
+      regions: () => [region({ status: 'complete' })],
+    });
+    const src = await m.default.register({ kind: 'raster', url: TPL });
+    expect(await src.fetchRange(RANGE)).toMatchObject({ status: 'complete' });
+  });
+
+  it('stop は WeiwudiError(code, message) で reject、canceled は status: canceled で resolve', async () => {
+    const m = await setup();
+    answer({ fetchRange: () => region(), regions: () => [region({ status: 'canceled' })] });
+    const src = await m.default.register({ kind: 'raster', url: TPL });
+    const a = src.fetchRange(RANGE);
+    await flush();
+    fromSw({ type: 'stop', code: 'opaque', message: 'no CORS' });
+    const e = await a.then(() => undefined, (err: unknown) => err);
+    expect(e).toBeInstanceOf(m.WeiwudiError);
+    expect(e).toMatchObject({ code: 'opaque', message: 'no CORS' });
+    answer({ fetchRange: () => region({ id: 'g2' }), regions: () => [region({ id: 'g2', status: 'canceled' })] });
+    const b = src.fetchRange(RANGE);
+    await flush();
+    fromSw({ type: 'canceled', regionId: 'g2' });
+    expect(await b).toMatchObject({ id: 'g2', status: 'canceled' });
+  });
+
+  it('fetchRange が待っている最中に、cancel の応答より先に canceled が届いても cancel() がすぐ解決する（PR #102 M1）', async () => {
+    const m = await setup();
+    answer({
+      fetchRange: () => region(),
+      regions: () => [region({ status: 'canceled' })],
+      cancel: () => { fromSw({ type: 'canceled' }); return { regionId: 'g1' }; },
+    });
+    const src = await m.default.register({ kind: 'raster', url: TPL });
+    const running = src.fetchRange(RANGE);
+    await flush();
+    let done = false;
+    const c = src.cancel().then(() => { done = true; });
+    await flush();
+    await flush();
+    expect(done).toBe(true);
+    await c;
+    expect(await running).toMatchObject({ status: 'canceled' });
+    // 30 秒の regions() を待たずに解決した（regions() は fetchRange の解決の 1 回だけ）
+    expect(bodies('regions')).toHaveLength(1);
+  });
+
+  it('30 秒イベントが来なければ job/resume。running ならまた待ち、complete で resolve（偽のタイマ）', async () => {
+    const m = await setup();
+    const replies = [region(), region({ status: 'complete' })];
+    answer({ fetchRange: () => region(), 'job/resume': () => replies.shift() });
+    const src = await m.default.register({ kind: 'raster', url: TPL });
+    vi.useFakeTimers();
+    let settled: unknown;
+    const p = src.fetchRange(RANGE).then((r) => { settled = r; });
+    await vi.advanceTimersByTimeAsync(29_000);
+    fromSw({ type: 'proceed' });
+    await vi.advanceTimersByTimeAsync(29_000);
+    expect(bodies('job/resume')).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(bodies('job/resume')).toEqual([{ id: TPL, regionId: 'g1' }]);
+    expect(settled).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(30_000);
+    await p;
+    expect(bodies('job/resume')).toHaveLength(2);
+    expect(settled).toMatchObject({ status: 'complete' });
+  });
+
+  it('再開の応答が stopped なら reject、job/resume の fetch-busy なら reject', async () => {
+    const m = await setup();
+    let resume: () => unknown = () => region({ status: 'stopped', code: 'quota' });
+    answer({ fetchRange: () => region(), 'job/resume': () => resume() });
+    const src = await m.default.register({ kind: 'raster', url: TPL });
+    vi.useFakeTimers();
+    const a = src.fetchRange(RANGE).then(() => undefined, (e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await rejectsWith(Promise.reject(await a), 'quota', m);
+    resume = () => jsonRes({ ok: false, error: { code: 'fetch-busy', message: 'busy', detail: {} } });
+    const b = src.fetchRange(RANGE).then(() => undefined, (e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(30_000);
+    await rejectsWith(Promise.reject(await b), 'fetch-busy', m);
+  });
+
+  it('release() で待ちを instance-released で reject する', async () => {
+    const m = await setup();
+    answer({ fetchRange: () => region() });
+    const src = await m.default.register({ kind: 'raster', url: TPL });
+    const p = src.fetchRange(RANGE);
+    await flush();
+    src.release();
+    await rejectsWith(p, 'instance-released', m);
+    await rejectsWith(src.fetchRange(RANGE), 'instance-released', m);
+  });
+
+  it('cancel() は canceled のメッセージを受けるまで解決しない。regionId が無ければすぐ解決（第 2 回 M4）', async () => {
+    const m = await setup();
+    let reply: unknown = { regionId: 'g1' };
+    answer({ cancel: () => reply });
+    const src = await m.default.register({ kind: 'raster', url: TPL });
+    let done = false;
+    const p = src.cancel().then(() => { done = true; });
+    await flush();
+    fromSw({ type: 'proceed' });
+    await flush();
+    expect(done).toBe(false);
+    fromSw({ type: 'canceled' });
+    await p;
+    expect(done).toBe(true);
+    reply = { regionId: null };
+    await src.cancel();
+  });
+
+  it('cancel() は 30 秒来なければ regions() を読んで解決する（偽のタイマ）。失敗は reject', async () => {
+    const m = await setup();
+    answer({ cancel: () => ({ regionId: 'g1' }), regions: () => [region({ status: 'partial' })] });
+    const src = await m.default.register({ kind: 'raster', url: TPL });
+    vi.useFakeTimers();
+    let done = false;
+    const p = src.cancel().then(() => { done = true; });
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(done).toBe(false);
+    expect(bodies('regions')).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    await p;
+    expect(bodies('regions')).toHaveLength(1);
+    answer({ cancel: () => jsonRes({ ok: false, error: { code: 'no-fetch-process', message: 'none', detail: {} } }) });
+    await rejectsWith(src.cancel(), 'no-fetch-process', m);
+  });
+});

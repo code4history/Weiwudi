@@ -1,12 +1,13 @@
 // テンプレートの解析・照合・正規化・キー（仕様 §4.2・§5.1・§5.3。m2-t3）。
-// 値の依存は tile_math と errors だけ（仕様 §3）。展開の関数は置かない（tile_math.expandTileTemplate が唯一。R6）。
+// 値の依存は tile_math と errors だけ（仕様 §3）。タイルの字句の展開は tile_math.expandTileTemplate が唯一（R6）で、
+// expandTemplate（範囲取得。m4-t3・R2）はタイルの字句をそれに任せ、グリフ・スプライトの字句だけを足す。
 //
 // 決まり:
 // - モジュール変数を持たない。正規表現は関数の中で作る（/g の lastIndex を共有しない）
 // - 拒否の文面にテンプレートの URL を入れない（クエリの資格情報や userinfo を文面へ出さない。仕様 §10）
 import type { ResourceType } from './store';
 import { WeiwudiError } from './errors';
-import { tileKeySuffix, tilePrefix } from './tile_math';
+import { expandTileTemplate, tileKeySuffix, tilePrefix } from './tile_math';
 
 /** 既定の資格情報のクエリ項目（仕様 §5.3）。登録の credentialParams で足せる */
 export const DEFAULT_CREDENTIAL_PARAMS: readonly string[] = Object.freeze([
@@ -402,6 +403,36 @@ const derive = (values: readonly (readonly [TokenName, string])[]): Omit<MatchRe
   if (suffix !== undefined) out.suffix = suffix;
   return out;
 };
+
+/** expandTemplate の字句の値（範囲取得。m4-t3） */
+export interface ExpandValues {
+  z?: number;
+  x?: number;
+  y?: number;
+  /** '' か '@2x'（既定 ''） */
+  ratio?: string;
+  /** encodeURIComponent して入れる */
+  fontstack?: string;
+  range?: string;
+  spriteSuffix?: string;
+}
+
+const replaceAll = (s: string, token: string, value: string): string => s.split(token).join(value);
+
+/**
+ * 範囲取得のテンプレートの展開（R2）。タイルの 7 字句は tile_math.expandTileTemplate（全出現・ratio）に任せ、
+ * {fontstack} は encodeURIComponent、{range}・{spriteSuffix} はそのまま置く。範囲取得はこの URL を同じテンプレートに
+ * matchUrl で照合して MatchResult を得る（キーは entryKey 1 つ）
+ */
+export function expandTemplate(template: string, v: ExpandValues): string {
+  let s = v.z !== undefined && v.x !== undefined && v.y !== undefined
+    ? expandTileTemplate(template, v.z, v.x, v.y, { all: true, ratio: v.ratio ?? '' })
+    : replaceAll(template, '{ratio}', v.ratio ?? '');
+  if (v.fontstack !== undefined) s = replaceAll(s, '{fontstack}', encodeURIComponent(v.fontstack));
+  if (v.range !== undefined) s = replaceAll(s, '{range}', v.range);
+  if (v.spriteSuffix !== undefined) s = replaceAll(s, '{spriteSuffix}', v.spriteSuffix);
+  return s;
+}
 
 /** 要求の URL をテンプレートと照合する。origin・pathname・テンプレートに書かれたクエリ項目だけを見る */
 export function matchUrl(c: CompiledTemplate, url: URL): MatchResult | null {

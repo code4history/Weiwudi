@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
 import { createSwHarness, type SwHarness } from './sw-harness';
 import { createContext, type Context } from '../../src/context';
-import { GATE_WAIT_MS, installHook, isCandidate, tableChanged } from '../../src/hook';
+import { GATE_WAIT_MS, credentialsForResource, installHook, isCandidate, tableChanged } from '../../src/hook';
 import { applyRegister, credentialSourceFor } from '../../src/registry';
 import { normalizeSpec } from '../../src/spec';
 import { openStore, type ResourceMeta, type Store } from '../../src/store';
@@ -439,5 +439,38 @@ describe('資格情報（仕様 §10・I2・t6 の申し送り）', () => {
     expect(h.fetch.mock.calls[0][0]).toBe(req);
     const [r] = await (await ctx.store()).listResources();
     expect(r.count).toBe(0);
+  });
+});
+
+describe('credentialsForResource（m4-t3・R3・第 1 回 M4）', () => {
+  const A = 'https://a.example/{z}/{x}/{y}.png';
+  const B = 'https://b.example/{z}/{x}/{y}.png';
+
+  it('照合ルートと同じ Source を選ぶ（オリジンごと）。表に無いオリジンは両方 undefined。表は読み込みを待つ', async () => {
+    harness();
+    const ctx = otherSw();
+    await register(ctx, { id: 'A', url: A, credentials: { query: { key: 'KA' } } });
+    await register(ctx, { id: 'B', url: [A, B], credentials: { query: { key: 'KB' } } });
+    const [resource] = await (await ctx.store()).listResources();
+    // 表を捨てても、読み込み（門番と同じ ensureLoad）を待って選ぶ
+    ctx.table.current = undefined;
+    expect(await credentialsForResource(ctx, resource, 'https://a.example'))
+      .toEqual({ credentials: { query: { key: 'KA' } }, credentialSourceId: 'A' });
+    expect(await credentialsForResource(ctx, resource, 'https://b.example'))
+      .toEqual({ credentials: { query: { key: 'KB' } }, credentialSourceId: 'B' });
+    expect(await credentialsForResource(ctx, resource, 'https://c.example')).toEqual({});
+    // 照合ルートが同じオリジンで足す資格情報と同じ（I2 の試験の値）
+    expect(ctx.table.current!.credentialSources.get(resource.id)!.get('https://a.example')).toBe('A');
+  });
+
+  it('資格情報を誰も持たない・表が読めない（やり直しの間隔の中）なら {}', async () => {
+    harness();
+    const ctx = otherSw();
+    await register(ctx, { id: 'A', url: A });
+    const [resource] = await (await ctx.store()).listResources();
+    expect(await credentialsForResource(ctx, resource, 'https://a.example')).toEqual({});
+    ctx.table.current = undefined;
+    ctx.table.retryAt = Date.now() + 60_000;
+    expect(await credentialsForResource(ctx, resource, 'https://a.example')).toEqual({});
   });
 });

@@ -1,7 +1,7 @@
 // src/url_pattern.ts の試験（m2-t3・第 1 回 S5・C3・O-18）。仕様 §4.2・§5.1・§5.3、計画の m2-t3。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  DEFAULT_CREDENTIAL_PARAMS, MatchTable, absolutizeTemplate, compileTemplate, entryKey, matchUrl,
+  DEFAULT_CREDENTIAL_PARAMS, MatchTable, absolutizeTemplate, compileTemplate, entryKey, expandTemplate, matchUrl,
   normalizeTemplate, spriteTemplateOf, stripParams, templatesOverlap,
 } from '../../src/url_pattern';
 import { normalizeMember, normalizeSpec } from '../../src/spec';
@@ -449,5 +449,44 @@ describe('スプライトの内部の字句 {spriteSuffix}（m3-t6・R6・仕様
       .toBe('unsupported-template');
     expect(codeOf(() => normalizeMember('data', [TPL], {}, { kind: 'child', internalId: 'x', single: true })))
       .toBe('unsupported-template');
+  });
+});
+
+describe('expandTemplate（m4-t3・R2）', () => {
+  it('タイルの字句（{z}/{x}/{-y}・{quadkey}・{prefix}・{ratio} の 2 値）を全部の出現で置き換える', () => {
+    expect(expandTemplate('https://a.example/{z}/{x}/{-y}.png', { z: 3, x: 1, y: 2 })).toBe('https://a.example/3/1/5.png');
+    expect(expandTemplate('https://a.example/{quadkey}?p={prefix}', { z: 2, x: 1, y: 3 })).toBe('https://a.example/23?p=13');
+    expect(expandTemplate('https://a.example/{z}/{x}/{y}{ratio}.png?z={z}', { z: 3, x: 1, y: 2, ratio: '@2x' }))
+      .toBe('https://a.example/3/1/2@2x.png?z=3');
+    expect(expandTemplate('https://a.example/{z}/{x}/{y}{ratio}.png', { z: 3, x: 1, y: 2, ratio: '' }))
+      .toBe('https://a.example/3/1/2.png');
+    expect(expandTemplate('https://a.example/{z}/{x}/{y}{ratio}.png', { z: 3, x: 1, y: 2 })).toBe('https://a.example/3/1/2.png');
+  });
+
+  it('{fontstack} は encodeURIComponent、{range}・{spriteSuffix} はそのまま', () => {
+    expect(expandTemplate('https://g.example/fonts/{fontstack}/{range}.pbf', { fontstack: 'Open Sans Regular,Arial $&', range: '0-255' }))
+      .toBe(`https://g.example/fonts/${encodeURIComponent('Open Sans Regular,Arial $&')}/0-255.pbf`);
+    expect(expandTemplate('https://s.example/sprite{spriteSuffix}?v=1', { spriteSuffix: '@2x.json' }))
+      .toBe('https://s.example/sprite@2x.json?v=1');
+  });
+
+  it('展開した URL は同じテンプレートの matchUrl に当たり、entryKey が捕捉の要求と同じキー（tile・glyph・sprite）', () => {
+    const cases: { type: 'tile' | 'glyph' | 'sprite'; tpl: string; v: Parameters<typeof expandTemplate>[1]; captured: string }[] = [
+      { type: 'tile', tpl: 'https://a.example/{z}/{x}/{-y}{ratio}.png?lang=ja', v: { z: 4, x: 3, y: 2, ratio: '@2x' },
+        captured: 'https://a.example/4/3/13@2x.png?lang=ja' },
+      { type: 'glyph', tpl: 'https://g.example/{fontstack}/{range}.pbf', v: { fontstack: 'Noto Sans Regular,Arial', range: '256-511' },
+        captured: 'https://g.example/Noto%20Sans%20Regular%2CArial/256-511.pbf' },
+      { type: 'sprite', tpl: 'https://s.example/sprite{spriteSuffix}?v=2', v: { spriteSuffix: '@2x.png' },
+        captured: 'https://s.example/sprite@2x.png?v=2' },
+    ];
+    for (const c of cases) {
+      const compiled = compileTemplate(c.tpl);
+      const url = new URL(expandTemplate(c.tpl, c.v));
+      const m = matchUrl(compiled, url);
+      expect(m).not.toBeNull();
+      const capturedUrl = new URL(c.captured);
+      const mc = matchUrl(compiled, capturedUrl)!;
+      expect(entryKey('r', c.type, m!, url, CP)).toBe(entryKey('r', c.type, mc, capturedUrl, CP));
+    }
   });
 });

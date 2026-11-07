@@ -7,6 +7,7 @@ import type { RouteHandlerCallback, RouteMatchCallback } from 'workbox-core';
 import { createContext, type Context } from './context';
 import { sweepOnce } from './core';
 import { createControl } from './control';
+import { createNotifier } from './range';
 import { handleLegacy } from './legacy';
 import { migrationDeps } from './legacy';
 import { migrateStep } from './migrate';
@@ -44,6 +45,9 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp | RouteMatchCal
     providers,
     acceptsMember: (type, templates, credentialParams) => acceptsMember(type, templates, credentialParams, providers()),
   });
+
+  // opaque イベント（m4-t3・R20）: 子 Source は親に読み替えて全 window の client へ送る
+  ctx.notify = createNotifier(ctx);
 
   ctx.maintain = (event) => {
     if (typeof event?.waitUntil === 'function') event.waitUntil(runMaintenance(ctx));

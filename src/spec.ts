@@ -10,7 +10,7 @@
 import type { Credentials, OutOfRange, ResourcePolicy, ResourceType, TileExtent } from './store';
 import type { TileBox } from './tile_math';
 import type { WeiwudiProvider } from './plugins';
-import { WeiwudiError } from './errors';
+import { WeiwudiError, type TileFailure, type WeiwudiErrorCode } from './errors';
 import { DAY_MS, LEGACY_PREFIX, PSEUDO_HOST } from './constants';
 import { lngLatBoundsToTileBox } from './tile_math';
 import {
@@ -97,6 +97,67 @@ export interface StyleSpec {
   cacheMaxBytes?: number;
   provider?: string;
   children: StyleChild[];
+}
+
+// ---- 範囲取得の型（仕様 §7.2・§12。m4-t3） ----
+
+/**
+ * 範囲取得の範囲。bounds は経緯度（west > east は日付変更線をまたぐ）、box は maxZoom での x/y の範囲で
+ * Source の scheme の座標（登録の box と同じ）、'all' は取得のときの Source の範囲（R30）
+ */
+export type RangeSpec =
+  | { bounds: [west: number, south: number, east: number, north: number]; minZoom: number; maxZoom: number }
+  | { box: TileBox; minZoom: number; maxZoom: number }
+  | 'all';
+
+export interface FetchRangeOptions {
+  /** 既定 true */
+  pin?: boolean;
+  /** 既定 5（1〜20。R31） */
+  concurrency?: number;
+  /** 既定 'common'（スタイルのグリフ。m4-t4） */
+  glyphRanges?: 'common' | 'all' | string[];
+  /** 追加の fontstack（スタイル。m4-t4・R53） */
+  fonts?: string[];
+  /** {ratio} の値。ページ側の既定は devicePixelRatio > 1 なら '@2x'（R-ratio） */
+  ratio?: '' | '@2x';
+}
+
+export type RegionStatus = 'running' | 'complete' | 'partial' | 'canceled' | 'stopped';
+
+/** 範囲取得の記録（仕様 §7.2・§12） */
+export interface RegionInfo {
+  id: string;
+  sourceId: string;
+  /** 利用者の範囲の決めた項目だけの写し（R5） */
+  range: RangeSpec;
+  status: RegionStatus;
+  pinned: boolean;
+  /** タイルの枚数（estimate と同じ。R29） */
+  total: number;
+  error: number;
+  errors: Record<TileFailure, number>;
+  /** stopped のとき */
+  code?: WeiwudiErrorCode;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** 正規化した範囲（内部。boxes は maxZoom での XYZ の座標。kind は #78 の区画を足せる形。R27） */
+export interface NormalizedRange {
+  kind: 'boxes';
+  boxes: TileBox[];
+  minZoom: number;
+  maxZoom: number;
+}
+
+/** 検査済みの FetchRangeOptions（既定を入れたもの。region に保存して再開で使う。R-t3-3） */
+export interface NormalizedFetchOptions {
+  pin: boolean;
+  concurrency: number;
+  ratio: '' | '@2x';
+  glyphRanges: 'common' | 'all' | string[];
+  fonts: string[];
 }
 
 export interface NormalizedSpec {
@@ -592,4 +653,127 @@ export function hasSecretPathSegment(url: string): boolean {
     try { decoded = decodeURIComponent(seg); } catch (_e) { /* 生の形だけ */ }
     return isSecretPathSegment(seg) || isSecretPathSegment(decoded);
   });
+}
+
+// ---- 範囲取得の範囲の検査（仕様 §7.2・m4-t3・R28・R30・R-tms） ----
+
+/** 範囲の Source の側（範囲と scheme）。'all' のスタイルは子の tile の範囲を all に並べる（R-t3-2） */
+export interface RangeSource {
+  extent?: TileExtent;
+  scheme?: 'xyz' | 'tms';
+  all?: readonly { extent?: TileExtent; scheme?: 'xyz' | 'tms' }[];
+}
+
+const cannotFetchAll = (): WeiwudiError =>
+  new WeiwudiError('cannot-fetch-all', 'The source has no tile range (box) to fetch with "all"', { attribute: 'range' });
+
+const flipBox = (box: TileBox, z: number): TileBox => {
+  const last = Math.pow(2, z) - 1;
+  return { minX: box.minX, maxX: box.maxX, minY: last - box.maxY, maxY: last - box.minY };
+};
+
+/** 範囲の形を検査し、決めた項目だけを写す（利用者の任意の項目や関数を構造化複製に通さない。R5） */
+export function copyRange(input: unknown): RangeSpec {
+  if (input === 'all') return 'all';
+  if (!isPlainObject(input)) throw invalid('range', "must be { bounds, minZoom, maxZoom }, { box, minZoom, maxZoom } or 'all'");
+  const minZoom = own(input, 'minZoom');
+  const maxZoom = own(input, 'maxZoom');
+  if (!isNonNegInt(minZoom) || minZoom > MAX_TILE_ZOOM) throw invalid('minZoom', `must be an integer from 0 to ${MAX_TILE_ZOOM}`);
+  if (!isNonNegInt(maxZoom) || maxZoom > MAX_TILE_ZOOM) throw invalid('maxZoom', `must be an integer from 0 to ${MAX_TILE_ZOOM}`);
+  if (minZoom > maxZoom) throw invalid('minZoom', 'must not be greater than "maxZoom"');
+  const bounds = own(input, 'bounds');
+  const boxIn = own(input, 'box');
+  if ((bounds === undefined) === (boxIn === undefined)) throw invalid('range', 'needs exactly one of "bounds" and "box"');
+  if (bounds !== undefined) {
+    if (!Array.isArray(bounds) || bounds.length !== 4 || bounds.some((n) => typeof n !== 'number' || !Number.isFinite(n))) {
+      throw invalid('bounds', 'must be [west, south, east, north]');
+    }
+    const [w, s, e, n] = bounds as number[];
+    // west > east は日付変更線をまたぐ範囲（§7.2）
+    if (w < -180 || w > 180 || e < -180 || e > 180 || s < -90 || n > 90 || s > n) throw invalid('bounds', 'is out of range');
+    return { bounds: [w, s, e, n], minZoom, maxZoom };
+  }
+  if (!isPlainObject(boxIn)) throw invalid('box');
+  const [minX, maxX, minY, maxY] = ['minX', 'maxX', 'minY', 'maxY'].map((k) => own(boxIn, k));
+  const last = Math.pow(2, maxZoom) - 1;
+  if (![minX, maxX, minY, maxY].every((v) => isNonNegInt(v) && v <= last)) throw invalid('box', 'is out of range');
+  const box = { minX, maxX, minY, maxY } as TileBox;
+  if (box.minX > box.maxX || box.minY > box.maxY) throw invalid('box', 'min must not be greater than max');
+  return { box, minZoom, maxZoom };
+}
+
+/** 経緯度の範囲（west <= east）→ maxZoom での XYZ の box（緯度を丸め、範囲の外を切る） */
+const boundsBox = (w: number, s: number, e: number, n: number, z: number): TileBox => {
+  const last = Math.pow(2, z) - 1;
+  const b = lngLatBoundsToTileBox({
+    minLng: w, maxLng: e, minLat: clamp(s, -MERC_MAX_LAT, MERC_MAX_LAT), maxLat: clamp(n, -MERC_MAX_LAT, MERC_MAX_LAT),
+  }, z);
+  return { minX: clamp(b.minX, 0, last), maxX: clamp(b.maxX, 0, last), minY: clamp(b.minY, 0, last), maxY: clamp(b.maxY, 0, last) };
+};
+
+/** maxZoom の box を、より大きい z の box にする（子の範囲の和。R-t3-2） */
+const scaleUp = (box: TileBox, from: number, to: number): TileBox => {
+  const f = Math.pow(2, to - from);
+  return { minX: box.minX * f, maxX: (box.maxX + 1) * f - 1, minY: box.minY * f, maxY: (box.maxY + 1) * f - 1 };
+};
+
+/**
+ * 範囲を正規化する（§7.2）。boxes は maxZoom での XYZ の座標。bounds は緯度を ±85.0511 に丸め（R28）、
+ * west > east は 2 つの box に分ける。box は Source の scheme の座標として読み、tms なら XYZ に直す（R-tms）。
+ * 'all' は取得のときの Source の範囲（スタイルは source.all の子の範囲の和）。box の無い範囲は cannot-fetch-all（R30）
+ */
+export function normalizeRange(input: unknown, source: RangeSource): NormalizedRange {
+  const range = copyRange(input);
+  if (range === 'all') {
+    const list = source.all ?? [{ extent: source.extent, scheme: source.scheme }];
+    if (list.length === 0 || list.some((x) => !x.extent?.box)) throw cannotFetchAll();
+    const maxZoom = Math.max(...list.map((x) => x.extent!.maxZoom));
+    const minZoom = Math.min(...list.map((x) => x.extent!.minZoom));
+    const boxes = list.map((x) => {
+      const e = x.extent!;
+      const xyz = x.scheme === 'tms' ? flipBox(e.box!, e.maxZoom) : { ...e.box! };
+      return e.maxZoom === maxZoom ? xyz : scaleUp(xyz, e.maxZoom, maxZoom);
+    });
+    return { kind: 'boxes', boxes, minZoom, maxZoom };
+  }
+  const { minZoom, maxZoom } = range;
+  if ('bounds' in range) {
+    const [w, s, e, n] = range.bounds;
+    const boxes = w <= e ? [boundsBox(w, s, e, n, maxZoom)] : [boundsBox(w, s, 180, n, maxZoom), boundsBox(-180, s, e, n, maxZoom)];
+    return { kind: 'boxes', boxes, minZoom, maxZoom };
+  }
+  const box = source.scheme === 'tms' ? flipBox(range.box, maxZoom) : { ...range.box };
+  return { kind: 'boxes', boxes: [box], minZoom, maxZoom };
+}
+
+const GLYPH_RANGE = /^\d+-\d+$/;
+
+/** FetchRangeOptions を検査し、既定を入れる（R31・R32・R53・R-ratio） */
+export function normalizeFetchOptions(input: unknown): NormalizedFetchOptions {
+  if (input === undefined || input === null) input = {};
+  if (!isPlainObject(input)) throw invalid('options', 'must be an object');
+  const pin = own(input, 'pin');
+  const concurrency = own(input, 'concurrency');
+  const ratio = own(input, 'ratio');
+  const glyphRanges = own(input, 'glyphRanges');
+  const fonts = own(input, 'fonts');
+  if (pin !== undefined && typeof pin !== 'boolean') throw invalid('pin', 'must be a boolean');
+  if (concurrency !== undefined && !(isNonNegInt(concurrency) && concurrency >= 1 && concurrency <= 20)) {
+    throw invalid('concurrency', 'must be an integer from 1 to 20');
+  }
+  if (ratio !== undefined && ratio !== '' && ratio !== '@2x') throw invalid('ratio', 'must be "" or "@2x"');
+  if (glyphRanges !== undefined && glyphRanges !== 'common' && glyphRanges !== 'all'
+    && !(Array.isArray(glyphRanges) && glyphRanges.every((r) => typeof r === 'string' && GLYPH_RANGE.test(r)))) {
+    throw invalid('glyphRanges', 'must be "common", "all" or an array of "<start>-<end>"');
+  }
+  if (fonts !== undefined && !(Array.isArray(fonts) && fonts.every((f) => typeof f === 'string' && f !== ''))) {
+    throw invalid('fonts', 'must be an array of non-empty strings');
+  }
+  return {
+    pin: pin !== false,
+    concurrency: (concurrency as number | undefined) ?? 5,
+    ratio: (ratio as '' | '@2x' | undefined) ?? '',
+    glyphRanges: Array.isArray(glyphRanges) ? glyphRanges.slice() as string[] : (glyphRanges as 'common' | 'all' | undefined) ?? 'common',
+    fonts: Array.isArray(fonts) ? fonts.slice() as string[] : [],
+  };
 }

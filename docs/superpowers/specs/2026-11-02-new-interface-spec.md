@@ -169,7 +169,8 @@
 |---|---|
 | 匿名の要求 | 組み替える: **`mode: 'cors'`・`credentials: 'same-origin'`**。ページの要求が `no-cors`（`<img>`）でも同じ（§2 の 5）。別オリジンへ Cookie を送らない点は `omit` と同じで、同一オリジンの Cookie で守られたタイル（Cloudflare Access など）は取れ続ける |
 | §4.6 の認証付きの要求 | **元の `Request` のまま**。組み替えない。下の 2〜4 も通らない |
-| テンプレートから作る要求（範囲取得・旧 API） | **`fetch(URL の文字列)` の 1 引数のまま**（現行の `getImage` と同じ。第 2 引数を足すと、`undefined` でも :228・:239 が落ちることを実走で確認済み（第 3 回の再点検）。既定で `mode: 'cors'`・`credentials: 'same-origin'` なので組み替えた形と一致する）。`tests/unit/weiwudi-gw-logic.test.ts` の :228・:239（`toHaveBeenCalledWith(文字列)`）を差分なしで通すため |
+| テンプレートから作る要求（範囲取得） | **`new Request(URL の文字列)`**（`mode: 'cors'`・`credentials: 'same-origin'` の既定）を `hook.serveResource` に渡し、上の匿名の要求と同じく `createUpstream` が組み替える（資格情報は照合ルートと同じ `credentialsForResource` で選ぶ。m4-t3・R3）。元の要求が `cors` なので 2 の取り直しは行わず、範囲取得の no-cors の確かめは 3 の規則でジョブが行う（R4） |
+| テンプレートから作る要求（旧 API） | **`fetch(URL の文字列)` の 1 引数のまま**（現行の `getImage` と同じ。第 2 引数を足すと、`undefined` でも :228・:239 が落ちることを実走で確認済み（第 3 回の再点検）。既定で `mode: 'cors'`・`credentials: 'same-origin'` なので組み替えた形と一致する）。`tests/unit/weiwudi-gw-logic.test.ts` の :228・:239（`toHaveBeenCalledWith(文字列)`）を差分なしで通すため |
 
 以下は匿名の要求の手順である。上流の取得は Entry の有無（`hasEntry`）を受け取る（下の 3 と S-F の規則が Entry の有無で分かれるため）。`corsOk`・`corslessUntil` は判定のたびに store から読み直し、書き換えは 1 つのトランザクションで読み・直し・書きを行う（同時の要求で互いの書き込みを消さないため）。
 
@@ -498,6 +499,19 @@ type RangeSpec =
 
 イベントは現行の `proceed`・`finish`・`stop`・`canceled` を同じ形で使い、`regionId`・`errors`（§9）を足す。
 
+**範囲取得の実装の決め（m4-t3）**:
+
+- URL は `url_pattern.expandTemplate` で作り、同じテンプレートに `matchUrl` で照合した `MatchResult` を `hook.serveResource` に渡す。キーは `entryKey` 1 つ（捕捉と 1 字もずれない。R2）。ミラーは持ち主の Source が登録したテンプレートから無作為に 1 つ
+- 要求は `new Request(url)`（§4.5 の表）。資格情報は照合表の `credentialSources`（Resource × オリジン）から `hook.credentialsForResource` で選ぶ（照合ルートと同じ相手にだけ送る。R3）。CORS・認証の規則（§4.5-3・§4.6）はジョブが serve の応答の `x-weiwudi-error` と `upstream.probeNoCors`（`mode: 'no-cors'`・`credentials: 'omit'` の 1 回。保存しない）で判定する（R4）
+- region は `{ id, sourceId, range, normalized, options, status, pinned, total, error, errors, code?, createdAt, updatedAt }`。`range` は決めた項目だけの写し、`normalized` は取得のときの XYZ の範囲（`'all'` も固める）、`options` は検査済みの指定（再開で使う）。進捗の位置は持たない。終わりの書き込みは `patchRegion` で「有り・`running`」のときだけ。`regions()` は `running` で `ctx.job` が無いか `ctx.job.regionId` が違うものを `partial` と見せる。ページが閉じた（`gone`）ジョブは `partial`（R5）
+- ジョブは直列の待ち行列の外で動く。各バッチの前に Source の有無を見て、無ければ `stop`（`source-not-found`）。region が無ければ（`clean()` などが消した）固定を付けずに `canceled` で終える。バッチの後の固定の前にも region を見る（R13・R57）
+- `opaque` イベント（`{ type: 'opaque', sourceId, resourceId }`）は、照合ルートが `corslessUntil` を書いたときと、ジョブが `opaque` で止めたときに、`clients.matchAll({ type: 'window' })` の全 client へ 1 回送る。子 Source は親に読み替える（R20）
+- ページ側の `fetchRange` は POST の応答（`running`）の後、その `regionId` の `finish`・`stop`・`canceled` を待つ（`canceled` も解決、`stop` は reject）。30 秒来なければ `job/resume` を送り、応答が終わりの `status` ならそれで解決する（`stopped` は reject）。`cancel()` は取り消したジョブの `canceled`（か終わりのイベント）を受けてから解決する（30 秒来なければ `regions()` を読んで解決。R22・R58）
+- `'all'` は Source の範囲（スタイルは子の tile の範囲の和）。`box` の無い Source の `'all'` は `cannot-fetch-all`（R30）
+- 終わりの順は「region を書く → `ctx.job` を外す → `postMessage`」。`job/resume` は、同じ region のジョブ中なら今の `RegionInfo`、別の region のジョブ中なら `fetch-busy`、region が終わっていればその `RegionInfo`。ジョブを作り直す分岐だけは直列の中で行う（R45・R57）
+- 固定は、成功と数えたキー全部へのバッチの後の `setPinned(keys, 1)`（200 件ずつ）の 1 本で、region が有るときだけ付ける。保存と同じ tx で付ける近道（`ServeInput.pin`）は使わない（同時要求のまとめと hit は保存を通らず、近道は途中で region が消えたときにどの region にも属さない固定を残す。R46・PR #102 M2）。確かめが止めたバッチでも、取れた分は固定する。確かめで取れたタイルが列挙で失敗と数えたものなら、その場で成功に数え直す
+- 固定した Entry の和が Source の `cacheMaxBytes` に達したら `stop`（`quota`）。開始のときと各バッチの後に見る（R55）
+
 ## 8. 差し込み口（#36）
 
 容量超過で保存しない部分は `putItemWithEviction`（#29）で済んでいる。残りは差し込み口である。
@@ -697,7 +711,7 @@ export interface SourceStats {
 ```
 
 - `WeiwudiSource.resources` も呼び出し時点の写しで、後の変化は `stats()` か `source()` で読み直す
-- 上の `class` の宣言のうち、各版の d.ts と文書には、その版で入るメンバだけを書く（m2 は `register`・`source`・`sources` と、`WeiwudiSource` の `id`・`url`・`resources`・`warnings`・`stats`・`update`・`clean`（範囲なし）・`remove`・`release`。m3 は `usage` と `removeResource` を足す）
+- 上の `class` の宣言のうち、各版の d.ts と文書には、その版で入るメンバだけを書く（m2 は `register`・`source`・`sources` と、`WeiwudiSource` の `id`・`url`・`resources`・`warnings`・`stats`・`update`・`clean`（範囲なし）・`remove`・`release`。m3 は `usage` と `removeResource` を足す。m4-t3 は `estimate`・`fetchRange`・`regions`・`cancel` と型 `RangeSpec`・`FetchRangeOptions`・`RegionInfo` を足す（§7.2））
 - `warnings` の書式は `"<code>: <subject>"`（`subject` は `Resource.id`。利用者は知らない `code` を無視する）。`code` は次の 5 つ（m3-t7・R20）
   - `resource-conflict`（§5.6）
   - `template-shadowed`（同じ要求に当たる別の照合の形が先に評価され、その Resource が捕捉されない。その Source が参照する Resource のものだけを書く。スタイルは子の Resource のもの。I10・R26: 警告のまま）

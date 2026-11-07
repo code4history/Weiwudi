@@ -10,7 +10,8 @@
 // - 登録の資格情報は要求に無いときだけ足す（R5）。足す相手のオリジンは呼び出し側（hook）が選ぶ（I2）。
 //   差し込み口の後の要求のオリジンがページの要求と違えば足さない（I1・R21）。ヘッダを足した要求は redirect: 'error'
 //   （no-cors の要求を除く。ヘッダが送られないため）
-// - 範囲取得側の規則（jobOpaqueStreak ほか）と opaque イベントは m4
+// - 範囲取得側の規則（jobOpaqueStreak ほか）は range.ts。no-cors の確かめ（probeNoCors）は fetch を持つここに置く（m4-t3・R4）。
+//   corslessUntil を書いたら ctx.notify で opaque イベントを 1 回送る（R20）
 // - 提供元の Resource（provider が登録表にあるもの）は、クエリの資格情報を provider.applyCredentials で足す（m3-t5）。
 //   オリジンの規則（I1）と redirect の規則はそのまま当たる。applyCredentials がオリジンを替えた結果は使わない
 import type { Context } from './context';
@@ -168,11 +169,40 @@ const countCorsless = async (ctx: Context, o: UpstreamOptions, t: number): Promi
   try {
     const store = await ctx.store();
     // 書き換えの関数の中でも実績を見直す（読んだ後に別の要求・別の SW が CORS を通していれば書かない）
-    await store.patchResource(o.resourceId, (m) => (experienced(m) ? undefined : { ...m, corslessUntil: t + CORSLESS_PERIOD_MS }));
+    const written = await store.patchResource(o.resourceId, (m) => (experienced(m) ? undefined : { ...m, corslessUntil: t + CORSLESS_PERIOD_MS }));
+    // 書いたときだけ 1 回知らせる（R20）。知らせの失敗は配信を止めない
+    if (written) {
+      try {
+        ctx.notify?.({ type: 'opaque', resourceId: written.id, sourceIds: written.sourceIds.slice() });
+      } catch (_e) {
+        // 送れなくても判定の結果（corslessUntil）は保存した
+      }
+    }
   } catch (_e) {
     // 書けなければ次の判定でまた数える
   }
 };
+
+/**
+ * 範囲取得の no-cors の確かめ（仕様 §4.5-3・R4）。fetch(url, { mode: 'no-cors' }) を 1 回。登録の資格情報を足さず
+ * Cookie も送らない（credentials: 'omit'。R-t3-5）・保存しない。opaque は 'opaque'、TypeError は 'network'、
+ * それ以外の応答（同じオリジンの basic など）は 'response'（本文は読み捨てる）
+ */
+export async function probeNoCors(url: string): Promise<'opaque' | 'network' | 'response'> {
+  let res: Response;
+  try {
+    res = await fetch(url, { mode: 'no-cors', credentials: 'omit' });
+  } catch (_e) {
+    return 'network';
+  }
+  if (res.type === 'opaque') return 'opaque';
+  try {
+    await res.body?.cancel();
+  } catch (_e) {
+    // 読み捨ての失敗は結果を変えない
+  }
+  return 'response';
+}
 
 const readResource = async (ctx: Context, id: string): Promise<ResourceMeta | undefined> => {
   try {
