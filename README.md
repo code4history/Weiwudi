@@ -228,6 +228,24 @@ Each cleanup run visits at most 2,000 records; unfinished cleanup continues on t
 It pauses while a job is running. Neither ping endpoint nor `fetchAll` dispatch starts cleanup;
 `fetchAll` runs it when the job ends.
 
+To keep an area available offline, fetch it with `fetchRange()`. The tiles are
+fetched like captured requests and pinned (never evicted or expired):
+
+```typescript
+await Weiwudi.registerSW('./sw.js', { scope: './' });
+const style = await Weiwudi.register({ kind: 'style', url: 'https://example.com/style.json' });
+const map = new maplibregl.Map({ container, style: style.url as string });
+await style.fetchRange({ bounds: [139.7, 35.6, 139.8, 35.7], minZoom: 10, maxZoom: 14 });
+```
+
+`estimate(range)` returns the number of tiles first, `regions()` lists the
+fetched regions and `cancel()` stops a running fetch. One fetch runs at a time
+(`fetch-busy`), and an interrupted fetch resumes by itself while the page stays
+open. Requests are made with `mode: 'cors'` and `credentials: 'same-origin'`,
+so a server of another origin that authenticates by cookies only cannot be
+fetched this way. In this version a style fetches the tiles of its tile
+resources ([Range fetching](docs/api/weiwudi.md#range-fetching)).
+
 Details: [Source API](docs/api/weiwudi.md#source-api).
 
 ### API reference

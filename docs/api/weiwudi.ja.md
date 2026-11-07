@@ -431,7 +431,11 @@ interface UsageReport {
 | `clean()` | 保存した Entry を消す。他の Source と共有する資源の Entry は残す |
 | `removeResource(resourceId)` | この Source（スタイルは登録した資源）の資源 1 つの Entry を消す。**他の Source と共有していても、範囲だけ（`rangeOnly`）で参照していても消す**（利用者が名指ししたため）。グリフの資源は全 fontstack のレコードを消す。資源の記録と捕捉は残り、次の要求で取り直して保存する。その Source が参照しない資源の id なら `resource-not-found` で reject。スタイルで受ける id は、`remove()` が外す子（途中で止まった update が残した孤児の子も含む）の資源の id |
 | `remove()` | 登録と Entry を消し、`release()` を呼ぶ。他の Source が `sourceIds` に持つ資源の Entry は残す。`sourceIds` が空になった資源は、範囲だけ（`rangeOnly`）で参照している Source があっても Entry ごと消す |
-| `release()` | ページ側のリスナを外す。以後のメソッドは `instance-released` で reject |
+| `release()` | ページ側のリスナを外す。以後のメソッドは `instance-released` で reject（待っている `fetchRange()`・`cancel()` も同じ） |
+| `estimate(range)` | `Promise<{ tiles: number }>`。`fetchRange(range)` が取るタイルの枚数。[範囲取得](#範囲取得) を参照 |
+| `fetchRange(range, opts?)` | 範囲のタイルを全部取って固定し、終わりの `RegionInfo` で解決する |
+| `regions()` | `Promise<RegionInfo[]>`。この Source の region の一覧 |
+| `cancel()` | この Source の `fetchRange()` を止める |
 
 ```typescript
 interface SourceStats {
@@ -442,6 +446,77 @@ interface SourceStats {
   byResource: Record<string, { count: number; bytes: number }>;
 }
 ```
+
+### 範囲取得
+
+`fetchRange()` は、範囲のタイルを捕捉した要求と同じ経路で取り、固定します（`pin: true`。既定）。固定した Entry は
+オフラインで使い続けられ、`cacheMaxBytes` の退避でも `cacheRetention` の掃除でも消えません。1 回の取得を
+*region* として記録します。
+
+```typescript
+type RangeSpec =
+  | { bounds: [west: number, south: number, east: number, north: number]; minZoom: number; maxZoom: number }
+  | { box: TileBox; minZoom: number; maxZoom: number }
+  | 'all';
+
+interface FetchRangeOptions {
+  pin?: boolean;                               // 既定 true
+  concurrency?: number;                        // 既定 5（1〜20）
+  glyphRanges?: 'common' | 'all' | string[];   // スタイル。既定 'common'
+  fonts?: string[];                            // スタイル。追加の fontstack
+  ratio?: '' | '@2x';                          // {ratio} の値
+}
+
+interface RegionInfo {
+  id: string; sourceId: string; range: RangeSpec;
+  status: 'running' | 'complete' | 'partial' | 'canceled' | 'stopped';
+  pinned: boolean; total: number;
+  error: number; errors: Record<TileFailure, number>;
+  code?: WeiwudiErrorCode;                     // stopped のとき
+  createdAt: number; updatedAt: number;
+}
+```
+
+- `bounds` は度。緯度は ±85.0511° に丸め、`west > east` は日付変更線をまたぐ範囲です。`box` は `maxZoom` での x/y の範囲で、
+  **Source の scheme の座標**です（`register` の `box` と同じ。`scheme: 'tms'` では y が上向き）。`minZoom`・`maxZoom` は
+  0〜30 の整数で `minZoom <= maxZoom`。外れれば `attribute-invalid`
+- `'all'` は**呼び出したときの** Source の範囲です（スタイルはタイルの資源の範囲）。後の `update()` で region は変わりません。
+  `box`・`bounds` の無い Source の `'all'` は `cannot-fetch-all`
+- 取るのは、範囲と Source の登録の範囲の両方に入るタイルだけです。`estimate()` と `RegionInfo.total` はタイルだけを数えます。
+  この版のスタイルはタイルの資源のタイルを取ります（スタイル・TileJSON・スプライト・グリフは後の版）
+- `kind: 'asset'` の Source は `'all'` だけを受け（ほかの範囲は `attribute-invalid`）、資源を取って固定します。
+  `estimate()` は `{ tiles: 0 }`
+- `ratio` は `{ratio}` に入ります。指定が無ければ `fetchRange()` は `devicePixelRatio > 1` なら `'@2x'`、そうでなければ `''` を
+  送ります（保存のキーは、地図ライブラリの要求と同じく `@2x` を含むため）
+- `fetchRange()` は先に持続的な保存領域を求めます（`navigator.storage.persist()`。断られても続けます）
+- 保存済みのタイルは取り直さず、固定だけ付けます。同じ範囲をもう一度取ると、途中で止まった取得の再開になります
+- 要求は `fetch(url)` と同じ形（`mode: 'cors'`・`credentials: 'same-origin'`）です。登録の `credentials` は、捕捉した要求と
+  同じ Source・オリジンにだけ足します。**別オリジンで Cookie だけで認証するサーバは対象外**です
+- 資源に CORS の実績がまだ無いうちは、ネットワーク失敗のタイルを `mode: 'no-cors'` で 1 回確かめます（資格情報も Cookie も
+  付けません）。opaque が 3 回続いたら、範囲から無作為に 5 枚を CORS で取り直し、1 枚でも通れば続けます。通らなければ
+  `opaque`（全部が失敗なら `network`）で止めます。ほかの opaque は `upstream` に数えます。保存したタイルがまだ無いうちに
+  401・403 が 3 回続いたら `upstream` で止めます
+- Source の固定した Entry が `cacheMaxBytes` に達したら `quota` で止めます（始めと各バッチの後に確かめます）
+- サービスワーカーの中で同時に動く取得は 1 つで、旧 API の `fetchAll()` と共有します。ほかの取得は `fetch-busy` で reject。
+  `cancel()` は自分の Source の取得だけを止め、無ければ `no-fetch-process`。取得が `canceled` を知らせてから解決します
+  （始めたバッチは終わりまで取るので、最大 `concurrency` 枚を待ちます）
+- `fetchRange()` は `RegionInfo`（`complete`・`partial`・`canceled`）で解決し、止まれば `WeiwudiError(code)` で reject します。
+  30 秒イベントが来なければ、ページはサービスワーカーに再開を求めます（`POST /v2/job/resume`）。サービスワーカーが止まって
+  途切れた取得はこれで続きます。ほかの取得が動いていれば `fetch-busy` で reject
+- `regions()` は、動いていない `running` の region（サービスワーカーが止まった・別の region を取っている）を `partial` と
+  見せます。取得の途中に `clean()` が消した region は書き戻しません。`clean()` はその Source の region も消します
+
+`WeiwudiSource` のイベント（`addEventListener(type, e => e.detail)`）。`fetchRange()` を呼んだページへ送ります:
+
+| type | `detail` |
+|---|---|
+| `proceed` | バッチごとに `{ type, sourceId, regionId, percent, processed, total, error, errors }`。`percent` はタイルだけで数える |
+| `finish` | `{ type, sourceId, regionId, percent, processed, total, error, errors }` |
+| `stop` | `{ type, sourceId, regionId, code, message, processed, total }` |
+| `canceled` | `{ type, sourceId, regionId }` |
+| `opaque` | `{ type, sourceId, resourceId }`。資源が CORS に対応しないと分かったとき（24 時間の CORS なしの扱いを始めた・取得が `opaque` で止まった）に、全ページへ 1 回 |
+
+形は旧 API の `fetchAll()` のイベントに `sourceId`・`regionId`・`errors` を足したものです。
 
 ### `warnings`
 
@@ -576,12 +651,14 @@ try {
 `sw-outdated`（制御しているサービスワーカーに Source の API が無い）、
 `source-not-found`（`source()` と `WeiwudiSource` のメソッドで、無い id）、
 `resource-conflict`（`update()` だけ。`register()` は `warnings` に書く）、
-`resource-not-found`（`removeResource()` で、その Source が参照しない資源の id）。
-Source の API は上の表の `attribute-invalid`・`sw-not-controlling`・`instance-released`・`api-not-found` も、
-独自の文面で使います。
+`resource-not-found`（`removeResource()` で、その Source が参照しない資源の id）、
+`opaque`（上流が CORS に対応せず `fetchRange()` が止まった）。
+Source の API は上の表の `attribute-invalid`・`sw-not-controlling`・`instance-released`・`api-not-found`・
+`fetch-busy`（ほかの範囲取得か `fetchAll()` が動いている）・`no-fetch-process`（`cancel()` で止める取得が無い）・
+`cannot-fetch-all`（範囲の無い Source の `'all'`）も独自の文面で使い、止まった `fetchRange()` の code に
+`network`・`upstream`・`quota` を使います。
 
-**今後の API のために予約したコード:** `opaque`。`WeiwudiErrorCode` の
-型には入っていますが、まだ作られません。`unsupported-kind` は型に残しますが、もう作られません（どの `kind` も扱います）。
+`unsupported-kind` は型に残しますが、もう作られません（どの `kind` も扱います）。
 
 `WeiwudiErrorCode` の値は minor の版で増えることがあります。switch には default を置くこと。
 

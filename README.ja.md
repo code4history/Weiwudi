@@ -207,6 +207,21 @@ console.log(source.warnings, await source.stats());
 掃除 1 回で走査するのは最大 2,000 件で、残りは次の対象要求で続けます。ジョブの実行中は掃除を止めます。
 両方の ping と `fetchAll` の dispatch は掃除の契機から除き、`fetchAll` はジョブの終了時に掃除します。
 
+範囲をオフラインで使えるようにするには `fetchRange()` で取ります。タイルは捕捉した要求と同じ形で取って固定します
+（退避も期限切れの掃除もされません）:
+
+```typescript
+await Weiwudi.registerSW('./sw.js', { scope: './' });
+const style = await Weiwudi.register({ kind: 'style', url: 'https://example.com/style.json' });
+const map = new maplibregl.Map({ container, style: style.url as string });
+await style.fetchRange({ bounds: [139.7, 35.6, 139.8, 35.7], minZoom: 10, maxZoom: 14 });
+```
+
+先に `estimate(range)` で枚数を確かめられ、`regions()` は取った region の一覧、`cancel()` は取得を止めます。同時に動く取得は
+1 つで（`fetch-busy`）、途中で止まった取得はページを開いている間に自動で再開します。要求は `mode: 'cors'`・
+`credentials: 'same-origin'` で出すので、別オリジンで Cookie だけで認証するサーバはこの方法では取れません。
+この版のスタイルはタイルの資源のタイルを取ります（[範囲取得](docs/api/weiwudi.ja.md#範囲取得)）。
+
 詳しくは [Source の API](docs/api/weiwudi.ja.md#source-の-api) を参照してください。
 
 ### API リファレンス
