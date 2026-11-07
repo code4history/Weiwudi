@@ -6,9 +6,11 @@
 // - 子になる URL の組（1 つの子になる URL の全部）は childGroups 1 つで数える。collectStyleRefs（子を作る）と
 //   rewriteStyleBody（本体の資格情報の除去）が同じ組を使う（S-N1）
 // - 子として受けられない組（型の字句の許可に外れる・compile できない。url_pattern.tokenRejection）は子にせず、除去もしない。
-//   1 つでも外れる組を持つ source は、source ごと skipped にする（L1 Major-1・Minor-3）
+//   1 つでも外れる組を持つ source は、source ごと skipped にする（L1 Major-1・Minor-3）。source を持たない
+//   glyphs・sprite の組は dropped に種類と論理名だけを残す（subject に URL・トークンを入れない。仕様 §12）
 // - 除くのは、組の全部の URL で shouldStrip が真のときの、その組の URL の credentialParams の項目だけ（C-S1・X5・R32）。
-//   相対 URL は base で絶対化して判定し、書き戻すときは元の相対の形のまま項目だけを除く
+//   除くのは登録した資格情報の値（StripRule.credentialValues）と同じ値の項目だけ（違う値・登録の無い名前は子の固有の
+//   トークンなので本体に残し、normalizeMember で子の資格情報に移る）。相対 URL は base で絶対化して判定し、書き戻すときは元の相対の形のまま項目だけを除く
 // - 読めない本体は invalid-style を投げる（入力をそのまま返さない。C-S4）。拒否の文面に本体の値を入れない
 import { WeiwudiError } from './errors';
 import type { ResourceType } from './store';
@@ -32,11 +34,25 @@ export interface StyleRefs {
   data: { name: string; url: string }[];
   /** 子にしない source（video・知らない type・URL が解決できないもの。R31） */
   skipped: { name: string; reason: 'unsupported-source' }[];
+  /** 子にできなかった glyphs・sprite（種類と論理名だけ。URL・トークンを入れない。仕様 §12 の unsupported-source の subject） */
+  dropped: DroppedRef[];
+}
+
+/** 子にできなかった glyphs・sprite の組（source を持たないので skipped に入らない分。仕様 §12） */
+export interface DroppedRef {
+  slot: 'glyphs' | 'sprite';
+  /** sprite の {id, url}[] の id（文字列の sprite は undefined） */
+  spriteId?: string;
 }
 
 /** 本体の資格情報の除去の規則（R32）。子を作るときと同じ判定（credentialTargetOf）で作る */
 export interface StripRule {
   credentialParams: readonly string[];
+  /**
+   * 登録した資格情報の値（親の credentials.query）。本体の項目は、名前が credentialParams にあり値がこの値と同じときだけ除く
+   * （違う値・登録の無い名前＝子の固有のトークンは本体に残し、子の資格情報に移る。§10 R32）
+   */
+  credentialValues: Readonly<Record<string, string>>;
   /** 1 つの組（子になる URL の組。絶対化した URL を受ける）の全部が真のときだけ、その組から除く */
   shouldStrip: (absoluteUrl: string) => boolean;
   /** 組を子として受けるか（spec.acceptsMember。normalizeMember だけが拒否する組を、子作りと除去で揃える。m3-t7） */
@@ -183,14 +199,16 @@ const styleGroups = (style: Obj & { sources: Obj }): { groups: Group[]; unsuppor
 };
 
 /**
- * 子として受けられる組（abs は絶対化した URL）と、子にしない source の名前。source は組が 1 つでも外れたら丸ごと外す（Minor-3）。
- * accepts があれば組の単位でも見る（R22 のミラーの値の食い違い・userinfo・sk. など。m3-t7）
+ * 子として受けられる組（abs は絶対化した URL）と、子にしない source の名前と、子にできなかった glyphs・sprite。
+ * source は組が 1 つでも外れたら丸ごと外す（Minor-3）。accepts があれば組の単位でも見る（R22 のミラーの値の食い違い・
+ * userinfo・sk. など。m3-t7）
  */
 const childGroups = (
   style: Obj & { sources: Obj }, base: string, accepts?: MemberAcceptor,
-): { groups: (Group & { abs: string[] })[]; skipped: string[] } => {
+): { groups: (Group & { abs: string[] })[]; skipped: string[]; dropped: DroppedRef[] } => {
   const { groups, unsupported } = styleGroups(style);
   const skipped = unsupported.slice();
+  const dropped: DroppedRef[] = [];
   const ok: (Group & { abs: string[] })[] = [];
   for (const g of groups) {
     const abs = g.urls.map((u) => absOf(u, base));
@@ -198,12 +216,17 @@ const childGroups = (
     if (abs.every((u): u is string => u !== undefined && acceptsAsChild(type, u))
       && (!accepts || accepts(type, (abs as string[]).map((u) => (type === 'sprite' ? spriteTemplateOf(u) : u))))) {
       ok.push({ ...g, abs: abs as string[] });
-    } else if (g.name !== undefined && skipped.indexOf(g.name) < 0) {
-      // 解決できない・受けられない URL の source は子にしない（glyphs・sprite は黙って外す）
-      skipped.push(g.name);
+    } else if (g.name !== undefined) {
+      // 解決できない・受けられない URL の source は子にしない
+      if (skipped.indexOf(g.name) < 0) skipped.push(g.name);
+    } else if (g.slot === 'glyphs' || g.slot === 'sprite') {
+      // glyphs・sprite は source を持たない。外した組の種類と論理名だけを残す（subject に URL・トークンを入れない）
+      dropped.push(g.slot === 'glyphs'
+        ? { slot: g.slot }
+        : { slot: g.slot, ...(g.spriteId !== undefined ? { spriteId: g.spriteId } : {}) });
     }
   }
-  return { groups: ok.filter((g) => g.name === undefined || skipped.indexOf(g.name) < 0), skipped };
+  return { groups: ok.filter((g) => g.name === undefined || skipped.indexOf(g.name) < 0), skipped, dropped };
 };
 
 /** JSON で、version と object の sources を持つ。外れたら invalid-style */
@@ -219,10 +242,11 @@ export function parseStyle(text: string): unknown {
  */
 export function collectStyleRefs(style: unknown, base: string, accepts?: MemberAcceptor): StyleRefs {
   if (!isStyleShape(style)) throw invalidStyle('style');
-  const { groups, skipped } = childGroups(style, base, accepts);
+  const { groups, skipped, dropped } = childGroups(style, base, accepts);
   const refs: StyleRefs = {
     tilejson: [], tiles: [], sprites: [], spriteIds: [], data: [],
     skipped: skipped.map((name) => ({ name, reason: 'unsupported-source' as const })),
+    dropped,
   };
   for (const g of groups) {
     const { abs } = g;
@@ -248,12 +272,12 @@ export function collectTileJson(text: string, base: string): TileJsonRefs | unde
 }
 
 /**
- * 子として受けられる組（childGroups が絶対化した abs）の全部で shouldStrip が真なら、元の形のまま credentialParams の項目を除いた URL の列。
- * 除かない・変わらないときは undefined
+ * 子として受けられる組（childGroups が絶対化した abs）の全部で shouldStrip が真なら、元の形のまま credentialParams の項目
+ * のうち credentialValues と同じ値のものだけを除いた URL の列（判定は stripTemplateParams の 1 か所。§10 R32）。除かない・変わらないときは undefined
  */
 const strippedGroup = (urls: readonly string[], abs: readonly string[], strip: StripRule): string[] | undefined => {
   if (abs.some((u) => !strip.shouldStrip(u))) return undefined;
-  const out = urls.map((u) => stripTemplateParams(u, strip.credentialParams));
+  const out = urls.map((u) => stripTemplateParams(u, strip.credentialParams, strip.credentialValues));
   return out.some((u, i) => u !== urls[i]) ? out : undefined;
 };
 

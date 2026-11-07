@@ -562,6 +562,40 @@ describe('同じオリジンの検査（§5.5-5・R35・C-S2・C-S6・X3）', ()
   });
 });
 
+describe('子にできない glyphs・sprite の warnings（仕様 §12 の unsupported-source）', () => {
+  it('{range} の無い glyphs と、字句の許可に外れる文字列の sprite → unsupported-source: glyphs・unsupported-source: sprite（subject に URL・トークンを入れない）', async () => {
+    const { h } = await setup({
+      [STYLE]: styleOf({}, {
+        glyphs: 'https://g.example/fonts/{fontstack}.pbf?key=SECRETG',
+        sprite: 'https://s.example/{z}/sprite?key=SECRETS',
+      }),
+    });
+    const info = await ok(h, 'register', { kind: 'style', id: 'st', url: STYLE });
+    expect(info.warnings).toEqual(['unsupported-source: glyphs', 'unsupported-source: sprite']);
+    const all = JSON.stringify(info.warnings);
+    expect(all).not.toContain('SECRETG');
+    expect(all).not.toContain('SECRETS');
+    expect(all).not.toContain('g.example');
+    expect(all).not.toContain('s.example');
+  });
+
+  it('拒否されるトークンを含む sprite の配列の要素 → unsupported-source: sprite.<id>（他の要素は子になる）', async () => {
+    const { h, store } = await setup({
+      [STYLE]: styleOf({}, {
+        sprite: [
+          { id: 'bad', url: 'https://s.example/sprites/bad?access_token=sk.secret' },
+          { id: 'ok', url: 'https://s.example/sprites/ok' },
+        ],
+      }),
+    });
+    const info = await ok(h, 'register', { kind: 'style', id: 'st', url: STYLE });
+    expect(info.warnings).toEqual(['unsupported-source: sprite.bad']);
+    expect(JSON.stringify(info.warnings)).not.toContain('sk.secret');
+    expect(await store.getSource(childId('st', 'sprite:sprite/ok'))).toBeDefined();
+    expect(await store.getSource(childId('st', 'sprite:sprite/bad'))).toBeUndefined();
+  });
+});
+
 describe('資格情報の配り先（R5・X2・S-N1・§10）', () => {
   it('第三者のスタイル（a.example）が b.example のタイルを指すとき、b.example への要求に親の access_token が付かず、a.example には付く', async () => {
     const A = 'https://a.example/style.json';
@@ -622,15 +656,23 @@ describe('資格情報の配り先（R5・X2・S-N1・§10）', () => {
     expect(await store.getCredentials(childId('st', 'tile:k'))).toEqual({ query: { key: 'own' } });
   });
 
-  it('O-N2: 再登録でスタイルの URL を替えて前の Resource に当たらないときも、取得の本体は新しい正規化の親と資格情報で除き、子に親の値が配られる', async () => {
+  it('O-N2: 再登録でスタイルの URL を替えて前の Resource に当たらないときも、取得の本体は新しい正規化の親と資格情報で除く。親と違う値（pk.PAGE）は本体に残り、子のもの（子の値が勝つ）', async () => {
     const A = 'https://a.example/style.json';
     const A2 = 'https://a.example/style2.json';
-    const body = styleOf({ m: { type: 'raster', tiles: ['https://a.example/m/{z}/{x}/{y}.png?access_token=pk.PAGE'] } });
+    const body = styleOf({
+      m: { type: 'raster', tiles: ['https://a.example/m/{z}/{x}/{y}.png?access_token=pk.PAGE'] },
+      p: { type: 'raster', tiles: [`https://a.example/p/{z}/{x}/{y}.png?access_token=${TOKEN}`] },
+    });
     const { h, store } = await setup({ [A]: styleOf({}), [A2]: body });
     await ok(h, 'register', { kind: 'style', id: 'st', url: A });
     await ok(h, 'register', { kind: 'style', id: 'st', url: A2, credentials: { query: { access_token: TOKEN } } });
-    // 除いていなければテンプレートの pk.PAGE が子のもの（子の値が勝つ）になる
-    expect(await store.getCredentials(childId('st', 'tile:m'))).toEqual({ query: { access_token: TOKEN } });
+    // 親と違う値は除かれず、テンプレートの pk.PAGE が子のもの（§5.5 R5・§10 R32）
+    expect(await store.getCredentials(childId('st', 'tile:m'))).toEqual({ query: { access_token: 'pk.PAGE' } });
+    // 配信する本体も、新しい親の資格情報と同じ値の項目だけが消え、pk.PAGE は残る（照合ルートの stripRuleOf）
+    const saved = JSON.parse(await (await get(h, A2)).text());
+    expect(saved.sources.m.tiles).toEqual(['https://a.example/m/{z}/{x}/{y}.png?access_token=pk.PAGE']);
+    expect(saved.sources.p.tiles).toEqual(['https://a.example/p/{z}/{x}/{y}.png']);
+    expect(await store.getCredentials(childId('st', 'tile:p'))).toEqual({ query: { access_token: TOKEN } });
   });
 
   it('O-N4: 保存したスタイルが新しいうちに再登録で資格情報を足すと、本体のトークンが残り、その値が子のもの（子のテンプレートの値が親の値に勝つ）', async () => {
@@ -643,6 +685,56 @@ describe('資格情報の配り先（R5・X2・S-N1・§10）', () => {
     // 2 回目は hit（除かれていない本体）。配る相手の子でも、テンプレートに載っていた値が勝つ
     expect(await store.getCredentials(childId('st', 'tile:m'))).toEqual({ query: { access_token: 'pk.PAGE' } });
     expect(await store.getCredentials('st')).toEqual({ query: { access_token: TOKEN } });
+  });
+
+  /** 親に pk.PARENT・スタイルと同じオリジンの子の URL に pk.CHILD（§5.5 R5「子のテンプレートの値が勝つ」・§10 R32） */
+  const childTokenSetup = async () => {
+    const A = 'https://a.example/style.json';
+    const env = await setup({
+      [A]: styleOf({
+        m: { type: 'raster', tiles: ['https://a.example/m/{z}/{x}/{y}.png?access_token=pk.CHILD'] },
+        j: { type: 'vector', url: 'https://a.example/j.json' },
+      }),
+      'https://a.example/j.json': { tiles: ['https://a.example/j/{z}/{x}/{y}.pbf?access_token=pk.CHILD'] },
+    });
+    return { A, ...env };
+  };
+  const expectChildToken = async (A: string, h: SwHarness, up: Upstream, store: Store) => {
+    // 子の資格情報は pk.CHILD（親の pk.PARENT に置き換わらない）
+    expect(await store.getCredentials(childId('st', 'tile:m'))).toEqual({ query: { access_token: 'pk.CHILD' } });
+    expect(await store.getCredentials(childId('st', 'tile:j/tiles'))).toEqual({ query: { access_token: 'pk.CHILD' } });
+    // 保存した本体に pk.PARENT は無く、pk.CHILD は残る（親と違う値は除かない）
+    const saved = await (await store.getEntry(`${A}\u0000`))!.body.blob.text();
+    expect(saved).not.toContain('pk.PARENT');
+    expect(JSON.parse(saved).sources.m.tiles).toEqual(['https://a.example/m/{z}/{x}/{y}.png?access_token=pk.CHILD']);
+    const tj = await (await store.getEntry('https://a.example/j.json\u0000'))!.body.blob.text();
+    expect(tj).not.toContain('pk.PARENT');
+    expect(JSON.parse(tj).tiles).toEqual(['https://a.example/j/{z}/{x}/{y}.pbf?access_token=pk.CHILD']);
+    // 上流への要求は pk.CHILD（地図ライブラリが本体の URL のとおりに出しても、名前があるので SW は足さない）
+    h.fetch.mockClear();
+    await get(h, 'https://a.example/m/1/0/0.png?access_token=pk.CHILD');
+    await get(h, 'https://a.example/j/1/0/0.pbf');
+    expect(up.urls()).toEqual([
+      'https://a.example/m/1/0/0.png?access_token=pk.CHILD',
+      'https://a.example/j/1/0/0.pbf?access_token=pk.CHILD',
+    ]);
+  };
+
+  it('親と同じオリジンの子の URL に親と違うトークンがあるとき、その項目は本体に残り、子の資格情報と上流への要求は子の値（§5.5 R5・§10 R32）', async () => {
+    const { A, h, up, store } = await childTokenSetup();
+    await ok(h, 'register', { kind: 'style', id: 'st', url: A, credentials: { query: { access_token: 'pk.PARENT' } } });
+    await expectChildToken(A, h, up, store);
+  });
+
+  it('同じスタイルを登録し直して本体が hit になっても、子は子の値のまま（スタイルと TileJSON の段 B）', async () => {
+    const { A, h, up, store } = await childTokenSetup();
+    const reg = { kind: 'style', id: 'st', url: A, credentials: { query: { access_token: 'pk.PARENT' } } };
+    await ok(h, 'register', reg);
+    h.fetch.mockClear();
+    await ok(h, 'register', reg);
+    // 2 回目はスタイルも TileJSON も上流へ出ない（hit）
+    expect(up.urls().filter((u) => u.endsWith('.json') || u.includes('.json?'))).toEqual([]);
+    await expectChildToken(A, h, up, store);
   });
 
   it('組が 1 つでも子にできない source は丸ごと子にしない（url の TileJSON も作らない。本体の除去と同じ組。Minor-3）', async () => {

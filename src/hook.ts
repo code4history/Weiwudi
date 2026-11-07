@@ -260,22 +260,28 @@ const credentialOwnerOf = async (ctx: Context, resource: ResourceMeta, given: st
 
 /**
  * 本体の資格情報の除去の規則（R32）。資格情報を持つ Source の親（スタイル）の URL のオリジンと、親の提供元の matches で
- * credentialTargetOf を作る（t7 の子の資格情報の配り先と同じ関数。R5）。資格情報を持つ Source が無い・親が引けなければ除かない
+ * credentialTargetOf を作る（t7 の子の資格情報の配り先と同じ関数。R5）。除く値はその Source の credentials（§10 R32）。
+ * 資格情報を持つ Source が無い・親が引けなければ除かない
  */
 const stripRuleOf = async (ctx: Context, resource: ResourceMeta, credentialSourceId: string | undefined): Promise<StripRule | undefined> => {
   const owner = await credentialOwnerOf(ctx, resource, credentialSourceId);
   if (!owner || owner.parentId === undefined) return undefined;
-  if (!hasCredentials(await (await ctx.store()).getCredentials(owner.id))) return undefined;
+  const credentials = await (await ctx.store()).getCredentials(owner.id);
+  if (!hasCredentials(credentials)) return undefined;
   const parentRec = await (await ctx.store()).getSource(owner.parentId);
   const parent = parentRec ? styleSpecOf(parentRec) : undefined;
-  return parent ? ruleOfParent(ctx, resource, parent) : undefined;
+  return parent ? ruleOfParent(ctx, resource, parent, credentials) : undefined;
 };
 
 /**
- * 親（スタイルの URL・提供元・policy）から作る除去の規則。accepts は親の credentialParams で判定する（子作りと同じ。m3-t7）。
+ * 親（スタイルの URL・提供元・policy）と資格情報から作る除去の規則。accepts は親の credentialParams で判定する
+ * （子作りと同じ。m3-t7）。除く値は credentials.query（同じ値の項目だけを除き、違う値＝子の固有の値は残す。§10 R32）。
+ * credentials は、登録時の取得では直接渡された資格情報、照合ルートでは資格情報を持つ Source のもの。
  * 親の URL が読めなければ除かない
  */
-const ruleOfParent = (ctx: Context, resource: ResourceMeta, parent: NonNullable<ServeResourceOptions['parent']>): StripRule | undefined => {
+const ruleOfParent = (
+  ctx: Context, resource: ResourceMeta, parent: NonNullable<ServeResourceOptions['parent']>, credentials: Credentials,
+): StripRule | undefined => {
   let styleOrigin: string;
   try {
     styleOrigin = new URL(parent.url).origin;
@@ -287,6 +293,7 @@ const ruleOfParent = (ctx: Context, resource: ResourceMeta, parent: NonNullable<
   const acceptsMember = ctx.acceptsMember;
   return {
     credentialParams,
+    credentialValues: credentials.query ?? {},
     shouldStrip: credentialTargetOf({ styleOrigin, ...(provider ? { providerMatches: (u: string) => provider.matches(u) } : {}) }),
     ...(acceptsMember ? { accepts: (type: ResourceType, templates: string[]) => acceptsMember(type, templates, parent.policy.credentialParams) } : {}),
   };
@@ -323,7 +330,7 @@ export async function serveResource(
   if (resource.type === 'style' || resource.type === 'tilejson') {
     const direct = opts.parent;
     const stripOf = direct
-      ? async () => (hasCredentials(credentials) ? ruleOfParent(ctx, resource, direct) : undefined)
+      ? async () => (hasCredentials(credentials) ? ruleOfParent(ctx, resource, direct, credentials) : undefined)
       : () => stripRuleOf(ctx, resource, opts.credentialSourceId);
     const rewriteStyle = resource.type === 'style' && provider?.rewriteStyle
       ? (st: unknown) => provider.rewriteStyle!(st) : undefined;

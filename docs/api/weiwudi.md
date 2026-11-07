@@ -376,6 +376,9 @@ transparent PNG (raster) or an empty body (vector). `source.resources` and
 - When credentials are registered, the credential items are removed from the
   URLs in the saved style and TileJSON bodies that receive the credentials (the
   service worker adds them again upstream). Other URLs are kept as they are.
+  Only items whose value equals the registered credential are removed; a
+  different value (a token of that child) stays in the body and becomes the
+  credential of that URL.
 - **A style from another origin cannot capture URLs of the page's origin**:
   those resources are not registered (`same-origin-skipped`). The same applies
   to the `tiles` of a TileJSON when the style or the TileJSON is from another

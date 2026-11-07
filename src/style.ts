@@ -364,6 +364,10 @@ export async function registerStyle(ctx: Context, input: NormalizedStyle, o: Sty
       await makeChild('data', 'data', d.name, [d.url], {}, `sources.${d.name}`, styleIsCross);
     }
     for (const s of refs.skipped) warnings.push(unsupportedSourceWarning(`sources.${s.name}`));
+    // 子にできなかった glyphs・sprite（subject は論理名だけ。URL・トークンを入れない。仕様 §12）
+    for (const d of refs.dropped) {
+      warnings.push(unsupportedSourceWarning(d.slot === 'glyphs' ? 'glyphs' : d.spriteId === undefined ? 'sprite' : `sprite.${d.spriteId}`));
+    }
     // Mapbox の imports（Standard スタイル）は辿らない（MapLibre は扱わない。台帳の t5 の申し送り）
     if (isObj(style) && Array.isArray(style.imports) && style.imports.length > 0) warnings.push(unsupportedSourceWarning('imports'));
 

@@ -173,7 +173,8 @@ describe('スタイルの捕捉', () => {
     const r = await putChild(store, 'st', 'style', 'style', STYLE_URL, { credentials: { query: { access_token: TOKEN } } });
     h.fetch.mockImplementation(async (req: Request) => (req.url.startsWith(STYLE_URL)
       ? json(styleBody({
-        a: { type: 'raster', tiles: ['https://a.example/{z}/{x}/{y}.png?key=k'] },
+        // 除くのは登録した資格情報と同じ値の項目だけ（§10 R32）
+        a: { type: 'raster', tiles: [`https://a.example/{z}/{x}/{y}.png?access_token=${TOKEN}`] },
         b: { type: 'raster', tiles: ['https://b.example/{z}/{x}/{y}.png?key=k'] },
       }))
       : new Response(new Uint8Array([1, 2, 3]), { status: 200, headers: { 'content-type': 'image/png' } })));
@@ -284,8 +285,9 @@ describe('L3: 合流後も組の判定には親の credentialParams を使う', 
     const text = await res.text();
     expect(text).not.toContain(TOKEN);
     const body = JSON.parse(text);
+    // 登録した資格情報と同じ値の access_token だけを除く。variant は登録の値が無いので残す（§10 R32）
     expect(type === 'style' ? body.sources.t.tiles : body.tiles)
-      .toEqual(['one', 'two'].map((v) => `https://a.example/${v}/{z}/{x}/{y}.pbf`));
+      .toEqual(['one', 'two'].map((v) => `https://a.example/${v}/{z}/{x}/{y}.pbf?variant=${v}`));
     const [saved] = await entriesOf(store, resource.id, ['']);
     expect(await saved!.body.blob.text()).toBe(text);
   });
@@ -365,7 +367,8 @@ describe('serveResource を直接呼ぶ（L1 Minor-2・Minor-4）', () => {
     const m = matchUrl(compileTemplate(resource.templates[0]), url)!;
     const res = await serveResource(ctx, resource, new Request(TJ), url, m, credentials, { parent });
     expect(res.headers.get('x-weiwudi-status')).toBe('miss');
-    expect((await res.json()).tiles).toEqual(['one', 'two'].map((v) => `https://a.example/${v}/{z}/{x}/{y}.pbf`));
+    // 登録した資格情報と同じ値の access_token だけを除く。variant は登録の値が無いので残す（§10 R32）
+    expect((await res.json()).tiles).toEqual(['one', 'two'].map((v) => `https://a.example/${v}/{z}/{x}/{y}.pbf?variant=${v}`));
   });
 
   it('同じ構成で資格情報を持つ Source が無ければ除去しない', async () => {
