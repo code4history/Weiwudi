@@ -155,3 +155,36 @@
   - L1: range.test.ts の「cancel() の後の clean() が通る」は assertSourceIdle を空にしても通った（t3 のレビュー L3 の申し送り）→ 取り消しの後・settle の前の clean が fetch-busy になる 1 行を追加
   - 未確認（レビュー）: update で持ち主の一覧が変わった後（子が外れた後など）に、前の持ち主のときの region を解放すると、今の持ち主が参照しない Resource の固定が残るか。実ブラウザの IndexedDB での動き
 - t9・t10 への申し送り: 上の未確認 2 点。R-t5-5 の asset の clean(range) を文書に書くかは t11 の文書の見直しで決める
+
+## m4-t8 制御と門番の堅牢化 — 完了（PR #106 → eaddaf8）
+
+- 実装: Claude（Codex・Kimi が 5 時間の枠切れ）。501ee46・cc47fd9、レビューの直し 34c5ec3。t6 と並行
+- 判定: `node_modules/.bin/vitest run` 41 ファイル・1583 件 passed・`tsc --noEmit` exit 0・`eslint src tests` exit 0（warning 2 件は既存）。CI（Node 22・24、WebKit・Firefox）緑
+- 受け入れ条件の grep: `isSecretValue` は spec.ts 3・url_pattern.ts 3、`bearer`（spec.ts）0、`credential-undeclared`（docs/api 英日）1・1、`X-Amz-Signature`（README 英日）1・1、L5 の語 1・1、`redirect` 4→7・`リダイレクト` 3→5
+  - 事前点検 M5: I6・I8c は文に固有の語で grep した。`separate scope`・`別スコープ`・`gatekeeper`・`門番` がいずれも 0 → 1
+- 既存の試験: style-capture.test.ts の C-S1 の待ちを `NOTIFY_DEBOUNCE_MS + 20` に書き換えた（I8b で別の SW への通知が 100 ms 遅れるため）。ほかは追記のみ
+- Rulings（実装担当）
+  - R-t8-1（I4b）: serialRefresh は検査の失敗も含め、serial の中のすべての例外で表を作り直す（計画の文のとおり。費用だけで害は無い。レビュー L3 で記録のみ）
+  - R-t8-2: 「tableChanged が呼ばれた」は ctx.table.generation が 1 進むことで確かめる（ESM の export は spy で差し替えられない）
+  - R-t8-3（I8b）: notifyTimer は TableState（src/context.ts。計画の対象ファイルの外）に置く
+  - R-t8-4（L8）: update() は applyUpdate が warnings を書き直すので、credential-undeclared を保存した登録内容から作り直して足す
+  - R-t8-5（L8）: 値は /^(pk|sk|tk)\./i で、生の形と decode した形の両方を見る。同じ名前は 1 回だけ。Bearer の剥がしはしない。スタイルの子 Source の警告は親へ上げない
+  - R-t8-6（I3）: countInBox は x・y を持たない Entry（タイルでないもの）を数えない
+  - R-t8-7（I4a）: storage の message は WeiwudiError.from の文面をそのまま使う
+  - R-t8-8〜10（記録のみ）: I2a は直さない（R38。最悪 30 秒に 1 回の 3 秒待ち）。I10 は作業なし（R37）。L6 は作業なし（m3-t7 の記録どおり実害なし）
+  - R-t8-11（L5）: 日本語の R34 の文は既存の bullet に続けると崩れるので、すぐ後に別の bullet として足した
+  - R-t8-12（レビュー M1）: 共有・範囲だけの Resource の count は、Source の box ではなく、owners の extents の box（registry.extentOf が Resource の座標に直したもの）で数える。extents が複数あるときはどれかに入る Entry を 1 回だけ数える
+  - R-t8-13（レビュー L1）: 名前そのものがトークンの形（isSecretValue か /^(pk|sk|tk)\./i。生の形と decode した形）なら、その項目を warnings に書かない
+- レビュー（L1）: Claude（Codex・Kimi が枠切れ）。S 0・M 1・L 3 → 34c5ec3 で M1・L1・L2 を直し、直す前の実装で新しい試験が落ちることを確かめた
+  - M1: tms の Source が xyz の Resource を範囲だけで参照すると、count が y の反転を忘れて範囲の外を数えた → R-t8-12
+  - L1: `?pk.SECRET=…` の名前が warnings に出た → R-t8-13
+  - L2: docs/api の「sk. で始まる項目はキーに入れない」に Bearer・Token・Basic を剥がした値も足した
+  - L3: 検査の失敗でも表を作り直して通知する → R-t8-1 のとおり直さない
+  - 未確認（レビュー）: 最後の変更から 100 ms 以内に SW が終わったときの通知の取りこぼし（受け手は次の起動で読み直すので害は小さい見込み）
+- t9・t10・t11 への申し送り
+  - 範囲が決まる Source の stats().count は範囲の中の Entry の数。共有・範囲だけの Resource では z ごとに entriesAtZoom を読む。byResource の count の和と一致しないことがある（t9 の 2 秒ごとの stats() に注意）
+  - 書き換えの op が失敗すると表を作り直すので、失敗の応答に最大 3 秒の待ちが乗り得る
+  - 別の SW への表の通知は 100 ms 遅れる。e2e で別スコープの SW の反映を見るときは待つ
+  - 新しい公開の code `credential-undeclared` は warnings だけに出る。WeiwudiErrorCode は不変
+  - storage が制御の失敗としても返る（detail.name）。ページ側が storage をタイルの失敗だけと決めつけていないか確かめる
+  - t11: CHANGELOG に credential-undeclared（warnings の code が 1 つ増えた）を書く
