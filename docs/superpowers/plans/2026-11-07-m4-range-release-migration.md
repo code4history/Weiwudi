@@ -1,6 +1,6 @@
 # m4 実行計画: 範囲取得と解放・保持期間・移行・#41・master への合流
 
-- 日付: 2026-11-07（設計担当の初版）・同日に事前点検 第 1 回（S 4・M 15・L 18）を反映（第 2 版。末尾の「事前点検 第 1 回の反映」）/ サイクル: weiwudi-vector-cache（軽い道）
+- 日付: 2026-11-07（設計担当の初版）・同日に事前点検 第 1 回（S 4・M 15・L 18）を反映（第 2 版）、第 2 回（S 1・M 5・L 5）を反映（第 3 版）。末尾の「事前点検 第 1 回の反映」「事前点検 第 2 回の反映」/ サイクル: weiwudi-vector-cache（軽い道）
 - 点検の番号は m3 と同じく出どころを付けて書く（「第 1 回 S1」「X1」など）。m3 の番号は「m3-t4 の申し送り」「m3 Ruling R7」のように書く
 - 仕様: `docs/superpowers/specs/2026-11-02-new-interface-spec.md`（以下「仕様」）。該当は §4.5-3（範囲取得の CORS）・§4.6（範囲取得の認証）・§7（保持・範囲取得・解放）・§9（エラーと旧 API の既知の変化）・§11（グリフの束ね書き）・§12（`setLimits`・`estimate`・`fetchRange`・`releaseRange`・`regions`・`cancel`・`clean(range)`）・§14（版と移行）・§16
 - 起点: m3 の完了後の `vector-cache` の `f6189a0`（m3-t10 と区切りの直し #95・#97・#99 が合流済み。単体試験 1367 passed・Chromium の e2e 46 passed・CI の WebKit 29 passed）。計画を書いた時点は `c5712bf`（m3-t9 まで）。事実の表の行番号は第 1 回の反映で `f6189a0` に合わせ、F25〜F36 を足した。各タスクは 1 PR で `vector-cache` へ入れる
@@ -216,7 +216,7 @@ total = Σ_{id ∈ resourceIds}(Resource.bytes − Resource.pinnedBytes)   // �
       − (willSave && old && old.pinned === 0 ? old.size : 0)          // 置き換える同じキーの古い Entry（今の候補から除く分。F4）
 ```
 
-（`deltas` の `bytes` は前の要素の退避では固定でない Entry だけを引くので、そのまま足せる。`old` の Resource は `meta.resourceId` で、`evictScopesFor` は要素に必ず入れる。）`total + (willSave ? newSize : 0) <= maxBytes` なら走査しない。超えるときだけ、`IX_LRU` を Resource ごとに `openCursor`（`[id, 0]` から昇順）で開き、**全 Resource の cursor の先頭のうち `accessedAt` が最小（同値はキー昇順）のものを 1 件ずつ消す**（併合。全件を配列にしない）。cursor でも `willSave` のとき同じキー（`meta.key`）は飛ばす（今の `filter` と同じ）。前の要素が消した Entry は同じ tx の cursor に現れない（今の `getAll` と同じ）。消した分は今のとおり `deltas` で数える。t6 の全体上限（`resourceIds` 無し）も同じ関数で、索引を `[pinned, accessedAt]` に替え、`total` の初めの値を `kv.totals` から作るだけ。
+（`deltas` の `bytes` は前の要素の退避では固定でない Entry だけを引くので、そのまま足せる。`old` の Resource は `meta.resourceId` で、`evictScopesFor` は要素に必ず入れる。）`total + (willSave ? newSize : 0) <= maxBytes` なら走査しない。超えるときだけ、`IX_LRU` を Resource ごとに `openCursor`（`[id, 0]` から昇順）で開き、**全 Resource の cursor の先頭のうち `accessedAt` が最小（同値はキー昇順）のものを 1 件ずつ消す**（併合。全件を配列にしない）。cursor でも `willSave` のとき同じキー（`meta.key`）は飛ばす（今の `filter` と同じ）。前の要素が消した Entry は同じ tx の cursor に現れない（今の `getAll` と同じ）。消した分は今のとおり `deltas` で数える。t6 の全体上限（`resourceIds` 無し）も同じ関数で、索引を `[pinned, accessedAt]` に替え、`total` の初めの値を次の式で作る（`kv.totals` も `deltas` と同じく tx の最後にまとめて書くので、見積もりの時点では古い。第 2 回 M1）: `totals.bytes − totals.pinnedBytes ＋ Σ_{この tx の全 Resource} deltas[id].bytes − (willSave && old && old.pinned === 0 ? old.size : 0)`。cursor（`[pinned, accessedAt]`）でも `willSave` のとき同じキーを飛ばす。
 
 **容量判定の読み出しの失敗（I1a・I1b・R-I1）**: `core.save` は `evictScopesFor` を `try` で囲み、失敗したら `'storage'` を返す（保存しない・配信は続ける・`x-weiwudi-error: storage`）。`serve` が reject する道は store の `getResource`・`getEntry` の失敗だけになる（m2 R3 のまま）。仕様 §9 の「保存の前の容量の判定…包括の `Error: ${e}` の本文を返す」の項を「m4 で `storage` として配信を続ける形にした」に直す。
 
@@ -300,7 +300,7 @@ deleteRegion(id: string): Promise<void>;
 
 **保守の契機（R9・第 1 回 S3）**: `Context.maintain?: (event: ExtendableEvent) => void` と、保守の状態 `Context.maintenance: { swept: boolean; running?: Promise<void>; migrated?: boolean }`（メモリだけ。`migrated` は t7 が使う）。配線（`weiwudi_gw_logic.ts`）が `ctx.maintain = (event) => event.waitUntil(runMaintenance(ctx))` を設定する。`runMaintenance` は配線が組む（t2 では `sweepOnce(ctx)` だけ。t7 が `migrateStep` を足す）。進行中の `runMaintenance` は `maintenance.running` で 1 つにまとめる（同時の契機で 2 本走らせない）。呼ぶのは **Weiwudi が扱う fetch のうち store を使うハンドラの先頭**:
 
-- `legacy.handleLegacy`: API 名が `ping` **でない**とき（`matched[1] !== 'ping'`。`/api/ping` は IndexedDB を開かない。F18・F26）
+- `legacy.handleLegacy`: API 名が `ping` と `fetchAll` **でない**とき（`/api/ping` は IndexedDB を開かない。F18・F26。`/api/fetchAll` は既にジョブを `waitUntil` に渡しており、既存の試験 `legacy-changes.test.ts:169`（`waitUntilCalls` が 1 つ）・`:170`・`:213`・`:286`・`:296`・`:301`・`:323`（`waitUntilCalls[0]`・`[1]` がジョブ）を差分なしで保つ。第 2 回 S1）。旧 API の `fetchAll` のジョブの終わりに `core.sweepOnce(ctx, { force: true })` を呼ぶ（`legacy.ts` は `core` を import できる）
 - `control.post`: 送り手の検査（`fromOwnOrigin`）を通った後
 - `hook` の照合ルート（`matchHandler`）と門番（`gateHandler`）: 照合に当たったとき（`serveHit` の前）
 - `control.get` は呼ばない（答えるのは `/v2/ping` だけで、死活確認で IndexedDB を開かない。F26）
@@ -327,17 +327,17 @@ deleteRegion(id: string): Promise<void>;
 - グリフ（第 1 回 M2）: 範囲 2 つのうち **古い 1 つが期限切れ・新しい 1 つが期限内**（レコードの `fetchedAt` は期限内）→ レコードは残り `parts` が 1 つ・`size` が減る（L2）。両方期限切れ → レコードが消える。固定のグリフのレコードは触らない
 - 2,001 件の期限切れで 1 回目は 2,000 件、2 回目で残り（`listUnpinnedBefore` の `next`）
 - 条件の見直し（M11）: `listUnpinnedBefore` の後・`deleteEntries` の前に同じキーを取り直す（`fetchedAt` が新しくなる）→ 残る
-- 契機（第 1 回 S3）: ハーネスで `/api/info?mapID=x`（登録済みの地図）を 2 回 dispatch すると `waitUntilCalls` が増え、掃除は 1 回だけ走る（spy）。`/api/ping` と `/v2/ping` の dispatch では `waitUntilCalls` が増えず、`indexedDB.open` も呼ばれない。`sweepOnce(ctx, { force: true })` は印があっても走る
+- 契機（第 1 回 S3・第 2 回 S1）: ハーネスの **`h.dispatch`** で `https://weiwudi.example.com/api/info?mapID=x`（登録済みの地図）を 2 回送ると（`h.request` は `event` を渡さないので `waitUntil` が増えない。`sw-harness.ts:312-320`） `waitUntilCalls` が増え、掃除は 1 回だけ走る（spy）。`/api/ping` と `/v2/ping` の dispatch では `waitUntilCalls` が増えず、`indexedDB.open` も呼ばれない。`sweepOnce(ctx, { force: true })` は印があっても走る。`/api/fetchAll` を `requestFromClient` で送ると `waitUntilCalls` は 1 つのまま（ジョブだけ）で、ジョブの終わりに掃除が走る（spy）
 - `maintain` の中の例外（`listResources` の reject）で配信の応答は変わらず、`console.error` が 1 回
 
-`legacy-routes.test.ts` への追記: `self` のリスナが `['activate', 'install']` のまま（既存の行の確認）と、照合ルート・門番・制御の POST の dispatch で `waitUntilCalls` が増えること。既存の `:60-67` の試験は変えない。
+`legacy-routes.test.ts` への追記: `self` のリスナが `['activate', 'install']` のまま（既存の行の確認）と、照合ルート・門番・制御の POST の dispatch で `waitUntilCalls` が増えること。既存の `:60-67` の試験は変えない。`legacy-changes.test.ts` の `fetchAll` の試験（`:160-330`）も差分なしで通ること（`legacy-transcript.test.ts:159` の `requestFromClient` は `fetchAll` 以外の API でも契機を起こすが、`waitUntilCalls` を数えないので結果は変わらない。確かめて台帳に書く）。
 
 ### 受け入れ条件
 
-- 上の試験と既存の単体試験が exit 0。`legacy-routes.test.ts` は追記だけ（削除数 0）
+- 上の試験と既存の単体試験が exit 0。`legacy-routes.test.ts` は追記だけ（削除数 0）。`legacy-changes.test.ts` は変えない（`git diff --quiet <BASE>.. -- tests/unit/legacy-changes.test.ts`）
 - `grep -c "addEventListener('fetch'" src/*.ts` が 0
 - `grep -c 'ctx.maintain' src/hook.ts src/legacy.ts src/control.ts` がそれぞれ 1 以上
-- `grep -c 'cacheRetention' docs/api/weiwudi.md docs/api/weiwudi.ja.md` がどちらも 1 以上で、「掃除は m4」の文が無い（`grep -c 'm4' docs/api/weiwudi.md docs/api/weiwudi.ja.md` は t11 で 0 にする。ここでは `cacheRetention` の段落に無いこと）
+- 新しい文の語で確かめる（今は型の注釈の `cacheRetention` が 1 件ずつあり、「掃除は m4」の文も無いので、その 2 つでは直す前から通る。第 2 回 L1）: `grep -c -i 'after the service worker starts' docs/api/weiwudi.md` と `grep -c 'SW の起動後' docs/api/weiwudi.ja.md` が 1 以上（今は 0）、`grep -c -i 'pinned entries are never deleted' docs/api/weiwudi.md` と `grep -c '固定した Entry は消さない' docs/api/weiwudi.ja.md` が 1 以上（実装担当が語を変えたら台帳に書く）
 
 ---
 
@@ -389,7 +389,7 @@ export interface RegionInfo {
 - `enumerate(resource, normalized, ratio)`: 生成器。`normalized` の XYZ の `boxes` を z ごとに縮め（`scaleTileBox`）、**Resource の scheme の座標に直してから**（`tms` なら `2^z − 1 − y`）Resource の `extents`（Source の分。Resource の scheme の座標。F32）と交差させ、`z` 昇順に `[z, x, y]` を出す。出た y は**そのまま** `expandTemplate` に渡す（`{-y}` は `expandTileTemplate` が y から作る。照合の y と同じ座標なので、2 回反転しない。R-tms・第 1 回 M9）
 - `tileAt(resource, normalized, n)`: `enumerate` と同じ順の n 番目のタイル（z ごとの枚数を引いていく。生成器を n 回回さない）。5 枚の無作為の確かめに使う（第 1 回 L）
 - `estimate(store, rec, range)`: Source の tile の Resource（スタイルは子の）ごとに `countTiles` の交差で数え、同じ Resource は 1 回。`{ tiles }` を返す。`'all'` で範囲（`box`）の無い Source は `cannot-fetch-all`（m1 の表にある code。新 API では `WeiwudiError`）（R30）。`kind: 'asset'` の Source は `{ tiles: 0 }`（R52）
-- **ジョブ**（`startRangeJob(ctx, rec, region, client, opts)`）: `core.runJob` を使う（`batchSize = concurrency`）。`isAlive` は `self.clients.get(client.id)`、`isCanceled` は `ctx.job.cancel`。各バッチの前に Source がまだあるかを見て、無ければ `stop`（`source-not-found`）（R13）。1 単位の処理:
+- **ジョブ**（`startRangeJob(ctx, rec, region, client, opts)`）: `core.runJob` を使う（`batchSize = concurrency`）。`isAlive` は `self.clients.get(client.id)`、`isCanceled` は `ctx.job.cancel`。各バッチの前に Source がまだあるかを見て、無ければ `stop`（`source-not-found`）（R13）。あわせて **region がまだあるか**（`getRegion`）を見て、無ければ（`clean()`・`remove()`・`releaseRange` が消した）固定を付けずに終え、`canceled` を送る（region は書かない。R57・第 2 回 M3）。バッチの後の `setPinned`（手順 4）の前にも region の有無を見る。1 単位の処理:
   1. キー（`entryKey`）で `hasEntries`（t1 でメタだけ）を見て、有れば上流へ出さず成功と数える
   2. 無ければ `serveResource(ctx, resource, new Request(url), new URL(url), m, credentials, { pin, credentialSourceId })`。`credentials`・`credentialSourceId` は `hook.credentialsForResource`（捕捉と同じ選び方。R3）。要求は `new Request(url)`（`mode: 'cors'`・`credentials: 'same-origin'` の既定。§4.5 の「テンプレートから作る要求」と同じ形）
   3. 応答の `x-weiwudi-status`・`x-weiwudi-error` で数える。`hit`・`miss`・`refresh` は成功。`stale`・`offline-miss`・`upstream-error` は `x-weiwudi-error` の種類で `errors` に数える。本体は読み切る（`arrayBuffer()`）
@@ -399,14 +399,14 @@ export interface RegionInfo {
 - **region（R5・第 1 回 M7）**: 開始時に `RegionRecord`（`RegionInfo` の項目＋`normalized`）を `status: 'running'` で `putRegion`。進捗の位置は書かない。**終わりの書き込みは `patchRegion` で、region が有り `status` が `running` のときだけ**書き換える（その間に `clean()`・`remove()`・`clean(range, { force })` が region を消した・`partial` に書き換えたときは書かない。持ち主の消えた region を書き戻さない）。値は `finish` で `error === 0` なら `complete`、あれば `partial`、取り消しは `canceled`、`stop` は `stopped`（`code`）、**`gone`（ページが閉じた）は `partial`**。`error`・`errors`・`updatedAt` も書く。id は `crypto.randomUUID()`（無ければ `Date.now()` と乱数）。`regions()` は `listRegions(sourceId)` を `RegionInfo` にして返し、**`status: 'running'` で `ctx.job` が無いか `ctx.job.regionId` が違う（SW が止まった・別の region のジョブが動いている）ものは `partial` として見せる**（記録は書き換えない。R5）
 - **イベント（I5c）**: 開始の client に `postMessage` する。`proceed`（バッチごと: `{ type, sourceId, regionId, percent, processed, total, error, errors }`）・`finish`（`{ …, error, errors }`）・`stop`（`{ …, code, message, processed, total }`）・`canceled`。旧 API の `fetchAll` の形に `sourceId`・`regionId`・`errors` を足したもの（§7.2）。`percent` は **タイルだけ**で数える（`floor(processedTiles × 100 / total)`。非タイルの資源は `processed` に入るが `percent` には入れない。第 1 回 L）。終わりの順は **「region を書く → `ctx.job` を外す → `postMessage`」**（ページが `finish` を受けて `regions()` を読んだときに、もう `running` でない。R45）。その後に `core.sweepOnce(ctx, { force: true })`（t2）
 - **1 度に 1 ジョブ（R23・第 1 回 M7）**: `JobState` に `regionId?: string` を足す（旧 API の `fetchAll` は持たない）。`ctx.job` の確かめと確保は **await を挟まず同期に**行う（旧 API の `fetchAll` と同じ。F7）。`fetchRange` は直列の中で、まず同期に `ctx.job` を確保してから region を書き、書き込みが失敗したら `ctx.job` を外して投げる。`ctx.job` があれば `fetch-busy`（m1 の表の code。旧 API の `fetchAll` と共有する）。`cancel()` は自分の Source のジョブだけ止める（`ctx.job.cancel = true`）。無ければ `no-fetch-process`
-- **再開（§7.2・R45）**: op `job/resume`（`{ id, regionId }`）。直列の外。region が無い・他の Source の region なら `attribute-invalid`（`regionId`。新しい code を足さない）。`ctx.job` が動いていて `regionId` が同じなら何もせず今の `RegionInfo`（`running`）を返す。**別の region のジョブが動いていれば `fetch-busy`**（ページは reject。30 秒ごとに送り続けない）。`ctx.job` が無く region が `running` なら、`fetchRange` と同じ手順（同期に確保 → 失敗なら外す）で、その record の `normalized` からジョブを作り直して開始する（既に有るタイルは飛ぶので再実行が再開）。region が終わりの `status`（`complete`・`partial`・`canceled`・`stopped`）ならそのまま返す（`finish` を送る前に SW が止まった場合。ページはこれで解決する）
+- **再開（§7.2・R45）**: op `job/resume`（`{ id, regionId }`）。直列の外（作り直して開始する分岐だけは直列の中。下）。region が無い・他の Source の region なら `attribute-invalid`（`regionId`。新しい code を足さない）。`ctx.job` が動いていて `regionId` が同じなら何もせず今の `RegionInfo`（`running`）を返す。**別の region のジョブが動いていれば `fetch-busy`**（ページは reject。30 秒ごとに送り続けない）。`ctx.job` が無く region が `running` なら、**この分岐だけを直列の待ち行列の中で**（`clean()`・`remove()`・`releaseRange` と並ばない。第 2 回 M3）、region を読み直してまだ `running` なら `fetchRange` と同じ手順（同期に確保 → 失敗なら外す）で、その record の `normalized` からジョブを作り直して開始する（既に有るタイルは飛ぶので再実行が再開）。読み直して無ければ `attribute-invalid`、終わっていればその `RegionInfo` を返す。region が終わりの `status`（`complete`・`partial`・`canceled`・`stopped`）ならそのまま返す（`finish` を送る前に SW が止まった場合。ページはこれで解決する）
 - `kind: 'asset'` の Source（R52）: `range` は `'all'` だけを受け（ほかは `attribute-invalid`（`range`））、Source の Resource（非タイル）を 1 件ずつ取って固定する。`total` は 0、`percent` は終わりに 100
 
 **`opaque` イベント（P2・I5d・R20）**: `Context.notify?: (m: { type: 'opaque'; resourceId: string; sourceIds: string[] }) => void`。`upstream.countCorsless` が `corslessUntil` を書いた（`patchResource` が値を返した）ときと、ジョブが `opaque` で止めたときに呼ぶ。配線は `range.createNotifier(ctx)` を設定する: 子 Source は親に読み替え（`store.getSource`）、`self.clients.matchAll({ type: 'window' })` の各 client に `{ type: 'opaque', sourceId, resourceId }` を送る。
 
-**制御（`control.ts`）**: op `estimate`（`{ id, range }`）・`fetchRange`（`{ id, range, options }`。`event` と `event.clientId` の client が要る。無ければ `sw-not-controlling`）・`regions`（`{ id }`）・`cancel`（`{ id }`）・`job/resume`。`fetchRange` は region を書いて **応答を先に返し**、ジョブは `event.waitUntil` に結び付ける（F7 と同じ）。`estimate`・`regions`・`cancel`・`job/resume` は直列の外。`fetchRange` の `ctx.job` の確保と region の書き込みは直列の中（同時の 2 つの `fetchRange` が両方始まらない。旧 API の `fetchAll` とは同期の確保で排他）。
+**制御（`control.ts`）**: op `estimate`（`{ id, range }`）・`fetchRange`（`{ id, range, options }`。`event` と `event.clientId` の client が要る。無ければ `sw-not-controlling`）・`regions`（`{ id }`）・`cancel`（`{ id }`）・`job/resume`。`fetchRange` は region を書いて **応答を先に返し**、ジョブは `event.waitUntil` に結び付ける（F7 と同じ）。`estimate`・`regions`・`cancel` と `job/resume` の今の `RegionInfo` を返す分岐は直列の外、`job/resume` のジョブを作り直す分岐は直列の中（第 2 回 M3）。`cancel` の応答は取り消したジョブの `regionId`（あれば）を返す（第 2 回 M4）。`fetchRange` の `ctx.job` の確保と region の書き込みは直列の中（同時の 2 つの `fetchRange` が両方始まらない。旧 API の `fetchAll` とは同期の確保で排他）。
 
-**ページ側（`weiwudi.ts`）**: `WeiwudiSource.estimate(range)`・`fetchRange(range, opts)`・`regions()`・`cancel()`。`fetchRange` は `navigator.storage?.persist?.()` を試し（失敗は無視。I5b）、`opts.ratio` が無ければ `devicePixelRatio > 1 ? '@2x' : ''` を入れて送る（R-ratio・第 1 回 M10）。POST の応答の `RegionInfo`（`running`）を受けたら、**その `regionId` の `finish`・`stop`・`canceled` を `message` で待つ**。30 秒イベントが来なければ `job/resume` を POST し、応答が `running` ならまた待つ。**応答が終わりの `status` ならそれで解決する**（`complete`・`partial`・`canceled` は resolve、`stopped` は `WeiwudiError(code)` で reject）。`job/resume` が `fetch-busy` などで失敗したら reject（R22・R45）。`finish` で `regions()` から該当の `RegionInfo` を読んで resolve、`canceled` も resolve（`status: 'canceled'`）、`stop` は `WeiwudiError(code, message)` で reject（R22）。`release()` で待ちを `instance-released` で reject する。
+**ページ側（`weiwudi.ts`）**: `WeiwudiSource.estimate(range)`・`fetchRange(range, opts)`・`regions()`・`cancel()`。`fetchRange` は `navigator.storage?.persist?.()` を試し（失敗は無視。I5b）、`opts.ratio` が無ければ `devicePixelRatio > 1 ? '@2x' : ''` を入れて送る（R-ratio・第 1 回 M10）。POST の応答の `RegionInfo`（`running`）を受けたら、**その `regionId` の `finish`・`stop`・`canceled` を `message` で待つ**。30 秒イベントが来なければ `job/resume` を POST し、応答が `running` ならまた待つ。**応答が終わりの `status` ならそれで解決する**（`complete`・`partial`・`canceled` は resolve、`stopped` は `WeiwudiError(code)` で reject）。`job/resume` が `fetch-busy` などで失敗したら reject（R22・R45）。`finish` で `regions()` から該当の `RegionInfo` を読んで resolve、`canceled` も resolve（`status: 'canceled'`）、`stop` は `WeiwudiError(code, message)` で reject（R22）。`release()` で待ちを `instance-released` で reject する。**`cancel()` は、POST の応答（SW は `cancel` の応答に取り消したジョブの `regionId` を入れる。旧 API のジョブなど `regionId` が無ければすぐ解決）を受けた後、その `regionId` の `canceled`（か `finish`・`stop`）を受けてから解決する**。30 秒来なければ `regions()` を読んで解決する（SW が止まっていれば `ctx.job` も無い）。これで `cancel()` の直後の `clean()`・`remove()` が `fetch-busy` にならない（R48・R58・第 2 回 M4）
 
 **文書**: `docs/api` の英日に 4 メソッド・3 型・イベントの形・`opaque` イベント・`fetch-busy`・`cannot-fetch-all`・再開の動き・`ratio` の既定・`RangeSpec.box` の座標・「`fetchRange` の要求は `cors`・`same-origin` で出す。別オリジンで Cookie だけで認証するサーバは対象外（§4.6）」。README の英日に MapLibre の例（§12 の 4 行）を足す。仕様 §7.2 に R2〜R5・R13・R20・R22・R30・R45・R46 を書く。**仕様 §4.5 の表の「テンプレートから作る要求（範囲取得・旧 API）」の行を、範囲取得は R3（`new Request(url)` を `createUpstream` が組み替える）・旧 API は `fetch(URL の文字列)` のまま、の 2 つに分けて直す**（第 1 回 L）。
 
@@ -426,7 +426,7 @@ export interface RegionInfo {
 - **固定の抜け（第 1 回 S2）**: (a) ページの要求（`pin` なし）が上流を待っている最中に、ジョブが同じキーを取る（`ctx.inflight` に相乗り）→ ジョブの後に `pinned === 1`。(b) `hasEntries` が偽を返した直後に別の要求が同じキーを保存し、ジョブの `serve` が hit になる → `pinned === 1`
 - **tms の座標（第 1 回 M9）**: `{y}`＋`scheme: 'tms'`・`{-y}`＋`xyz`・`{-y}`＋`tms` の 3 通りで、範囲取得の URL とキーが、同じタイルを捕捉したときと同じ（y を 2 回反転しない）
 - `ratio: '@2x'` で `@2x` の URL とキー
-- イベント: `proceed` が `concurrency` ごと、`finish` に `error`・`errors`・`regionId`・`sourceId`。`cancel()` で `canceled`。`stop` に `code`。`finish` を受けた時点で `regions()` の `status` が `running` でない（終わりの順）
+- イベント: `proceed` が `concurrency` ごと、`finish` に `error`・`errors`・`regionId`・`sourceId`。`cancel()` で `canceled`。**`cancel()` の Promise の解決の後の `clean()` が通る**（第 2 回 M4）。**`clean()` が直列で進んでいる最中の `job/resume` はジョブを始めず、`clean()` の後に `attribute-invalid` になる。ジョブの途中で region を消すと次のバッチで止まり、固定が増えない**（第 2 回 M3）。`stop` に `code`。`finish` を受けた時点で `regions()` の `status` が `running` でない（終わりの順）
 - `regions()` が `complete`／`partial`（失敗あり）／`canceled`、`running` で `ctx.job` が無ければ `partial`、**別の region のジョブが動いていても `partial`**。ページが閉じた（`isAlive` が偽）ジョブの region が `partial`
 - **終わりの書き込み（第 1 回 M7）**: ジョブの途中で region を消す（`deleteRegion`）→ 終わりに region が書き戻されない。途中で `partial` に書き換える → 終わりに `complete` で上書きしない
 - `job/resume`: ジョブの途中で `ctx.job` を消して（SW の再起動の模造）`job/resume` → 残りだけ取る（上流の回数）。別の region のジョブ中の `job/resume` は `fetch-busy`。終わった region の `job/resume` はその `RegionInfo` を返す。同時の `job/resume` 2 つでジョブは 1 つ
@@ -451,7 +451,7 @@ export interface RegionInfo {
 
 `upstream.test.ts` への追記: `countCorsless` が `corslessUntil` を書いたとき `ctx.notify` が 1 回、書かなかった（実績あり）とき 0 回。`probeNoCors` の 2 値。
 
-`client.test.ts` への追記: 4 メソッドの POST の形・`persist` を試すこと・`ratio` の既定（`devicePixelRatio` の 1 と 2）・30 秒で `job/resume`（偽のタイマ）・再開の応答が `complete` で resolve／`stopped` で reject・`job/resume` の `fetch-busy` で reject・`stop` の reject・`release()` 後の reject。
+`client.test.ts` への追記: `cancel()` が `canceled` のメッセージを受けるまで解決しない・30 秒で `regions()` を読んで解決する（偽のタイマ。第 2 回 M4）・4 メソッドの POST の形・`persist` を試すこと・`ratio` の既定（`devicePixelRatio` の 1 と 2）・30 秒で `job/resume`（偽のタイマ）・再開の応答が `complete` で resolve／`stopped` で reject・`job/resume` の `fetch-busy` で reject・`stop` の reject・`release()` 後の reject。
 
 `tests/dts/page-consumer.ts`: `RangeSpec`・`FetchRangeOptions`・`RegionInfo` の全項目と 4 メソッド。
 
@@ -547,7 +547,7 @@ export interface RegionInfo {
 
 **`releaseAllOf(store, sourceId, owners, { keep })`（P1・O-3・R47・第 1 回 M12）**: その Source の全 region を、1 つずつ上の `releaseRange` の手順 2〜5 で解放する（共有の Resource は固定を外すだけ。範囲だけで参照する Resource に限らない）。`remove()` と範囲なしの `clean()` の両方から `keep: true` で呼ぶ（排他の Resource の Entry は、その後の `applyRemove`／`clearEntries` が消す）。`remove()` の順: ジョブ中なら `fetch-busy` → `releaseAllOf` → 子を外す → `applyRemove`（`deleteSource` が残りの region を同じ tx で消す。F1）。`registry` は触らない。
 
-**文書**: `docs/api` の英日に `releaseRange`・`clean(range, opts)`・`force` と region の `partial`・「共有の資源の Entry は `releaseRange` の既定でも `force` でも消さず固定だけ外す」・解放の幾何は Resource を参照する全 Source（スタイルは親）の固定つきの region で見ること・非タイル資源の固定の規則（R11）・**ジョブ中の `clean`・`remove`・`releaseRange` は `fetch-busy`（先に `cancel()` する）**。仕様 §7.2 の解放の表に R11・R12・R47〜R49 を書く。
+**文書**: `docs/api` の英日に `releaseRange`・`clean(range, opts)`・`force` と region の `partial`・「共有の資源の Entry は `releaseRange` の既定でも `force` でも消さず固定だけ外す」・解放の幾何は Resource を参照する全 Source（スタイルは親）の固定つきの region で見ること・非タイル資源の固定の規則（R11）・**ジョブ中の `clean`・`remove`・`releaseRange` は `fetch-busy`（先に `cancel()` し、その Promise の解決を待つ。取り消しは始めたバッチの終わりまで待つので、タイルは最大 `concurrency` 枚、スタイルのグリフは 1 fontstack（`glyphRanges: 'all'` なら最大 256 範囲）の取得を待つことがある）**（第 2 回 M4・L5）。仕様 §7.2 の解放の表に R11・R12・R47〜R49 を書く。
 
 ### 試験
 
@@ -561,7 +561,7 @@ export interface RegionInfo {
 - `clean(range)` が範囲の中の固定されていない Entry だけ消し、固定は残る。`force: true` で固定も消え、重なる region が `partial`。共有の Resource の Entry は `force` でも残り、他の Source の region は `complete` のまま
 - `clean()` が regions を消し、共有の Resource の固定が外れる（M12）
 - `remove()` で、その Source の region のために付けた固定が、共有の Resource（`sourceIds` の共有と範囲だけの参照の両方）で外れ、他の Source の region の分は残る（P1・M12）
-- ジョブ中の自分の Source の `releaseRange`・`clean()`・`clean(range)`・`remove()` が `fetch-busy`。別の Source のジョブ中は通る
+- ジョブ中の自分の Source の `releaseRange`・`clean()`・`clean(range)`・`remove()` が `fetch-busy`。別の Source のジョブ中は通る。`await cancel()` の後は通る（第 2 回 M4）
 - `count`・`bytes`・`pinnedBytes` が全件の集計と一致（種を固定した 100 回の取得・解放・clean）
 
 `control.test.ts`・`client.test.ts` への追記: op の形・直列に通ること・`regionId` の検査・`fetch-busy`。
@@ -588,7 +588,7 @@ export interface RegionInfo {
 
 **全体の数（R15・第 1 回 M13）**: `kv` の `totals`（`{ bytes, pinnedBytes, count }`）を、Entry を増減する全操作（`commitEntry`・`clearEntries`・`deleteResource`・`deleteEntries`・`setPinned`・`pruneGlyphParts`・`evictGlobal`）が **同じ tx** で直す（`S_KV` を tx に足す。`deltas` の処理を共有する関数で）。`deleteResource` は今は Resource を読まずに消すので（F30）、同じ tx で消す前に Resource を読み、その `count`・`bytes`・`pinnedBytes` を差し引く。`totals` が無い（既存の開発用 DB）ときは、**その書き込みの tx の中で** `resources` の `getAll` の和から作ってから差分を足す（tx の外で作ると同時の書き込みとずれる。`resources` は全操作の tx に入っている）。移行（t7）の `putEntry` は `commitEntry` を通るので、ここで足りる。
 
-**`setLimits({ maxBytes })`**: `kv` の `limits` に保存。`undefined` で外す。`maxBytes` は 0 以上の有限の整数（外れたら `attribute-invalid`）。`maxBytes: 0` は「何も保存しない」の意味になる（`commitEntry` の `maxBytes > 0` の規則のまま。`cacheMaxBytes: 0` と同じ）ことを文書に書く（第 1 回 L）。`evictScopesFor` は `limits.maxBytes` があれば **`resourceIds` を持たない要素**（全体）を 1 つ足す。`commitEntry` はその要素を `[pinned, accessedAt]` の索引（`[0]` から昇順）で退避する（t1 の cursor の併合と同じ関数。索引が違うだけ）。予算は `totals.bytes − totals.pinnedBytes`。
+**`setLimits({ maxBytes })`**: `kv` の `limits` に保存。`undefined` で外す。`maxBytes` は 0 以上の有限の整数（外れたら `attribute-invalid`）。`maxBytes: 0` は「何も保存しない」の意味になる（`commitEntry` の `maxBytes > 0` の規則のまま。`cacheMaxBytes: 0` と同じ）ことを文書に書く（第 1 回 L）。`evictScopesFor` は `limits.maxBytes` があれば **`resourceIds` を持たない要素**（全体）を 1 つ足す。`commitEntry` はその要素を `[pinned, accessedAt]` の索引（`[0]` から昇順）で退避する（t1 の cursor の併合と同じ関数。索引が違うだけ）。予算の見積もりの初めの値は t1 の式（「`totals.bytes − totals.pinnedBytes` ＋ この tx の全 Resource の `deltas.bytes` の和 − 置き換える固定でない `old` の大きさ」）で、cursor でも同じキーを飛ばす（R42・第 2 回 M1）。
 
 **再試行（R16）**: `core.save` は `putEntry`／`putGlyphParts`／`flush` が `quota`（`WeiwudiError.from(err).code === 'quota'`）で失敗したとき、`store.evictGlobal(ceil((totals.bytes − totals.pinnedBytes) × 0.1))`（固定以外を全体 LRU で古い順に消す。`[pinned, accessedAt]` の cursor）を 1 回行い、**1 回だけ再試行**する。再試行も失敗したら `quota`。旧 API も同じ経路（`serve` が 1 つ）。仕様 §9 の既知の変化に「容量超過のとき、固定以外を全体の 10% 退避して 1 回再試行する（1.1.x は保存しなかった）」を足す。
 
@@ -598,6 +598,7 @@ export interface RegionInfo {
 
 `limits.test.ts`:
 
+- 見積もりの式（第 2 回 M1）: 今の `getAll` の実装を写した参照の関数（全体の要素は `[pinned, accessedAt]` の全件）と、種を固定した 100 回で消す Entry の集合を突き合わせる。Source の上限と全体上限の両方がある保存（Source の要素が先に消した分を全体の要素が二重に消さない）と、固定でない同じキーの置き換えを含める
 - `setLimits({ maxBytes })` の後、2 つの Source の Entry の和が上限を超えると、Source をまたいで `accessedAt` の古い順に消える。固定は消えない
 - `cacheMaxBytes` と全体上限の両方があるとき、両方を満たす
 - `totals` が全件の集計と一致（種を固定した 100 回。`evictGlobal`・`deleteResource` を含む全操作を混ぜる）
@@ -656,7 +657,7 @@ export interface MigrateDeps {
 **第 2 段（`tiles`。第 1 回 M5・M6）**: `migrateStep(ctx, deps)` は `maps` の `pending`／`copying` を 1 つ選び（並びの順）、`Weiwudi_<mapID>.tileCache` を **`IDBKeyRange.lowerBound(lastKey, true)`**（`lastKey` が無ければ先頭）から `openCursor` で **200 件**読む（1 バッチ）。tx の外で `blob.arrayBuffer()` に変換し、レコードごとに:
 
 1. 新 DB に同じキー（`map:<mapID>\0<z_x_y>`）があれば（読み通しで先に移したもの）旧レコードを消すだけ
-2. `store.getResource('map:<mapID>')` が無ければ、このバッチをここで止める（`lastKey` を進めない。旧レコードは残して次の契機で。Resource の無い書き込みは捨てられるため。F29）
+2. `store.getResource('map:<mapID>')` が無ければ、このバッチをここで止め、`batchFailures++`（3 回で `failed`。並びの先頭の地図が後ろの地図を止め続けない。第 2 回 L2）。`lastKey` は進めず、旧レコードは残して次の契機で（Resource の無い書き込みは捨てられるため。F29）
 3. `store.putEntry`（`key`・`fetchedAt = epoch`・`accessedAt = accessedAt ?? epoch`・`z, x, y` は `z_x_y` を分解・`size = blob.size`・`pinned: 0`・`contentType = headers['content-type']`・`headers` は名前を小文字にして `constants.DROPPED_HEADERS` の 4 つと `x-weiwudi-*` を落とす（t1 で移した一覧。`core.copyHeaders` と同じ規則）・`evict` は `deps.evictScopesFor`）。**`saved: true` のときだけ旧レコードを消す**（別 tx）。`saved: false` で Resource が有る（2 で確かめた）のは単体で `cacheMaxBytes` を超える・`maxBytes` が 0 の場合で、新しい規則でも保存されないので旧レコードも消す（落とす）
 4. 1 レコードの失敗（`blob` が無い・変換の失敗）は飛ばして続け、`recordFailures++`（数えるだけ。旧レコードは残す）
 
@@ -666,13 +667,15 @@ export interface MigrateDeps {
 
 **読み通し（R18・第 1 回 M5）**: `legacy.getImage` は、その `mapID` が `done` でないとき（`stage` が `done` なら `failed` の地図だけ）、`serveTile` の前に `migrate.pullTile(ctx, deps, mapID, z, x, y)` を呼ぶ: 新 DB にキーが無く、`Weiwudi_<mapID>.tileCache` に `z_x_y` があれば、第 2 段の 2〜3 と同じ規則で `putEntry` し、`saved: true` のときだけ旧レコードを消す。その後は `serve` が通常どおり Entry を見る（配信の経路は 1 つのまま）。`pullTile` の失敗は飲み込んで `serve` に進む。
 
-**旧 API の `clean`・`delete` との順（第 1 回 M6）**: 移行の途中で旧 API の `clean` が来たら、新 DB の `clearEntries` の後に `migrate.forgetLegacyTiles(mapID)` で `Weiwudi_<mapID>` を `deleteDatabase` し、その地図を `done` にする（後のバッチが消したタイルを戻さない）。`delete` も同じで、さらに `maps` からその地図を外す（1.1.1 の `delete` も `Weiwudi_<mapID>` を消していた。F13）。`legacy.ts` は IndexedDB を直接触らない（`migrate` の関数を呼ぶ）。
+**旧 API の `clean`・`delete` との順（第 1 回 M6・第 2 回 M2）**: 移行の途中で旧 API の `clean` が来たら、`migrate.forgetLegacyTiles(ctx, mapID)` を次の順で行う: (1) その地図をメモリの「忘れた地図」（`ctx.maintenance.forgotten`）に入れ、kv の状態を `done` にする（以後の `migrateStep`・`pullTile` はその地図を選ばず、`putEntry` の直前にもこの印を見直して書かない）、(2) **進行中の `migrateStep`（`ctx.maintenance.running`）と、その地図の進行中の `pullTile`（`ctx.maintenance.pulls`）を待つ**（旧 200 件を tx の外で `arrayBuffer()` に変換している最中のバッチが、消した後に `putEntry` しない）、(3) 新 DB の `clearEntries`、(4) `Weiwudi_<mapID>` を `deleteDatabase`。`migrateStep` は `ctx.job` を持たないので、旧 API の `busy()`（`legacy.ts:226`。`ctx.job` だけを見る）では排他できない。`delete` も同じ順で、さらに `maps` からその地図を外す（1.1.1 の `delete` も `Weiwudi_<mapID>` を消していた。F13）。`legacy.ts` は IndexedDB を直接触らない（`migrate` の関数を呼ぶ）。
+
+**戻して上げ直す（第 2 回 L3・R59）**: `stage` が `done` でも、SW の起動後の最初の契機で 1 回だけ `indexedDB.databases()` を見て、`Weiwudi` か `Weiwudi_` で始まる DB（`pendingDelete` と `failed` の地図のものを除く）があれば `stage` を `pending` に戻して移行をやり直す（1.1.x に戻している間に作り直された旧 DB を移し、容量を残さない）。`databases()` の無い環境ではやり直さず、§14.2 と README に既知の制約として書く。
 
 **完了**: 全地図が `done` か `failed` になったら `Weiwudi`（`mapSetting`。第 1 段で写し終えている）を `deleteDatabase` し、`stage` を `done` にする（`blocked` なら `pendingDelete` に足し、`stage` は `done` にする）。`failed` の地図の `Weiwudi_<mapID>` は残し、その地図だけ読み通しを続ける。
 
 **`\0` の `mapID`（I7c・R19）**: `add` で `mapID` に `\0` が含まれていれば `Error: MapID must not contain a NUL character` の文字列で拒否する（新しい文面。包括の形。§9 の既知の変化に足す）。移行でも `\0` を含む `mapID` の地図は `failed` にして飛ばす（旧 DB にも残す）。
 
-**文書**: README の英日に「1.1.x のキャッシュは最初の要求から順に引き継ぐ（数 GB でも止まらない。移行中もオフラインで読める）。1.1.x へ戻しても壊れない（取り直しになる）」。`docs/api` の英日の旧 API の節に同じ 2 文。仕様 §14.2 に R17〜R19・R50・R51 を書き、`kv.settingsCopied` を `migration.stage` に直し、§9 の既知の変化に `\0` の拒否を足す。
+**文書**: README の英日に「1.1.x のキャッシュは最初の要求から順に引き継ぐ（数 GB でも止まらない。移行中もオフラインで読める）。1.1.x へ戻しても壊れない（取り直しになる）」と、「移行の途中の `fetchAll` と `stats` は移し終えたタイルだけを数える（`fetchAll` はまだ移していないタイルをオンラインなら取り直し、`stats` の `percent` は一時的に低く出る）」（第 2 回 L4・R60）。`docs/api` の英日の旧 API の節に同じ 3 文。仕様 §14.2 に R17〜R19・R50・R51 を書き、`kv.settingsCopied` を `migration.stage` に直し、§9 の既知の変化に `\0` の拒否を足す。
 
 ### 試験
 
@@ -688,6 +691,9 @@ export interface MigrateDeps {
 - `sources` に既にある `mapID` は上書きしない
 - **飛ばしたレコード（第 1 回 M6）**: 先頭の 250 件が壊れた記録（`blob` が無い）の地図でも、契機を重ねると最後まで進み（`lastKey`）、`recordFailures` が 250・`batchFailures` が 0。`open` が 3 回失敗する地図が `failed` になり、その `Weiwudi_a` は消えず読み通しが続き、他の `done` の地図の DB は消えている
 - **旧 API の操作（M6）**: 第 2 段の途中で旧 API の `clean` → 以後の契機で消したタイルが新 DB に戻らない。`delete` → `Weiwudi_a` が消え、`maps` から外れる
+- **バッチの変換中の `clean`（第 2 回 M2）**: 第 2 段のバッチが `arrayBuffer()` の変換を待っている間（変換を止める偽物）に旧 API の `clean` → `clean` はバッチの終わりを待ってから消し、変換の後の `putEntry` は書かない。`pullTile` の最中の `clean` も同じ
+- Resource の無い地図が並びの先頭にあっても、3 回で `failed` になり後ろの地図が進む（第 2 回 L2）
+- **戻して上げ直す（第 2 回 L3）**: `stage: 'done'` の後に旧 DB（`Weiwudi`・`Weiwudi_a`）を作り直してから SW を起動し直す → 起動後の最初の契機で `databases()` が見つけ、移行をやり直して移す
 - 孤児の `Weiwudi_c`（`mapSetting` に無い）は第 1 段で消える
 - `blocked`（閉じない接続）で `deleteDatabase` が待ちになっても契機は終わり、`pendingDelete` に残り、次の SW の最初の契機で消える。自分の接続は `deleteDatabase` の前に閉じている（自分で `blocked` にならない）
 - `indexedDB.databases` が無い factory で、旧 DB が無ければ空で完了し、自分で作った `Weiwudi` が残らない
@@ -738,7 +744,7 @@ export interface MigrateDeps {
 - `grep -c 'isSecretValue' src/spec.ts src/url_pattern.ts` がどちらも 1 以上、`grep -ci 'bearer' src/spec.ts` が 0（判定も注記も `url_pattern` へ移す。1 か所）
 - `grep -c 'credential-undeclared' docs/api/weiwudi.md docs/api/weiwudi.ja.md` がどちらも 1 以上
 - `grep -c 'X-Amz-Signature' README.md README.ja.md` がどちらも 1 以上（I8a の例として）
-- 文書の grep（第 1 回 L）: I6 は `grep -c -i 'scope' docs/api/weiwudi.md` の該当の文と `grep -c 'スコープ' docs/api/weiwudi.ja.md` が 1 以上、I8c は `grep -c -i 'gate' README.md` と `grep -c '門番' README.ja.md` が 1 以上、L5 は `grep -c -i 'no timeout\|no upper limit' docs/api/weiwudi.md` と `grep -c '上限は置かない\|上限を置かない' docs/api/weiwudi.ja.md` が 1 以上、I11 は `grep -c -i 'redirect' docs/api/weiwudi.md` と `grep -c 'リダイレクト' docs/api/weiwudi.ja.md` が t8 の前より 1 以上増える（実装担当は書いた文に合わせて grep の語を台帳に記録してよい。語を変えたら台帳に書く）
+- 文書の grep（第 1 回 L）: I6 は `grep -c -i 'separate scope' docs/api/weiwudi.md` と `grep -c '別スコープ' docs/api/weiwudi.ja.md` が 1 以上（今は 0。`scope`・`スコープ` は `registerSW` の例などで直す前から当たる。第 2 回 M5）、I8c は `grep -c -i 'gatekeeper' README.md` と `grep -c '門番' README.ja.md` が 1 以上（今は 0。`gate` は `gateway` に当たる）、L5 は `grep -c -i 'no timeout\|no upper limit' docs/api/weiwudi.md` と `grep -c '上限は置かない\|上限を置かない' docs/api/weiwudi.ja.md` が 1 以上、I11 は `grep -c -i 'redirect' docs/api/weiwudi.md` と `grep -c 'リダイレクト' docs/api/weiwudi.ja.md` が t8 の前より 1 以上増える（実装担当は書いた文に合わせて grep の語を台帳に記録してよい。語を変えたら台帳に書く）
 
 ---
 
@@ -903,7 +909,7 @@ m3-t9・m2-t9 の形（固定の端点・`route` で実ネットワークへ出�
 - R7（L3）: `putGlyphParts` は連結後の大きさが予算を超えるとき、残す部分を `fetchedAt` の昇順に落として収める。新しい部分だけで超えるときだけ保存しない — 結合レコードは 1 Entry なので LRU では丸ごとしか消えず、新しい範囲が永久に入らない — 誤りなら古い範囲の再取得が増えるだけ
 - R7'（P7・第 1 回 M1）: 退避は「Resource の `bytes − pinnedBytes` の和 ＋ この tx の `deltas` − 置き換える固定でない `old` の大きさ」で予算内なら走査せず、cursor でも同じキーを飛ばす。超えるときだけ `IX_LRU`（全体上限は `[pinned, accessedAt]`）の cursor を Resource ごとに開いて併合し、1 件ずつ消す — 上限つきの保存のたびに全件 `getAll` するのは 100 万 Entry で効かない（§5.4 の狙い） — 誤りなら cursor の数だけ要求が増える（Resource の数は少ない）
 - R8（L2・第 1 回 M2）: 期限切れの部分は掃除のときに `pruneGlyphParts(key, before)` が tx の中で部分ごとに期限を見て落とし、レコードを書き直す。グリフの Resource は `[pinned, fetchedAt]` の cursor ではなく Resource のキーの範囲で回す（レコードの `fetchedAt` は最も新しい部分の値で、索引では拾えない。F36）。グリフかどうかは Resource の `type` で決める。配信の経路は変えない — 配信のたびに書き直すと hit が書き込みになる。掃除は起動後 1 回とジョブの完了時なので回数が少ない — 誤りなら期限切れの部分が次の掃除まで `bytes` に残る
-- R9（第 1 回 S3）: 掃除と移行の契機は `ctx.maintain`（Weiwudi が扱う fetch のうち store を使うハンドラの先頭で `event.waitUntil`。旧 API の `ping` と `control.get`（`/v2/ping`）は除く）。新しい `fetch` のリスナを足さない — 利用者の要求（プリキャッシュなど）で IndexedDB を開かない。`legacy-routes.test.ts:60-67` の固定（リスナは install・activate だけ・起動で IndexedDB を開かない・`/api/ping` で IndexedDB を開かない）を差分なしで保つ。死活確認は store を使わない操作のままにする — 誤りなら Weiwudi の要求が無いページで移行が進まない（その利用者はキャッシュも使っていない）。ping を契機に含めたくなったら、既存の試験の書き換えを台帳に記録し、この Ruling を直す
+- R9（第 1 回 S3）: 掃除と移行の契機は `ctx.maintain`（Weiwudi が扱う fetch のうち store を使うハンドラの先頭で `event.waitUntil`。旧 API の `ping`・`fetchAll` と `control.get`（`/v2/ping`）は除く。`fetchAll` はジョブの終わりに掃除を回す。R56）。新しい `fetch` のリスナを足さない — 利用者の要求（プリキャッシュなど）で IndexedDB を開かない。`legacy-routes.test.ts:60-67` の固定（リスナは install・activate だけ・起動で IndexedDB を開かない・`/api/ping` で IndexedDB を開かない）を差分なしで保つ。死活確認は store を使わない操作のままにする — 誤りなら Weiwudi の要求が無いページで移行が進まない（その利用者はキャッシュも使っていない）。ping を契機に含めたくなったら、既存の試験の書き換えを台帳に記録し、この Ruling を直す
 - R10（第 1 回 M2・M11）: 掃除は、グリフでない Resource を `[pinned, fetchedAt]` の 1 本の cursor（`pinned = 0`・`fetchedAt < now − 最短の retention`）で読み、Resource ごとの retention で判定する。消すのは `deleteEntries(keys, { unpinnedOnly, fetchedBefore })` で、tx の中で条件を見直す（一覧の後の固定・取り直しを消さない）。グリフは R8。1 回 2,000 件まで — Resource ごとの索引を足すと版を上げる。上限を最短の retention で切るので、retention の無い Resource の Entry は訪れない（`fetchedAt` が上限より新しいものも訪れない） — 誤りなら retention の無い Source の古い Entry を読み飛ばす分だけ遅い
 - R11（第 1 回 S1）: 非タイル資源（スタイル・TileJSON・スプライト・データ・グリフ）の固定は region に幾何で結び付けず、**その Resource を参照する全 Source（`sourceIds` ∪ `rangeOnlySourceIds`。子は `parentId` の親に読み替える）の固定つきの region が 1 つでも残る間**は維持する。その数が 0 になる解放で外す — 非タイル資源は範囲を持たないが、どの region のためにも要る。2 つのスタイルが同じグリフ・スプライトを共有すると、「その Source の region」で見ると片方の最後の解放でもう片方の固定が外れる（範囲 1 の問い）。スタイル 1 枚のために region ごとの参照カウントを Entry に持たない（§7.2「Entry 側に参照カウントを持たない」） — 誤りなら region ごとにスタイルを取り直すだけ
 - R12（第 1 回 S1）: 解放の幾何の判定は、その Resource を参照する全 Source（`sourceIds` ∪ `rangeOnlySourceIds`。**子 Source は `parentId` の親に読み替える**）の固定つきの region（`status` は問わない）で見る。既定の解放でも、共有の Resource は固定を外すだけで Entry を消さない — Entry は Resource 単位で共有されるので、別の Source の region のタイルを消すと、その Source のオフラインが壊れる。スタイルの子の Resource の `sourceIds` は子の id で、region は親の id で保存されるので（F31）、読み替えないと別のスタイルの region を 0 件と数える — 誤りなら他の Source の region を数え忘れた分だけ余計に消える（キャッシュなので取り直せる）
@@ -939,23 +945,28 @@ m3-t9・m2-t9 の形（固定の端点・`route` で実ネットワークへ出�
 - R-I1（I1a・I1b）: `evictScopesFor` の失敗は `storage` として配信を続ける — §9 に記録済みの形。`serve` の reject を照合ルートが素通しにして上流へ 2 回出るのを止める — 誤りなら保存されない応答が増えるだけ
 - R-I6（I6）: 同じオリジンの別スコープの SW からの同時の登録は直列にならないことを文書に書き、直さない — SW をまたぐ鎖（Web Locks）は Safari の対応が限られ、1 つのスコープで登録するのが普通 — 誤りなら Web Locks を使えるときだけ使う形を足す
 - R-I8（I8a）: 署名つき URL は、署名の項目を `credentialParams` に挙げる使い方を文書に書く。SW が署名を作る口は足さない — 署名は要求ごとに変わるのでキーに残すと同じタイルが別の Entry になる。署名を作るのは利用者の鍵が要り SW の役ではない — 誤りなら `requestWillFetch` の差し込み口で利用者が署名する例を文書に足す
-- R-G（L4・第 1 回 M15）: グリフの束ね書きは `core.createGlyphCollector` が保存だけを遅らせ（`save` が `putGlyphPart` と `evictScopesFor` の代わりに `collect.add`）、1 fontstack を `runJob` の 1 単位にして、単位の `finally` で `flush`（`evictScopesFor` 1 回・`putGlyphParts` 1 回）する。`flush` の失敗は fontstack ごとに 1 件。配信の経路は変えない — §11「1 fontstack 分を溜めてから 1 回で書く」を `core.serve` 1 つのまま満たす。`runJob` は始めた単位を終わりまで待つので（F37）、1 単位にすれば取り消し・`gone`・`stop` でも集めた部分を捨てない — 誤りなら範囲ごとに書く（fontstack の大きさ × 範囲数の書き込み。動くが遅い）
+- R-G（L4・第 1 回 M15）: グリフの束ね書きは `core.createGlyphCollector` が保存だけを遅らせ（`save` が `putGlyphPart` と `evictScopesFor` の代わりに `collect.add`）、1 fontstack を `runJob` の 1 単位にして、単位の `finally` で `flush`（`evictScopesFor` 1 回・`putGlyphParts` 1 回）する。`flush` の失敗は fontstack ごとに 1 件。配信の経路は変えない — §11「1 fontstack 分を溜めてから 1 回で書く」を `core.serve` 1 つのまま満たす。`runJob` は始めた単位を終わりまで待つので（F37）、1 単位にすれば取り消し・`gone`・`stop` でも集めた部分を捨てない。代わりに取り消しは始めた単位の終わりまで待つ（`'all'` なら最大 256 範囲）ので、`cancel()` の待ち時間として文書に書く（第 2 回 L5） — 誤りなら範囲ごとに書く（fontstack の大きさ × 範囲数の書き込み。動くが遅い）
 - R-ratio（第 1 回 M10）: `{ratio}` のテンプレートの範囲取得は `FetchRangeOptions.ratio` の値で展開する。ページ側の `fetchRange` は指定が無ければ `devicePixelRatio > 1 ? '@2x' : ''` を入れて送る（SW に直接 POST したときの既定は `''`） — 捕捉のキーは要求の `@2x` を含むので、高解像度の端末の地図ライブラリが `@2x` を求めるのに `''` で取るとオフラインで当たらない。端末を知っているのはページで、SW は知らない。両方を取ると 2 倍になる — 誤りなら両方を取る指定を足す
 - R-tms（第 1 回 M9）: 正規化した範囲（XYZ）を Resource の scheme の座標に直してから `extents`（Resource の scheme の座標）と交差を取り、出た (z, x, y) を**そのまま** `expandTemplate` に渡す（`{-y}` は `expandTileTemplate` が y から作る）。`RangeSpec.box` は `maxZoom` での Source の scheme の座標（登録の `box` と同じ） — 照合の y は `{y}` なら URL の値、`{-y}` なら反転した値で、`extents.box` と同じ座標（F32）。交差の後でさらに反転すると 2 回反転になり、別の Entry を取る — 誤りなら 3 通りの試験（`{y}`＋tms・`{-y}`＋xyz・`{-y}`＋tms のキーが捕捉と同じ）が落ちる
-- R42（P7・第 1 回 M1）: R7' の予算の見積もりは、要素の `resourceIds` の Resource の `bytes − pinnedBytes` の和に、この tx の `deltas` の `bytes`（前の要素が消した分）を足し、`willSave` のとき固定でない `old` の大きさを引いて始める。cursor でも同じキーを飛ばす — 今の `getAll` の実装は同じキーを候補から外し（F4）、前の要素が消した Entry は同じ tx の後の読み出しに現れない。Resource の値は `deltas` を最後に書くまで古いので、足さないと消しすぎる — 誤りなら今の退避の試験が差分ありになって落ちる（参照の実装との突き合わせの試験で見つかる）
+- R42（P7・第 1 回 M1）: R7' の予算の見積もりは、要素の `resourceIds` の Resource の `bytes − pinnedBytes` の和に、この tx の `deltas` の `bytes`（前の要素が消した分）を足し、`willSave` のとき固定でない `old` の大きさを引いて始める。cursor でも同じキーを飛ばす 全体上限（t6）の要素も同じ形で、初めの値を「`totals.bytes − totals.pinnedBytes` ＋ この tx の全 Resource の `deltas.bytes` の和 − 固定でない `old` の大きさ」から作る（第 2 回 M1） — 今の `getAll` の実装は同じキーを候補から外し（F4）、前の要素が消した Entry は同じ tx の後の読み出しに現れない。Resource の値は `deltas` を最後に書くまで古いので、足さないと消しすぎる — 誤りなら今の退避の試験が差分ありになって落ちる（参照の実装との突き合わせの試験で見つかる）
 - R43（I12・第 1 回 M3）: `hasEntries` は t1 でメタだけの判定に戻す。既存の試験 2 件（F35）を書き換えて台帳に書く — 古い形のレコードは未公開の `WeiwudiStore` の開発用の DB にしか無く（I10・R37 と同じ「未公開」）、t7 の移行（旧 DB → 新 DB）では直らないので「t7 の後」を待つ理由は無い。範囲取得は既に有るタイルごとに `hasEntries` を引くので、本体を読むと取得が遅くなる — 誤りなら開発用の DB の古い形のタイルが範囲取得で取り直されず、オフラインで欠ける（表示で取り直せば直る）
 - R44（I11）: スタイルの「同じオリジン」の判定は登録 URL のまま（`Response.url` を見ない）。文書に書き、コードは直さない — 資格情報を足す相手は登録 URL のオリジンと提供元に限られ、リダイレクト先には足さない（クエリは `Location` に引き継がれず、ヘッダは `redirect: 'error'`。m3 R21）。SW が合成した応答の URL は要求の URL なので、ページの地図ライブラリも本体の相対 URL を登録 URL で解決し、SW の子作りと揃う。`Response.url` を見るには `core.serve` の合成に上流の URL を通す形の変更が要る — 誤りなら（リダイレクト先が書いた本体が登録 URL のオリジンの別のパスへ資格情報を向けることが問題になれば）`ServeInput.transform` に上流の `Response.url` を渡し、別オリジンへのリダイレクトなら子に資格情報を配らない
 - R45（I5c・第 1 回 M7）: ジョブの終わりの順は「region を書く → `ctx.job` を外す → `postMessage`」。`job/resume` は、同じ region のジョブ中なら今の `RegionInfo`、別の region のジョブ中なら `fetch-busy`、region が終わっていればその `RegionInfo` を返す — ページが `finish` を受けて `regions()` を読んだときに `running` が見えない。別の Source のジョブ中に 30 秒ごとの再開が解決しないまま続かない — 誤りなら再開の応答に `busy` の印を足してページが待ち続ける形にする
 - R46（第 1 回 S2）: 範囲取得の固定の正本は、成功と数えたキー全部への `setPinned(keys, 1)`（バッチの後に 200 件ずつ）。`ServeInput.pin` は保存と同じ tx で付ける近道として残す — `core.serve` の同時要求のまとめ（`flightKey` は `pin` を見ない）と hit は `save` を通らないので（F25）、`pin` だけでは「表示範囲を取得」で普通に固定が漏れ、漏れた Entry は LRU・保持期間で消える — 誤りなら `setPinned` の書き込みが 1 バッチに 1 回増えるだけ
 - R47（P1・第 1 回 M12）: `remove()` と範囲なしの `clean()` は、消す前に `releaseAllOf` でその Source の全 region を R12 の規則で解放する（`keep: true`。共有の Resource は固定を外すだけ） — 範囲だけで参照する Resource に限ると、`sourceIds` を他の Source と共有する Resource に、消した Source の region のための固定が持ち主の無いまま残る — 誤りなら解放の 1 回分だけ `remove()` が遅い
-- R48（第 1 回 M7）: 自分の Source のジョブが動いている間の `clean()`・`clean(range)`・`remove()`・`releaseRange` は `fetch-busy`（先に `cancel()` する）。`update()`・`removeResource` は止めない — 旧 API の `clean`・`delete` の `map-busy` と同じ考え。ジョブと消す操作を並べると、ジョブが消した直後の範囲を取り戻す・region を書き戻す（R5 の条件つきの書き込みで後者は防げるが、前者は防げない）。取り消してから進める形は、取り消しの完了を待つ仕組みが要る — 誤りなら「取り消してから進める」に替える（ジョブの完了の Promise を `ctx.job` に持つ）
+- R48（第 1 回 M7・第 2 回 M4）: 自分の Source のジョブが動いている間の `clean()`・`clean(range)`・`remove()`・`releaseRange` は `fetch-busy`（先に `cancel()` し、その Promise の解決を待つ。R58）。`update()`・`removeResource` は止めない — 旧 API の `clean`・`delete` の `map-busy` と同じ考え。ジョブと消す操作を並べると、ジョブが消した直後の範囲を取り戻す・region を書き戻す（R5 の条件つきの書き込みで後者は防げるが、前者は防げない）。取り消してから進める形は、取り消しの完了を待つ仕組みが要る — 誤りなら「取り消してから進める」に替える（ジョブの完了の Promise を `ctx.job` に持つ）
 - R49（第 1 回 L）: `clean(range, { force })` は、その Source だけが参照する Resource の Entry だけを消し、重なるその Source の region を `partial` にする。共有の Resource の Entry と、他の Source の region は触らない — 他の Source のオフラインを壊さない。範囲なしの `clean()` の「共有の Resource は残す」（m2）と揃う — 誤りなら共有の Resource の範囲の Entry も消す指定を足す
 - R50（第 1 回 S4・M5）: `migrate.ts` は §3 のとおり `store`・`constants`・`errors` だけを import し、地図の登録（`legacy.registerMap`）と退避の範囲（`core.evictScopesFor`）は `MigrateDeps` として受ける（`legacy` が `migrationDeps` を持ち、配線と `legacy` の中の呼び出しが同じものを渡す）。旧レコードを消すのは `putEntry` が `saved: true` のときだけで、書く前に `getResource` で Resource の有無を見て、無ければ残す・有って `saved: false` なら落とす — `migrate` が `legacy`・`core` を import すると循環し、写して持つと二重実装になる。`putEntry` の `{ saved: false }` は理由を返さず（F29）、既存の試験が形を固定している。Resource の無い書き込みは捨てられるので、見ずに消すと旧の本体を失う — 誤りなら `putEntry` の戻り値に理由を足す（既存の試験の書き換えが要る）
-- R51（第 1 回 M5・M6）: 移行は、第 1 段（`mapSetting` の `getAll` 1 回）を共有の Promise にして旧 API のハンドラが待ち、第 2 段は地図ごとの `lastKey` から読み、失敗はレコードの数（`recordFailures`。数えるだけ）とバッチの開始の数（`batchFailures`。3 で `failed`）に分ける。地図が `done` になったらその場で `Weiwudi_<mapID>` を消し、`Weiwudi` は全地図が `done` か `failed` になってから消す。旧 API の `clean`・`delete` はその地図の旧 DB を消す。`maps` は配列・`pendingDelete` は `migration` の直下 — `maintain` は `waitUntil` に渡すだけで待たないので、SW の更新直後の最初の要求では新 DB に Resource が無く、オフラインで 404 になる（§14.2「移行の途中でも地図が欠けない」）。cursor を先頭から開くと飛ばしたレコードが溜まって進まない。旧 API の操作との順を決めないと、利用者が消したタイルが戻る。`failed` が 1 つあるだけで全部の旧 DB を残す理由は無い — 誤りなら第 1 段の待ちに上限（`GATE_WAIT_MS`）を置く
+- R51（第 1 回 M5・M6）: 移行は、第 1 段（`mapSetting` の `getAll` 1 回）を共有の Promise にして旧 API のハンドラが待ち、第 2 段は地図ごとの `lastKey` から読み、失敗はレコードの数（`recordFailures`。数えるだけ）とバッチの開始の数（`batchFailures`。3 で `failed`）に分ける。地図が `done` になったらその場で `Weiwudi_<mapID>` を消し、`Weiwudi` は全地図が `done` か `failed` になってから消す。旧 API の `clean`・`delete` はその地図の旧 DB を消す。`maps` は配列・`pendingDelete` は `migration` の直下 — `maintain` は `waitUntil` に渡すだけで待たないので、SW の更新直後の最初の要求では新 DB に Resource が無く、オフラインで 404 になる（§14.2「移行の途中でも地図が欠けない」）。cursor を先頭から開くと飛ばしたレコードが溜まって進まない。旧 API の操作との順を決めないと、利用者が消したタイルが戻る。`failed` が 1 つあるだけで全部の旧 DB を残す理由は無い 旧 API の `clean`・`delete` は、地図を「忘れた地図」に入れてから進行中の `migrateStep`・`pullTile` を待って消す（第 2 回 M2）。Resource の無い地図のバッチの停止も `batchFailures` に数える（第 2 回 L2） — 誤りなら第 1 段の待ちに上限（`GATE_WAIT_MS`）を置く
 - R52（第 1 回 L）: `kind: 'asset'` の Source の `fetchRange` は `'all'` だけを受け、Source の Resource（非タイル）を取って固定する。`estimate` は `{ tiles: 0 }` — asset は範囲を持たないが、オフラインに置きたい用途はある。範囲の指定は意味を持たないので拒む — 誤りなら asset の `fetchRange` を `attribute-invalid` で拒む
 - R53（第 1 回 L）: `FetchRangeOptions.fonts`・`StyleSpec.fonts` の要素は fontstack（`{fontstack}` の値。フォント名を `,` で結んだもの）。`collectFonts` は文字列の配列と `["literal", [...]]` を `,` で結ぶ — MapLibre が要求する `{fontstack}` の形そのもので、範囲取得のキーが捕捉と同じになる。名前 1 つの指定もそのまま 1 つの fontstack として扱えるので、意味を分けない — 誤りなら名前の配列を受けて結ぶ指定を別に足す
 - R54（第 1 回 L）: 開発用ページの範囲取得は `estimate` が 50 枚を超えたら断り、OSM のタイルの利用規約（まとめての取得の禁止）を画面と README に書く — 開発用ページは OSM のタイルを使うが、範囲取得は規約が禁じる使い方そのもの。動作確認は数十枚で足りる — 誤りなら開発用ページの上流を規約の許すものに替える
 - R55（第 1 回 M8）: 固定分の上限の `stop`（`quota`）は、開始のときと各バッチの後に、要素ごとの `Σ pinnedBytes` を読み直して判定する — `commitEntry` は固定していない Entry だけを予算に数え、単体の大きさしか拒まないので、`cacheMaxBytes` から `x-weiwudi-error: quota` は出ない。開始のときだけだと上限を大きく超えて固定し続ける — 誤りなら 1 バッチ分（`concurrency` 枚）だけ上限を超えて止まる
+- R56（第 2 回 S1。orchestrator の決定）: 保守の契機から旧 API の `fetchAll` も外し、`fetchAll` のジョブの終わりに `core.sweepOnce(ctx, { force: true })` を呼ぶ — `fetchAll` は既にジョブを `waitUntil` に渡しており、先頭で `maintain` を呼ぶと `legacy-changes.test.ts:169` の `waitUntilCalls` の数と `:170` ほかの `waitUntilCalls[0]` の意味（ジョブ）が変わって既存の試験が落ちる。`fetchAll` を送るページは同じ地図のほかの API（`cache`・`stats`）も送るので、移行の契機は減らない — 誤りなら既存の試験を書き換えて台帳に書き、`fetchAll` を契機に戻す
+- R57（第 2 回 M3）: `job/resume` のジョブを作り直す分岐は直列の待ち行列の中で行い、ジョブは各バッチの前とバッチの後の `setPinned` の前に region の有無を見て、無ければ固定を付けずに `canceled` で終える（region は書かない） — 直列の外のままだと、SW の再起動の後にページの再開と `clean()` が重なり、`clean()` が `ctx.job` の無いことを確かめた後でジョブが始まり、消えた region のための固定が残る。region の消えたジョブの終わりは利用者の操作の結果なので `stop` にしない — 誤りなら `stop`（`source-not-found`）にする（ページは reject）
+- R58（第 2 回 M4・L5）: ページ側の `cancel()` は、SW の応答の `regionId` の `canceled`（か `finish`・`stop`）を受けてから解決する。30 秒来なければ `regions()` を読んで解決する。`regionId` の無いジョブ（旧 API）ならすぐ解決 — `cancel()` は取り消しの印を立てるだけで、`runJob` は始めたバッチを終わりまで待つ（F37）。すぐ解決すると、直後の `clean()`・`remove()` が `fetch-busy` になり、R48 の「先に `cancel()` する」が成り立たない — 誤りなら文書を「`fetchRange` の Promise の解決を待つ」に替え、`cancel()` はすぐ解決する
+- R59（第 2 回 L3）: 移行が `done` でも、SW の起動後の最初の契機で 1 回だけ `databases()` を見て、旧 DB（`pendingDelete` と `failed` の地図のものを除く）があれば移行をやり直す。`databases()` の無い環境は既知の制約として書く — 1.1.x に戻している間に作り直された旧 DB は、`done` の印のままでは二度と移されず消されもせず、容量が残る。起動後 1 回の `databases()` は軽い — 誤りなら §14.2 の既知の制約にするだけにする
+- R60（第 2 回 L4）: 移行の途中の旧 API の `fetchAll`・`stats` は新 DB だけを見る（`fetchAll` に `pullTile` を通さない）。README に 1 行書く — `fetchAll` はオンラインで呼ぶ操作で、まだ移していないタイルは取り直しても正しい。1 枚ごとに旧 DB を読むと `fetchAll` が遅くなる。移行は地図を見ている間に数分で終わる（第 1 回の範囲 6） — 誤りなら `fetchAll` の `hasEntries` の前に `pullTile` を呼ぶ
 
 ## 未決の点（事前点検と実装で決める）
 
@@ -1011,4 +1022,26 @@ m3-t9・m2-t9 の形（固定の端点・`route` で実ネットワークへ出�
 | 実装担当への申し送り（指摘とは別） | 全タスク共通の「実装担当への申し送り」 | 7 項目のうち `hasEntries` の項は R43 の決定に置き換わり、残り 6 項目を書いた |
 
 反映しないと決めた指摘は無い。点検の直し方の案と違う形にしたものは次の 3 つで、理由は各 Ruling に書いた: M4 の「range の行に `style` を足す」は採らず control が持ち主の一覧を渡す（R1）、M5 の「`saved: false` の理由を分ける」は戻り値を変えず `getResource` で分ける（R50）、M7 の「取り消してから進めるか」は `fetch-busy` に決めた（R48）。
+
+## 事前点検 第 2 回の反映
+
+点検の報告（cceee2c が対象）の指摘ごとに、どこをどう直したか。コードの事実（`legacy-changes.test.ts:169-323` の `waitUntilCalls`・`sw-harness.ts:312-320` の `request` と `requestFromClient` の `event`・`legacy.ts:226` の `busy()`・文書の `scope`・`スコープ`・`gate`・`cacheRetention` の今の件数）は f6189a0 で確かめた。
+
+| 指摘 | 直した所 | 直し方 |
+|---|---|---|
+| S1 t2 の契機が fetchAll の既存の試験を壊す | t2 の保守の契機・試験・受け入れ条件・R9・R56 | orchestrator の決定（案 (a)）のとおり、契機から `fetchAll` も外し、`fetchAll` のジョブの終わりに掃除を回す。試験に「`fetchAll` の dispatch では `waitUntilCalls` が 1 のまま」を足し、`/api/info` の試験は `h.dispatch` で書くと明記した。`legacy-changes.test.ts` は変えないことを受け入れ条件に |
+| M1 全体の要素の見積もり | t1 の退避の段落・t6 の `setLimits`・`limits.test.ts`・R42 | 全体の要素の初めの値を「`totals.bytes − totals.pinnedBytes` ＋ この tx の全 Resource の `deltas.bytes` − 固定でない `old`」と明記し、cursor でも同じキーを飛ばす。参照の関数との突き合わせ（Source の上限と全体上限の両方）を足した |
+| M2 旧 API の clean・delete と移行のバッチ・読み通し | t7 の「旧 API の `clean`・`delete` との順」・試験・R51 | 地図を「忘れた地図」に入れて kv を `done` にする → 進行中の `migrateStep`・`pullTile` を待つ → `clearEntries` → 旧 DB を消す、の順にし、`putEntry` の直前にも印を見直す。試験「バッチの変換中に `clean`」 |
+| M3 直列の外の job/resume | t3 のジョブ・再開・制御・試験・R57 | ジョブを作り直す分岐だけを直列の中にし、region を読み直す。ジョブは各バッチの前と `setPinned` の前に region の有無を見て、無ければ固定を付けずに `canceled`。試験「`clean()` の最中の `job/resume`」 |
+| M4 cancel() の直後の fetch-busy | t3 のページ側・制御（`cancel` の応答に `regionId`）・試験・t5 の文書・試験・R48・R58 | 推奨どおり、ページ側の `cancel()` を `canceled`（か終わりのイベント）を受けてから解決する形にした（30 秒で `regions()` を読んで解決）。試験「`cancel()` → 待つ → `clean()` が通る」 |
+| M5 t8 の文書の grep | t8 の受け入れ条件 | I6 は `separate scope`・`別スコープ`、I8c は `gatekeeper`・`門番`（どれも今は 0 件）にした |
+| L1 t2 の文書の grep | t2 の受け入れ条件 | 新しい文の語（`after the service worker starts`・`SW の起動後`・`pinned entries are never deleted`・`固定した Entry は消さない`。どれも今は 0 件）で確かめる |
+| L2 Resource の無い地図の停止 | t7 の第 2 段の 2・試験・R51 | `batchFailures++`（3 回で `failed`）にした |
+| L3 1.1.x へ戻して上げ直す | t7 の「戻して上げ直す」・試験・R59 | 起動後 1 回 `databases()` を見て旧 DB があれば移行をやり直す。`databases()` の無い環境は既知の制約として書く |
+| L4 移行中の fetchAll・stats | t7 の文書・R60 | `pullTile` は通さず、README と `docs/api` に 1 行書く |
+| L5 1 fontstack 単位の取り消しの待ち | t5 の文書・R-G・R58 | `cancel()` の待ち時間（最大 `concurrency` 枚・グリフは 1 fontstack、`'all'` なら最大 256 範囲）を文書に書く |
+
+反映しないと決めた指摘は無い。
+
+この反映で事前点検は合格とし、第 3 回は置かない（m2 の運用と同じ。orchestrator の決定）。
 
