@@ -468,6 +468,9 @@ export interface ResourceInfo {
 - （m4）`QuotaExceededError` のときは、固定以外を全体 LRU で 10% 退避して 1 回だけ再試行する。旧 API の「保存の abort → 保存されない」の試験の結果を変えるので、m4 の全体上限と一緒に旧 API での扱いを決めて入れる（m2 計画の R15）。全体上限の既定が無いので、これが無いとブラウザの上限に当たった後はキャッシュが自力で回復しない
 - ページ側の `fetchRange` が、制御の要求を送る前に `navigator.storage.persist()` を試す（失敗は無視）。`persist` はページの API で SW には無い（`estimate` は SW でも使える）。ブラウザの自動削除に対する唯一の手段
 - 旧 API の `cacheTtl`・`cacheMaxBytes` は Source の同名の項目へそのまま写す
+- （m4-t6）`setLimits({ maxBytes })` は kv の `limits` に保存し、`maxBytes` の無い指定（`setLimits({})`）で外す。`maxBytes` は 0 以上の有限の整数（外れたら `attribute-invalid`）。`maxBytes: 0` は何も保存しない（`cacheMaxBytes: 0` と同じ）。上限は次の保存から効く。`evictScopesFor` は全体の要素（`resourceIds` を持たない）を Source の要素の後に 1 つ足し、`commitEntry` が `[pinned, accessedAt]` の索引で古い順に消す。見積もりは `totals.bytes − totals.pinnedBytes` ＋ この tx の `deltas.bytes` の和 −（保存し、置き換える `old` が固定でないなら `old.size`）。固定分は Source の上限と同じく数えない
+- （m4-t6）全体の数は kv の `totals`（`{ bytes, pinnedBytes, count }`）。Entry を増減する全操作が同じ tx で直す。無い DB では、その書き込みの tx の中で `resources` の和から作る
+- （m4-t6）容量超過の再試行は `core.save`（`putEntry`・`putGlyphPart`）と束ね書きの `flush`（`putGlyphParts`）に入れた。退避の量は `ceil((totals.bytes − totals.pinnedBytes) × 0.1)`。退避が失敗したときは再試行せず `quota`。移行（§14.2）の `putEntry` は再試行しない
 
 ### 7.2 範囲取得と解放
 
@@ -595,6 +598,7 @@ export class WeiwudiError extends Error {
   - `fetchAll` の `proceed`・`finish` の `error`・`errors` は、そのジョブの要求の失敗だけを数える（現行は動いている間の他のタイルの要求の失敗も数えていた。m2-t5 の Ruling）
   - `Range` ヘッダつきの `/api/cache` の要求は、保存も範囲外の判定もせず上流のタイルの URL へ素通しし、206 をそのまま返す（§11）。素通しのネットワーク失敗は §6 の 7 の形（404・`x-weiwudi-status: offline-miss`・`x-weiwudi-error: network`・`access-control-expose-headers`）で返す
   - 保存の前の容量の判定（`cacheMaxBytes` の退避の範囲を決める IndexedDB の読み出し）の失敗は、m2 では包括の `Error: ${e}` の本文を返していた（照合ルートは上流へ 2 回出していた）。m4 で直し、現行と同じく保存の失敗として取得したタイルを `x-weiwudi-error: storage` で配信を続ける（保存しない・上流へは 1 回）
+  - 容量超過のとき、固定以外を全体の 10% 退避して 1 回再試行する（1.1.x は保存しなかった）。再試行も失敗したときだけ `x-weiwudi-error: quota`（m4-t6・R16）
 
 文字列の reject は次の major で `WeiwudiError` へ変える。非推奨の予告は §13 の時期に合わせる。
 
