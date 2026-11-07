@@ -36,6 +36,9 @@
             t.onabort = () => reject(t.error);
         });
 
+        const isBlobUnsupported = (e) => !!e && (e.name === 'DataCloneError' ||
+            /\b(blob|file)\b/i.test(String(e.message ?? '')));
+
         /**
          * 旧 DB を作る。maxZoom までの全タイル（1.1.1 の xyz・width = height = 256 × 2^maxZoom）を tileCache に入れる。
          * Blob を保存できない環境（WebKit の非永続領域）では { blobUnsupported: true } を返す。
@@ -68,7 +71,10 @@
             try {
                 await putAll(tiles, 'tileCache', records);
             } catch (e) {
-                return { blobUnsupported: true, error: String(e) };
+                // Blob を保存できないと判別できる失敗だけを返す（DataCloneError か、WebKit の
+                // 「Error preparing Blob/File data to be stored in object store」）。ほかの失敗は試験の不具合として投げ直す
+                if (isBlobUnsupported(e)) return { blobUnsupported: true, error: `${e.name}: ${e.message}` };
+                throw e;
             } finally {
                 tiles.close();
             }

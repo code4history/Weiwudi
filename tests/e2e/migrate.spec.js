@@ -113,18 +113,21 @@ test.describe('Weiwudi migration from 1.1.x', () => {
         await startSW(page);
         const before = await upstreamCount(request);
         const coords = coordsUpTo(4);
-        let i = 0;
-        // 要求を繰り返す（1 回の要求で移行が 1 歩進む）。Weiwudi_x が消え、Weiwudi の削除が試みられるまで
-        for (; i < 40; i++) {
+        // 要求を繰り返し、Weiwudi_x が消えて Weiwudi の削除が試みられるまで待つ。移行は waitUntil で並行して進み、
+        // 同時の契機は同じ Promise を共有するので、要求の数ではなく時間（20 秒）で打ち切る
+        const deadline = Date.now() + 20000;
+        let finished = false;
+        for (let i = 0; !finished && Date.now() < deadline; i++) {
             const [z, x, y] = coords[i % coords.length];
             const res = await getTile(page, z, x, y);
             expect(res.status).toBe(200);
             expect(res.text).toBe(`legacy:${z}/${x}/${y}`);
             const names = await databases(page);
-            const held = await page.evaluate(() => window.heldState());
-            if (!names.includes(`Weiwudi_${MAP_ID}`) && held.Weiwudi.versionchange > 0) break;
+            const state = await page.evaluate(() => window.heldState());
+            finished = !names.includes(`Weiwudi_${MAP_ID}`) && state.Weiwudi.versionchange > 0;
+            if (!finished) await page.waitForTimeout(50);
         }
-        expect(i).toBeLessThan(40);
+        expect(finished).toBe(true);
         const held = await page.evaluate(() => window.heldState());
         // Weiwudi_x は onversionchange で閉じたので消えた
         expect(held[`Weiwudi_${MAP_ID}`]).toEqual({ versionchange: 1, closed: true });
