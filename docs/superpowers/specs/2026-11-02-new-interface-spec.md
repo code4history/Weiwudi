@@ -34,14 +34,14 @@
 | 7 | `context.setOffline(true)` が SW の `fetch` まで切る | 切る | ページの `fetch` が先に失敗（SW 到達を測れない） | 未測定 |
 | 8 | SW 停止（CDP `ServiceWorker.stopAllWorkers`）後の最初の要求より先に IndexedDB は読めない（照合表は空） | 確認 | — | — |
 | 9 | Workbox 7.4.1 で、`queueMicrotask` で登録したルートは利用者のルートより後ろに付き、§4.3 の振り分けが成立する | 確認 | — | — |
-| 10 | 登録したテンプレートと同じ URL の `<script>` と iframe の navigate に照合ルートが触らない（m3-t10・`engines.spec.js`） | 確認 | 未確定（対照の `<img>` の保存が Blob の制約で失敗し手前で落ちた。ArrayBuffer に替えた版の CI 待ち） | 確認 |
+| 10 | 登録したテンプレートと同じ URL の `<script>` と iframe の navigate に照合ルートが触らない（m3-t10・`engines.spec.js`） | 確認 | 確認（ArrayBuffer に替えた版の CI で通った） | 確認 |
 | 11 | sandbox（`allow-scripts allow-same-origin`）の srcdoc の iframe が controller を継ぎ、新 API が使える（m3-t10・`engines.spec.js`） | 継ぐ | 継ぐ | 継がない（中の呼び出しは `sw-not-controlling`） |
 
 **未確認として残す点**:
 
 - Firefox は Playwright 組み込みの Firefox で SW の準備完了が返らず、測れなかった。**m2 でも測らず**、「未確認」のまま README に書く（m2 計画の R14）。m3-t10 から CI の `e2e-engines` の job で 1 回走らせ（`continue-on-error`）、結果を記録する。結果（PR #94 の CI）: SW は準備でき、WebKit と同じ試験（診断を含め 30 件）がすべて通った。必須の検査にはしない
 - 上の表の WebKit の列は Playwright 1.62.1 と webkit-2336 のものである。lock の Playwright 1.64 が要求する webkit-2370（Firefox は 1555）は手元に無く、共有キャッシュを触らないため手元では `playwright install` をしない
-- m3-t10 から、WebKit は CI（GitHub の ubuntu・lock の Playwright・毎回 install）の `e2e-engines` の job で e2e を流す（R14'）。Chromium でしか成り立たない試験（CDP で SW を止めるもの・`context.setOffline` を使うもの（表の 7）・SW の要求を `context.route` で数えたり受けたりするもの（Mapbox の試験を含む））はタグ `@chromium-only` で外す。結果（PR #94 の CI・仮）: 29 件のうち 9 件が落ちた。どれも SW は要求を受ける（`miss`）が保存されず（`x-weiwudi-error: storage`）、WebKit の非永続の保存領域が IndexedDB に Blob を put できない（`UnknownError`）ためと診断で確かめた。Blob を保存できない WebKit の制約（プライベートブラウズを含む）に合わせ、本体を ArrayBuffer で保存する（§5.2）。件数の確定は直した版の CI の後Linux の WebKit と iOS の Safari の差は残る
+- m3-t10 から、WebKit は CI（GitHub の ubuntu・lock の Playwright・毎回 install）の `e2e-engines` の job で e2e を流す（R14'）。Chromium でしか成り立たない試験（CDP で SW を止めるもの・`context.setOffline` を使うもの（表の 7）・SW の要求を `context.route` で数えたり受けたりするもの（Mapbox の試験を含む））はタグ `@chromium-only` で外す。結果（PR #94 の CI）: 初回は 29 件のうち 9 件が落ちた。どれも SW は要求を受ける（`miss`）が保存されず（`x-weiwudi-error: storage`）、WebKit の非永続の保存領域が IndexedDB に Blob を put できない（`UnknownError`）ためと診断で確かめた。Blob を保存できない WebKit の制約（プライベートブラウズを含む）に合わせ、本体を ArrayBuffer で保存する（§5.2）。ArrayBuffer に替えた版の CI では WebKit の 29 件がすべて通った（Firefox も同じ 29 件がすべて通った）。Linux の WebKit と iOS の Safari の差は残る
 - 本書の設計は実装では未走行である（走らせたのは §2 の計測だけ）
 
 コードで確かめた事実:
@@ -286,7 +286,7 @@ export interface StoredBody {
 }
 ```
 
-本体を Blob のまま保存しない。WebKit の非永続の保存領域（Safari のプライベートブラウズ・Playwright の WebKit）は IndexedDB に Blob を put できない（`UnknownError: Error preparing Blob/File data to be stored in object store`。m3-t10 の CI で実測）。Blob との変換は `store.ts` の 1 か所で行い、Blob を持つ古いレコード（開発の途中の形）は miss として作り直す。
+本体を Blob のまま保存しない。WebKit の非永続の保存領域（Safari のプライベートブラウズ・Playwright の WebKit）は IndexedDB に Blob を put できない（`UnknownError: Error preparing Blob/File data to be stored in object store`。m3-t10 の CI で実測）。Blob との変換は `store.ts` に閉じ、Blob → ArrayBuffer の入口は 1 つ（`readBlob`。`toStoredBody` と `putGlyphParts` の部分の変換が使う）。Blob を持つ古いレコード（開発の途中の形）は miss として作り直す。
 
 `ResourceMeta` は保存の型で、公開しない。ページ側の API（`WeiwudiSource.resources`・`stats().byResource`）と差し込み口（§8）へは、射影した `ResourceInfo` だけを渡す。
 
