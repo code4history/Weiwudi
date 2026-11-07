@@ -226,3 +226,15 @@ Ruling: 第 2 回の反映で事前点検を合格とし、再点検は置かな
   3. m3 を閉じる（state の m3 を completed・要約 docs/superpowers/reports/ に m3 のまとめ）
   4. m4 の計画の事前点検（#98）→ m4 に着手
   5. #78 の設計のレビュー（#96）
+
+## m3-t10 WebKit を CI で測る（R14'・I7）
+
+- PR: https://github.com/code4history/Weiwudi/pull/94 （合流は下の merge commit）
+- 実測（t10 の枝 088b4b8）: 単体試験 1348 passed・typecheck・eslint 0・Chromium の e2e 46 passed（手元）・CI 全緑（e2e-engines で WebKit 29 passed・Firefox 29 passed）
+- 手元では playwright install をしていない（~/Library/Caches/ms-playwright は前後で同じ）
+- WebKit で 9 件落ちた原因: WebKit の非永続の保存領域（Playwright の WebKit・Safari のプライベートブラウズ）は IndexedDB に Blob を put できない（UnknownError: Error preparing Blob/File data）。診断の試験で確定し、store.ts の本体を ArrayBuffer＋type（StoredBody）に替えた（Ruling: 利用者の実害があり、新 store は未公開で移行の負担が無い）
+- srcdoc の iframe: Chromium・WebKit は制御を継ぎ、Firefox は継がない（sw-not-controlling）
+- L1（Claude Fable）: 合流可（Minor 4）。fake-indexeddb の同時操作の実験 8 件で txAfter を確かめた
+- L2（Codex gpt-6-astra）: 合流不可・Major 2（再現済み）: txAfter が変換の失敗で順を崩す・hasEntries がメタだけを見て fetchAll が古い形を取り直さない
+- 直し（d0b6ff7・088b4b8。実装は Kimi kimi-coding/k3。Codex は枠切れ）: 変換の成否を値で受けて先の order を待つ・hasEntries は本体が今の形で読めることまで確かめる・putGlyphParts の prep をキーの検査の後に・parts が本体を超えたら作り直す・変換の入口を readBlob 1 つに・順の試験を変換の順の明示の制御に・文書の件数の確定
+- 申し送り（m4-t7）: hasEntries は旧 API の fetchAll で保存済みのタイルごとに本体を 1 回読む（古い形の判定のため）。移行で旧 DB を ArrayBuffer にした後は、メタだけの判定に戻してよい
