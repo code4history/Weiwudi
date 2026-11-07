@@ -422,7 +422,7 @@ export interface ResourceInfo {
 
 - 「上流が失敗（HTTP）」は `!response.ok` に加え、**スタイル・TileJSON 以外で 200 の `text/html`**（§4.6。ログイン画面）を含む。Entry があれば 4 の古い本体、無ければ 5 の合成応答（上流の `status`・`statusText`・本体・ヘッダを写して `x-weiwudi-status: upstream-error`・`x-weiwudi-error: upstream` を足す。写すときに保存時と同じ `content-encoding`・`content-length`・`transfer-encoding`・`set-cookie` を落とす。新旧どちらの経路も同じで、旧 API での変化は §9 に書く）
 - **公開の契約**: `x-weiwudi-status` の値は表の 7 つ（`out-of-range`・`hit`・`miss`・`refresh`・`stale`・`upstream-error`・`offline-miss`）、`x-weiwudi-error` の値は 4 つ（`network`・`upstream`・`quota`・`storage`）、`access-control-expose-headers` は `x-weiwudi-status, x-weiwudi-error` で、合成した応答すべてに付ける（上流の同名のヘッダに足さず上書きする）。表の 5 では `x-weiwudi-error: upstream` を付ける。値を増やすときは minor で文書に足す
-- 配信の時点で削除期限（§7.1 の `cacheRetention`）を過ぎた Entry は「無いもの」として扱う（m2 から。掃除は m4）
+- 配信の時点で削除期限（§7.1 の `cacheRetention`）を過ぎた Entry は「無いもの」として扱う（掃除の前に当たる Entry のため。掃除は §7.1）
 - これは現行の `getImage` の順序そのものである（既存の試験が契約）。増えるのは §9 の既知の変化（`x-weiwudi-status` など）だけである。SW が合成した応答はページから見て `basic` なので、別オリジンの URL でもこのヘッダを読める（§2 の計測で確認）。ただし opaque の応答（§4.5 の 2）は SW が合成した応答ではないので `x-weiwudi-status` を付けられず、ページからも読めない
 - 保存に失敗しても配信は続ける（#22 の現行の決まり）。応答に `x-weiwudi-error`（§9）を付ける
 - 7 を透明画像にしないのは、地図ライブラリが親タイルへ戻る動きを止めないため
@@ -456,7 +456,9 @@ export interface ResourceInfo {
 | 容量 | `cacheMaxBytes`（Source 単位）・`setLimits({maxBytes})`（全体） | なし | 超えたら LRU で退避。単体で上限を超える応答は保存しない | 現行のまま＋全体上限 |
 | 固定 | `fetchRange` の `pin`（既定 `true`） | — | 固定した Entry は LRU と削除期限の対象外 | 新設 |
 
-- `cacheRetention` の掃除は、SW の起動後の最初のイベントとジョブの完了時に、`[pinned, fetchedAt]` 索引をバッチで走査する（タイマは SW で信用できない）。配信時にも期限切れは「無いもの」として扱う
+- `cacheRetention` の掃除は、SW の起動後の最初の store を使う Weiwudi の要求とジョブの完了時に行う（タイマは使わない）。旧 API の `ping`・`fetchAll` の dispatch と `control.get`（`/v2/ping`）は契機から外し、`fetchAll` はジョブの終了時に掃除する。制御 POST は送り手の検査後、照合ルート・門番は照合に当たったときだけ `waitUntil` に結び付ける。新しい fetch リスナは足さない。保守の失敗は記録し、配信は続ける
+- グリフ以外は `[pinned, fetchedAt]` 索引を 200 件ずつ読み、Resource ごとの期限で削除する。削除の tx で固定・取り直しの有無を見直す。グリフは Resource のキー範囲を 200 件ずつ読み、部分ごとの期限で本体を詰め直す。固定した Entry は消さない。配信時にも期限切れは「無いもの」として扱う
+- 1 回の掃除は両方の走査を合わせて最大 2,000 件の訪問まで（対象外のメタも数える）。未完なら時刻・方針・続きの位置をメモリに残し、次の対象要求で続ける。全走査が終わったら SW の生存期間中の完了印を立てる。ジョブ中は走らせず、終了時の `force` は未完の走査があれば続け、完了済みなら新たに始める。同時の掃除は 1 本にまとめる
 - `cacheMaxBytes` の範囲は Source。保存のとき、その `Resource` を `sourceIds` に持ち `cacheMaxBytes` を指定した **Source ごとに**、その Source の `Resource` 群の `[resourceId, 0, accessedAt]` を併合して古い順に消す（上限が 2 つあれば両方を満たす）。`rangeOnlySourceIds` の Source の上限は数えない。共有 `Resource` の Entry も消える（キャッシュなので許容し、固定で守れる）
 - 固定分だけで `cacheMaxBytes` を超えるときは `fetchRange` が `quota` で止まる
 - （m4）`QuotaExceededError` のときは、固定以外を全体 LRU で 10% 退避して 1 回だけ再試行する。旧 API の「保存の abort → 保存されない」の試験の結果を変えるので、m4 の全体上限と一緒に旧 API での扱いを決めて入れる（m2 計画の R15）。全体上限の既定が無いので、これが無いとブラウザの上限に当たった後はキャッシュが自力で回復しない

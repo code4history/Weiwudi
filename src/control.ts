@@ -411,6 +411,7 @@ export function createControl(ctx: Context): Control {
         if (!(await fromOwnOrigin(event))) {
           throw new WeiwudiError('sw-not-controlling', 'The request did not come from a client of the service worker origin');
         }
+        ctx.maintain?.(event);
         const op = url.pathname.slice(V2_PREFIX.length);
         let body: unknown;
         try {

@@ -214,6 +214,14 @@ console.log(source.warnings, await source.stats());
   A catch-all route (for example `/.*/`) registered before Weiwudi takes every
   tile request from it.
 
+`cacheRetention` sets a deletion deadline in milliseconds from `fetchedAt` (no deadline by default).
+Expired entries are treated as missing when serving requests and are deleted in batches on the first
+store-using Weiwudi request after the service worker starts, and when a job ends.
+Pinned entries are never deleted by this cleanup. Glyphs expire per stored range.
+Each cleanup run visits at most 2,000 records; unfinished cleanup continues on the next eligible request.
+It pauses while a job is running. Neither ping endpoint nor `fetchAll` dispatch starts cleanup;
+`fetchAll` runs it when the job ends.
+
 Details: [Source API](docs/api/weiwudi.md#source-api).
 
 ### API reference
