@@ -28,6 +28,7 @@ Weiwudi is open-source under the MIT License.
 - Automatic tile caching in IndexedDB via a cached URL template
 - First-visit proxy activation (`skipWaiting` + `clients.claim`) without a page reload
 - Per-map cache capacity limit (`cacheMaxBytes`) with least-recently-used eviction
+- Global cache limit across all sources (`Weiwudi.setLimits({ maxBytes })`), and a 10% least-recently-used eviction with one retry when the browser's storage quota is exceeded
 - Bulk prefetch (`fetchAll`) with progress events (`proceed` / `finish` / `stop`)
 - Works with any map library (Leaflet, OpenLayers, etc.) through the URL template
 - Source API (`Weiwudi.register`) that caches the real tile URLs the map library already requests

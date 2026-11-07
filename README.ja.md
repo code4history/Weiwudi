@@ -25,6 +25,7 @@ Weiwudi は MIT License のオープンソースソフトウェアです。
 - キャッシュ済み URL テンプレート経由の IndexedDB 自動タイルキャッシュ
 - ページリロードなしの初回プロキシ有効化（`skipWaiting` + `clients.claim`）
 - マップ単位のキャッシュ容量上限（`cacheMaxBytes`）と LRU 自動削除
+- 全 Source を合わせたキャッシュ容量上限（`Weiwudi.setLimits({ maxBytes })`）と、ブラウザの容量超過のときの 10% の LRU 退避と 1 回の再試行
 - 一括取得 (`fetchAll`) と進捗イベント (`proceed` / `finish` / `stop`)
 - URL テンプレート経由で Leaflet・OpenLayers など任意のマップライブラリと連携
 - 地図ライブラリが要求する実際のタイルの URL をそのままキャッシュする Source の API（`Weiwudi.register`）

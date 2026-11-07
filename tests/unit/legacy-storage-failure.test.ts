@@ -33,6 +33,28 @@ const abortPutAfterSuccess = (name: string) => {
   });
 };
 
+// m4-t6（R16）: 容量超過は全体の 10% を退避して 1 回だけ再試行する。保存の 1 回ごとに entries の put は 1 回なので、
+// entries の put だけを times 回まで abort する（再試行の put も数える）。他のストアの put はそのまま通す
+const abortEntryPutsAfterSuccess = (name: string, times: number) => {
+  const original = IDBObjectStore.prototype.put;
+  let left = times;
+  return vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, ...args: Parameters<IDBObjectStore['put']>) {
+    const req = original.apply(this, args);
+    if (this.name !== 'entries' || left <= 0) return req;
+    left--;
+    const tx = this.transaction;
+    req.addEventListener('success', () => {
+      (tx as unknown as { error: DOMException }).error = new DOMException('simulated', name);
+      tx.abort();
+    });
+    return req;
+  });
+};
+
+/** entries への put の回数（保存を試みた回数） */
+const entryPuts = (spy: { mock: { contexts: unknown[] } }) =>
+  spy.mock.contexts.filter((c) => (c as IDBObjectStore).name === 'entries').length;
+
 describe('getImage の x-weiwudi-error（#33）', () => {
   it('fetch が例外で保存が無い → 404・network', async () => {
     const h = createSwHarness();
@@ -92,10 +114,11 @@ describe('getImage の x-weiwudi-error（#33）', () => {
     const h = createSwHarness();
     await addTileMap(h, 'https://tile.example/{z}/{x}/{y}.png');
     h.fetch.mockImplementation(async () => new Response('tile', { headers: { 'content-type': 'image/png' } }));
-    const spy = abortPutAfterSuccess('QuotaExceededError');
+    // m4-t6: abort が 2 回続く形（再試行も失敗する）。結果の quota は変わらない（R16・m2 R15）
+    const spy = abortEntryPutsAfterSuccess('QuotaExceededError', 2);
     try {
       const res = await h.request('/api/cache/m/2/1/0');
-      expect(spy).toHaveBeenCalledTimes(3);
+      expect(entryPuts(spy)).toBe(2);
       expect(res.status).toBe(200);
       expect(await res.text()).toBe('tile');
       expect(res.headers.get('content-type')).toBe('image/png');
@@ -104,6 +127,25 @@ describe('getImage の x-weiwudi-error（#33）', () => {
       spy.mockRestore();
     }
     expect(await (await h.request('/api/stats?mapID=m')).json()).toMatchObject({ count: 0 });
+  });
+
+  it('保存の abort（QuotaExceededError）が 1 回なら、全体の 10% を退避した再試行で保存される（m4-t6・R16）', async () => {
+    const h = createSwHarness();
+    await addTileMap(h, 'https://tile.example/{z}/{x}/{y}.png');
+    h.fetch.mockImplementation(async () => tileResponse(10));
+    // 固定でない 10 byte を 2 枚置く（10% は ceil(20 × 0.1) = 2 byte で、古い 1 枚が消える）
+    await h.request('/api/cache/m/2/0/0');
+    await h.request('/api/cache/m/2/0/1');
+    const spy = abortEntryPutsAfterSuccess('QuotaExceededError', 1);
+    try {
+      const res = await h.request('/api/cache/m/2/1/0');
+      expect(entryPuts(spy)).toBe(2);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('x-weiwudi-error')).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await (await h.request('/api/stats?mapID=m')).json()).toMatchObject({ count: 2, size: 20 });
   });
 
   it('保存の abort がそれ以外の名前 → 200・storage', async () => {
@@ -164,15 +206,29 @@ const failRequest = (method: 'put' | 'delete', name: string) =>
     throw new DOMException('simulated', name);
   });
 
+// m4-t6: entries の put だけを times 回まで同期の例外で失敗させる（再試行の put も数える。R16）
+const failEntryPut = (name: string, times: number) => {
+  const original = IDBObjectStore.prototype.put;
+  let left = times;
+  return vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(function (this: IDBObjectStore, ...args: Parameters<IDBObjectStore['put']>) {
+    if (this.name === 'entries' && left > 0) {
+      left--;
+      throw new DOMException('simulated', name);
+    }
+    return original.apply(this, args);
+  });
+};
+
 describe('保存の失敗の分類（#33 レビュー）', () => {
   it('putItem: put の要求の失敗（QuotaExceededError）→ 200・quota', async () => {
     const h = createSwHarness();
     await addTileMap(h, 'https://tile.example/{z}/{x}/{y}.png');
     h.fetch.mockImplementation(async () => tileResponse(4));
-    const spy = failRequest('put', 'QuotaExceededError');
+    // m4-t6: 再試行の put も失敗させる（結果の quota は変わらない。R16）
+    const spy = failEntryPut('QuotaExceededError', 2);
     try {
       const res = await h.request('/api/cache/m/2/1/0');
-      expect(spy).toHaveBeenCalledTimes(1);
+      expect(entryPuts(spy)).toBe(2);
       expect(res.status).toBe(200);
       expect(res.headers.get('x-weiwudi-error')).toBe('quota');
     } finally {
@@ -184,10 +240,11 @@ describe('保存の失敗の分類（#33 レビュー）', () => {
     const h = createSwHarness();
     await addTileMap(h, 'https://tile.example/{z}/{x}/{y}.png', '&cacheMaxBytes=100');
     h.fetch.mockImplementation(async () => tileResponse(4));
-    const spy = failRequest('put', 'QuotaExceededError');
+    // m4-t6: 再試行の put も失敗させる（結果の quota は変わらない。R16）
+    const spy = failEntryPut('QuotaExceededError', 2);
     try {
       const res = await h.request('/api/cache/m/2/1/0');
-      expect(spy).toHaveBeenCalledTimes(1);
+      expect(entryPuts(spy)).toBe(2);
       expect(res.status).toBe(200);
       expect(res.headers.get('x-weiwudi-error')).toBe('quota');
     } finally {
@@ -216,10 +273,11 @@ describe('保存の失敗の分類（#33 レビュー）', () => {
     const h = createSwHarness();
     await addTileMap(h, 'https://tile.example/{z}/{x}/{y}.png', '&cacheMaxBytes=100');
     h.fetch.mockImplementation(async () => tileResponse(4));
-    const spy = abortPutAfterSuccess('QuotaExceededError');
+    // m4-t6: abort が 2 回続く形（再試行も失敗する。R16）
+    const spy = abortEntryPutsAfterSuccess('QuotaExceededError', 2);
     try {
       const res = await h.request('/api/cache/m/2/1/0');
-      expect(spy).toHaveBeenCalledTimes(3);
+      expect(entryPuts(spy)).toBe(2);
       expect(res.status).toBe(200);
       expect(res.headers.get('x-weiwudi-error')).toBe('quota');
     } finally {

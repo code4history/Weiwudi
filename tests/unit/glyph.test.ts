@@ -481,7 +481,8 @@ describe('グリフの束ね書き（m4-t4・L4・R-G・第 1 回 M15）', () =>
 
     const failing = createGlyphCollector(ctx, resource, gkey('Other'));
     await serve(ctx, glyphInput('Other', '0-255', vi.fn<Up>(async () => okBody(glyphBytes('0-255', 3))), { collect: failing }), () => T);
-    vi.spyOn(store, 'putGlyphParts').mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
+    // m4-t6: 容量超過は 1 回だけ再試行するので、再試行も失敗させる（R16）
+    vi.spyOn(store, 'putGlyphParts').mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError')).mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
     expect(await failing.flush()).toBe('quota');
     const broken = createGlyphCollector(ctx, resource, gkey('Broken'));
     await serve(ctx, glyphInput('Broken', '0-255', vi.fn<Up>(async () => okBody(glyphBytes('0-255', 3))), { collect: broken }), () => T);

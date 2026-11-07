@@ -486,6 +486,30 @@ interface UsageReport {
 - `byProvider` has a `null` prototype, so a key such as `__proto__` is an own
   property.
 
+### `Weiwudi.setLimits(limits)`
+
+**Parameters:** `limits: { maxBytes?: number }`. **Returns:** `Promise<void>`.
+
+Sets a global cache limit in bytes for all sources together (maps registered
+with `registerMap` included). When a new entry would make the unpinned
+entries exceed `maxBytes`, the least recently used unpinned entries are
+deleted across sources first. Pinned entries (`fetchRange` with `pin`) are
+neither counted nor deleted.
+
+- `maxBytes` is a non-negative finite integer; anything else rejects with
+  `attribute-invalid`. `Weiwudi.setLimits({})` removes the limit.
+- `maxBytes: 0` means "store nothing": tiles are still served, but none is
+  cached (the same as `cacheMaxBytes: 0` on a source). A single response larger
+  than `maxBytes` is not cached either.
+- The global limit and the `cacheMaxBytes` of each source both apply: an entry
+  is saved only after both are satisfied (the source's limit is applied first).
+- The limit applies from the next saved entry; setting a lower limit does not
+  delete anything at once.
+- Independently of `setLimits`, when the browser's storage quota is exceeded
+  (`QuotaExceededError`), Weiwudi deletes 10% of the unpinned cached bytes
+  (least recently used first, across sources) and retries the save once. If
+  the retry also fails, the tile is served with `x-weiwudi-error: quota`.
+
 ### `WeiwudiSource`
 
 | Member | Description |
@@ -881,6 +905,10 @@ API has always done; the body is unchanged:
 | Fetched but saving failed otherwise | 200, fetched tile | `storage` |
 
 The header is absent when the tile was served and cached normally.
+
+When saving hits the storage quota, Weiwudi first deletes 10% of the unpinned
+cached bytes (least recently used first) and retries once; `quota` is reported
+only when the retry also fails (see `Weiwudi.setLimits`).
 
 ---
 

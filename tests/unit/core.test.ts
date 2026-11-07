@@ -222,7 +222,8 @@ describe('serve: 仕様 §6 の表の 1〜7', () => {
 
   it('保存の失敗でも配信を続け、x-weiwudi-error に quota・storage を付ける', async () => {
     const spy = vi.spyOn(store, 'putEntry');
-    spy.mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
+    // m4-t6: 容量超過は 1 回だけ再試行するので、再試行も失敗させる（R16）
+    spy.mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError')).mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
     const q = await run();
     expect(q.status).toBe(200);
     expect(q.headers.get('x-weiwudi-status')).toBe('miss');
@@ -251,7 +252,8 @@ describe('serve: 仕様 §6 の表の 1〜7', () => {
     note(await run({ key: k('2_0_0'), coord: { z: 2, x: 0, y: 0 }, upstream: async () => ({ kind: 'response', response: new Response('', { status: 500 }) }) }));
     note(await run({ key: k('2_0_1'), coord: { z: 2, x: 0, y: 1 }, upstream: async () => ({ kind: 'network', error: 1 }) }));
     const spy = vi.spyOn(store, 'putEntry');
-    spy.mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
+    // m4-t6: 容量超過は 1 回だけ再試行するので、再試行も失敗させる（R16）
+    spy.mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError')).mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
     note(await run({ key: k('2_1_0'), coord: { z: 2, x: 1, y: 0 } }));
     spy.mockRejectedValueOnce(new Error('x'));
     note(await run({ key: k('2_1_1'), coord: { z: 2, x: 1, y: 1 } }));
@@ -1041,5 +1043,113 @@ describe('保存の土台（m4-t1）', () => {
     expect((await p).headers.get('x-weiwudi-status')).toBe('refresh');
     expect((await store.getEntry(k('1_0_0')))!.meta.pinned).toBe(1);
     expect(await store.getResource(RID)).toMatchObject({ count: 1, bytes: 8, pinnedBytes: 8 });
+  });
+});
+
+// ---- m4-t6: 容量超過の再試行（R16・仕様 §7.1）（追記のみ） ----
+// 既存の行を変えないため、import はここに足す（import 宣言は巻き上げられる）
+import { IDBObjectStore as FakeObjectStore } from 'fake-indexeddb';
+import { createGlyphCollector } from '../../src/core';
+
+describe('容量超過の再試行（m4-t6・R16）', () => {
+  // entries の put の成功の後に tx を QuotaExceededError で abort する（実物の容量超過と同じ順）。times 回まで
+  const abortEntryPuts = (times: number) => {
+    const original = FakeObjectStore.prototype.put;
+    let left = times;
+    return vi.spyOn(FakeObjectStore.prototype, 'put').mockImplementation(function (this: FakeObjectStore, ...args: Parameters<FakeObjectStore['put']>) {
+      const req = original.apply(this, args);
+      if (this.name !== 'entries' || left <= 0) return req;
+      left--;
+      const tx = this.transaction;
+      req.addEventListener('success', () => {
+        (tx as unknown as { error: DOMException }).error = new DOMException('simulated', 'QuotaExceededError');
+        tx.abort();
+      });
+      return req;
+    });
+  };
+
+  it('保存の abort が 1 回なら、固定以外の全体の 10% を退避して再試行が成功し、x-weiwudi-error が無い', async () => {
+    await seed('a', { accessedAt: T - 3, size: 5 });
+    await seed('b', { accessedAt: T - 2, size: 5 });
+    await seed('c', { accessedAt: T - 1, size: 5, pinned: 1 });
+    const evict = vi.spyOn(store, 'evictGlobal');
+    const put = vi.spyOn(store, 'putEntry');
+    abortEntryPuts(1);
+    const res = await run();
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-weiwudi-error')).toBeNull();
+    expect(await bytesOf(res)).toEqual(bodyOf(10, 2));
+    // 固定でない 10 byte の 10% → ceil(1) = 1 byte: 最も古い a だけが消える
+    expect(evict.mock.calls).toEqual([[1]]);
+    expect(put).toHaveBeenCalledTimes(2);
+    expect(await store.hasEntries([k('a'), k('b'), k('c'), k('1_0_0')])).toEqual([false, true, true, true]);
+    expect(await store.getTotals()).toEqual({ bytes: 20, pinnedBytes: 5, count: 3 });
+    expect(await store.getResource(RID)).toMatchObject({ count: 3, bytes: 20, pinnedBytes: 5 });
+  });
+
+  it('abort が 2 回続くと quota（再試行は 1 回だけ）', async () => {
+    await seed('a', { accessedAt: T - 3, size: 5 });
+    const put = vi.spyOn(store, 'putEntry');
+    abortEntryPuts(2);
+    const res = await run();
+    expect(res.status).toBe(200);
+    expect(res.headers.get('x-weiwudi-error')).toBe('quota');
+    expect(put).toHaveBeenCalledTimes(2);
+    expect(await store.hasEntries([k('1_0_0')])).toEqual([false]);
+  });
+
+  it('固定だけで 10% に足りないとき、退避は 0 件で再試行だけ', async () => {
+    await seed('a', { accessedAt: T - 3, size: 5, pinned: 1 });
+    await seed('b', { accessedAt: T - 2, size: 5, pinned: 1 });
+    const evict = vi.spyOn(store, 'evictGlobal');
+    abortEntryPuts(1);
+    const res = await run();
+    expect(res.headers.get('x-weiwudi-error')).toBeNull();
+    expect(evict.mock.calls).toEqual([[0]]);
+    expect(await evict.mock.results[0].value).toBe(0);
+    expect(await store.hasEntries([k('a'), k('b'), k('1_0_0')])).toEqual([true, true, true]);
+  });
+
+  it('容量超過でない失敗（storage）は再試行しない。退避が失敗したら再試行せず quota', async () => {
+    const put = vi.spyOn(store, 'putEntry').mockRejectedValueOnce(new DOMException('x', 'UnknownError'));
+    const evict = vi.spyOn(store, 'evictGlobal');
+    expect((await run()).headers.get('x-weiwudi-error')).toBe('storage');
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(evict).not.toHaveBeenCalled();
+    put.mockClear();
+    put.mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
+    evict.mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
+    expect((await run({ key: k('1_1_0'), coord: { z: 1, x: 1, y: 0 } })).headers.get('x-weiwudi-error')).toBe('quota');
+    expect(put).toHaveBeenCalledTimes(1);
+  });
+
+  it('グリフの束ね書きの flush も、容量超過なら 1 回だけ再試行する', async () => {
+    const put = vi.spyOn(store, 'putGlyphParts').mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
+    const collect = createGlyphCollector(ctx, (await store.getResource(RID))!, k('Noto'));
+    collect.add({ part: '0-255', body: new Blob([bodyOf(4)]), fetchedAt: T, headers: {} });
+    expect(await collect.flush()).toBeUndefined();
+    expect(put).toHaveBeenCalledTimes(2);
+    expect(await store.hasEntries([k('Noto')])).toEqual([true]);
+  });
+});
+
+// ---- m4-t6 PR #107 レビュー L1・L2（追記のみ） ----
+describe('容量超過の再試行の境界（PR #107 L1・L2）', () => {
+  it('固定でない分が 5 byte のとき、退避の量は ceil(0.5) = 1（切り上げ）', async () => {
+    await seed('a', { accessedAt: T - 1, size: 5 });
+    await seed('p', { accessedAt: T - 2, size: 5, pinned: 1 });
+    const evict = vi.spyOn(store, 'evictGlobal');
+    vi.spyOn(store, 'putEntry').mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
+    expect((await run()).headers.get('x-weiwudi-error')).toBeNull();
+    expect(evict.mock.calls).toEqual([[1]]);
+  });
+
+  it('1 回目が QuotaExceededError、再試行が UnknownError なら storage', async () => {
+    const put = vi.spyOn(store, 'putEntry')
+      .mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'))
+      .mockRejectedValueOnce(new DOMException('bad', 'UnknownError'));
+    expect((await run()).headers.get('x-weiwudi-error')).toBe('storage');
+    expect(put).toHaveBeenCalledTimes(2);
   });
 });

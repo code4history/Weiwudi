@@ -605,6 +605,15 @@ export default class Weiwudi extends WeiwudiEventTarget {
         return postV2<SourceInfo[]>('sources', {});
     }
 
+    /**
+     * 全体のキャッシュ上限（byte。m4-t6・仕様 §7.1）。固定でない Entry の和が超えると、Source をまたいで
+     * 古い順に消す（各 Source の cacheMaxBytes と両方を満たす）。maxBytes: 0 は何も保存しない。省略で上限を外す。
+     * 0 以上の有限の整数でなければ attribute-invalid
+     */
+    static async setLimits(limits: { maxBytes?: number }): Promise<void> {
+        await postV2<null>('setLimits', { maxBytes: limits?.maxBytes });
+    }
+
     static async registerMap(mapID: string, options: WeiwudiOptions) {
         const swCheck = await Weiwudi.swCheck();
         if (!swCheck) throw (legacyMessage('sw-not-implemented'));

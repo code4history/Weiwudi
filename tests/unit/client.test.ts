@@ -661,3 +661,22 @@ describe('releaseRange and clean(range, options)', () => {
     await rejectsWith(src.clean('all'), 'instance-released', m);
   });
 });
+
+// m4-t6: Weiwudi.setLimits (global cache limit).
+describe('Weiwudi.setLimits（m4-t6）', () => {
+  it('maxBytes を本文に POST し、undefined で解決する。省略は {}（上限を外す）', async () => {
+    const m = await setup();
+    postReply = async () => jsonRes({ ok: true, result: null });
+    expect(await m.default.setLimits({ maxBytes: 100 })).toBeUndefined();
+    expect(await m.default.setLimits({ maxBytes: 0 })).toBeUndefined();
+    expect(await m.default.setLimits({})).toBeUndefined();
+    const wire = posts().filter((p) => p.url.endsWith('/v2/setLimits')).map((p) => JSON.parse(String(p.init!.body)));
+    expect(wire).toEqual([{ maxBytes: 100 }, { maxBytes: 0 }, {}]);
+  });
+
+  it('失敗は WeiwudiError（attribute-invalid）', async () => {
+    const m = await setup();
+    postReply = async () => jsonRes({ ok: false, error: { code: 'attribute-invalid', message: 'bad', detail: { attribute: 'maxBytes' } } });
+    await rejectsWith(m.default.setLimits({ maxBytes: -1 }), 'attribute-invalid', m);
+  });
+});

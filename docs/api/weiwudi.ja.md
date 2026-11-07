@@ -426,6 +426,23 @@ interface UsageReport {
   `'unknown'` です。提供元の id と origin は同じ鍵の空間にあります（origin と同じ名前の提供元の id は同じ項目に足されます）。
 - `byProvider` は `null` プロトタイプです。`__proto__` のような鍵も自前の項目になります。
 
+### `Weiwudi.setLimits(limits)`
+
+**引数:** `limits: { maxBytes?: number }`。**戻り値:** `Promise<void>`。
+
+全 Source（`registerMap` で登録した地図も含む）を合わせたキャッシュの上限（byte）を決めます。新しい Entry で固定でない
+Entry の和が `maxBytes` を超えるときは、Source をまたいで最も古く使われた固定でない Entry から消します。固定した Entry
+（`fetchRange` の `pin`）は数えず、消しません。
+
+- `maxBytes` は 0 以上の有限の整数です。それ以外は `attribute-invalid` で reject します。`Weiwudi.setLimits({})` で上限を外します。
+- `maxBytes: 0` は「何も保存しない」の意味です。タイルは配りますが、保存しません（Source の `cacheMaxBytes: 0` と同じ）。
+  `maxBytes` より大きい応答 1 つも保存しません。
+- 全体上限と各 Source の `cacheMaxBytes` は両方を満たします（Source の上限を先に当て、両方を満たしてから保存します）。
+- 上限は次の保存から効きます。下げても、その時点ですぐには消しません。
+- `setLimits` とは別に、ブラウザの保存の上限を超えたとき（`QuotaExceededError`）は、固定でない保存の 10% を
+  （Source をまたいで古い順に）消して、保存を 1 回だけやり直します。やり直しも失敗したら、タイルは
+  `x-weiwudi-error: quota` を付けて配ります。
+
 ### `WeiwudiSource`
 
 | メンバ | 説明 |
@@ -740,6 +757,9 @@ Source の API は上の表の `attribute-invalid`・`sw-not-controlling`・`ins
 | 取得できたが保存がそれ以外で失敗 | 200・取得したタイル | `storage` |
 
 ふつうに配って保存できたときは、このヘッダは付きません。
+
+保存が容量超過になったときは、先に固定でない保存の 10% を古い順に消して 1 回だけやり直し、やり直しも失敗したときだけ
+`quota` を付けます（`Weiwudi.setLimits` を参照）。
 
 ---
 
