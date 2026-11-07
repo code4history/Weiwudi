@@ -473,8 +473,14 @@ export function stripParams(url: URL, params: readonly string[]): URL {
   return out;
 }
 
-/** 名前か値が sk. で始まる（大文字小文字を問わない）。URLSearchParams で decode した後の形で見る（I9・X4） */
-const isSecretPair = (n: string, v: string): boolean => /^sk\./i.test(n) || /^sk\./i.test(v);
+/**
+ * 秘密トークンの値か（仕様 §10。判定の唯一の出どころ。spec.isSecretToken と isSecretPair が使う。m4-t8・L7・R35）:
+ * 先頭の Bearer ・Token ・Basic （大文字小文字を問わない）と空白を剥がしてから sk. で始まる。decode した値も見るのは呼び出し側
+ */
+export const isSecretValue = (v: string): boolean => /^sk\./i.test(v.replace(/^\s*(?:(?:bearer|token|basic)\s+)?\s*/i, ''));
+
+/** 名前が sk. で始まるか、値が isSecretValue（大文字小文字を問わない）。URLSearchParams で decode した後の形で見る（I9・X4・L7） */
+const isSecretPair = (n: string, v: string): boolean => /^sk\./i.test(n) || isSecretValue(v);
 
 /**
  * 照合に使った項目と資格情報を除いた残りのクエリを、名前順（同名は値の順）に並べた `?…`。無ければ空。

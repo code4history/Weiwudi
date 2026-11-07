@@ -24,12 +24,12 @@
 //   GET の /v2/ping は見ない
 import type { RouteHandlerCallbackOptions } from 'workbox-core';
 import type { Context } from './context';
-import { tableChanged } from './hook';
+import { GATE_WAIT_MS, tableChanged, withTimeout } from './hook';
 import { applyRegister, applyRemove, applyUpdate, isExclusiveTo } from './registry';
-import { isNormalizedStyle, normalizeSpec, type NormalizedSpec } from './spec';
+import { isNormalizedStyle, normalizeSpec, undeclaredCredentialWarnings, type NormalizedSpec } from './spec';
 import { ownersOf, registerStyle, removeStyleChildren, styleChildIds } from './style';
 import { isChildRecord, isLegacyRecord, storedSpecOf, styleSpecOf, toResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
-import { countTiles } from './tile_math';
+import { countTiles, isInTileBox, scaleTileBox, type TileBox } from './tile_math';
 import { assertSourceIdle, cancelRange, cleanRange, estimate, listRegionInfos, releaseAllOf, releaseRange, resumeRange, resumeState, startFetchRange, type JobClient } from './range';
 import { WeiwudiError } from './errors';
 import { V2_PREFIX } from './constants';
@@ -48,9 +48,16 @@ const json = (value: unknown): Response =>
 
 const success = (result: unknown): Response => json({ ok: true, result: result ?? null });
 
-/** 失敗の形（仕様 §9）。WeiwudiError でない例外（IndexedDB など）は from で分類する */
+/**
+ * 失敗の形（仕様 §9）。WeiwudiError でない例外（IndexedDB など）は from で分類する。
+ * from が internal にする DOMException（IndexedDB の例外）だけを storage（detail: { name }）にする。quota・db-blocked は from のまま、
+ * DOMException でない例外（TypeError など。Weiwudi の不具合）は internal のまま（m4-t8・I4a・R39）
+ */
 const failure = (e: unknown): Response => {
-  const err = WeiwudiError.from(e);
+  let err = WeiwudiError.from(e);
+  if (err.code === 'internal' && e !== err && typeof DOMException !== 'undefined' && e instanceof DOMException) {
+    err = new WeiwudiError('storage', err.message, { name: e.name });
+  }
   return json({ ok: false, error: { code: err.code, message: err.message, detail: err.detail ?? {} } });
 };
 
@@ -131,12 +138,26 @@ const infoOf = async (store: Store, rec: SourceRecord): Promise<SourceInfo> => {
   };
 };
 
+/** Resource の Entry のうち、範囲（box）の中のものの数。z ごとに entriesAtZoom を読む（共有・範囲だけの Resource だけ。m4-t8・I3） */
+const countInBox = async (store: Store, resourceId: string, box: TileBox, minZoom: number, maxZoom: number): Promise<number> => {
+  let n = 0;
+  for (let z = minZoom; z <= maxZoom; z++) {
+    const b = scaleTileBox(box, maxZoom, z);
+    for (const e of await store.entriesAtZoom(resourceId, z)) {
+      if (e.x !== undefined && e.y !== undefined && isInTileBox(b, e.x, e.y)) n++;
+    }
+  }
+  return n;
+};
+
 /** SourceStats（仕様 §12）。byResource は null プロトタイプ（id が __proto__ などでも壊れない。第 3 回 推奨） */
 const statsOf = async (store: Store, rec: SourceRecord): Promise<SourceStats> => {
   const byResource: Record<string, { count: number; bytes: number }> = Object.create(null);
   let count = 0;
   let size = 0;
-  for (const m of await resourcesOf(store, await ownerIdsOf(store, rec))) {
+  const owners = await ownerIdsOf(store, rec);
+  const resources = await resourcesOf(store, owners);
+  for (const m of resources) {
     byResource[m.id] = { count: m.count, bytes: m.bytes };
     count += m.count;
     size += m.bytes;
@@ -144,10 +165,19 @@ const statsOf = async (store: Store, rec: SourceRecord): Promise<SourceStats> =>
   const stats: SourceStats = { count, size, byResource };
   // スタイルは範囲が 1 つに決まらないので total・percent を出さない（storedSpecOf は style の親で undefined）
   const extent = storedSpecOf(rec)?.extent;
-  if (extent?.box) {
-    // 範囲が決まるときだけ（仕様 §12）
-    stats.total = countTiles(extent.box, extent.minZoom, extent.maxZoom);
-    stats.percent = Math.floor(count * 100 / (stats.total || 1));
+  const box = extent?.box;
+  if (extent && box) {
+    // 範囲が決まるときだけ（仕様 §12）。count は box の中の Entry（m4-t8・I3・R41）。その Source だけが参照する Resource は
+    // 範囲外を保存しない（§6 の 1）ので Resource の count を使い、共有・範囲だけの Resource だけ z ごとに数える（2 秒ごとの stats() で
+    // 全 Entry のメタを読まない。第 1 回 M14）。byResource と size は Resource の数のまま
+    let inBox = 0;
+    for (const m of resources) {
+      inBox += isExclusiveTo(m, owners) && !isRangeOnlyFor(m, owners) ? m.count : await countInBox(store, m.id, box, extent.minZoom, extent.maxZoom);
+    }
+    stats.count = inBox;
+    stats.total = countTiles(box, extent.minZoom, extent.maxZoom);
+    // update() で範囲を狭めた後の排他の Resource の範囲外の Entry も数えるので 100 で止める
+    stats.percent = Math.min(100, Math.floor(inBox * 100 / (stats.total || 1)));
   }
   return stats;
 };
@@ -159,7 +189,8 @@ const statsOf = async (store: Store, rec: SourceRecord): Promise<SourceStats> =>
 const refreshTable = async (ctx: Context, resourceIds: readonly string[]): Promise<string[]> => {
   let warnings: string[];
   try {
-    warnings = await tableChanged(ctx);
+    // 上限は門番と同じ GATE_WAIT_MS。超えたら失敗と同じ扱い（登録は成功。m4-t8・I2b・R38）
+    warnings = await withTimeout(tableChanged(ctx), GATE_WAIT_MS);
   } catch (_e) {
     ctx.table.current = undefined;
     return [];
@@ -281,22 +312,37 @@ export function createControl(ctx: Context): Control {
     return run;
   };
 
-  /** 保存の後: 照合表を作り直し、持ち主の Resource の影を warnings に足して SourceInfo を返す */
-  const finish = async (store: Store, rec: SourceRecord): Promise<SourceInfo> => {
+  /**
+   * 書き換えの op を直列に通し、途中で例外が出たら照合表を 1 回作り直してから投げ直す（表を古いまま固めない。m4-t8・I4b・R40）
+   */
+  const serialRefresh = <T>(fn: () => Promise<T>): Promise<T> => serial(async () => {
+    try {
+      return await fn();
+    } catch (e) {
+      await refreshTable(ctx, []);
+      throw e;
+    }
+  });
+
+  /**
+   * 保存の後: 照合表を作り直し、持ち主の Resource の影を warnings に足して SourceInfo を返す。
+   * extra は正規化の warnings（credential-undeclared。m4-t8・L8）で、影の前に足す
+   */
+  const finish = async (store: Store, rec: SourceRecord, extra: readonly string[] = []): Promise<SourceInfo> => {
     const ids = (await resourcesOf(store, await ownerIdsOf(store, rec))).map((m) => m.id);
-    return infoOf(store, await withShadows(store, rec, await refreshTable(ctx, ids)));
+    return infoOf(store, await withShadows(store, rec, [...extra, ...(await refreshTable(ctx, ids))]));
   };
 
-  const register = (body: unknown) => serial(async () => {
+  const register = (body: unknown) => serialRefresh(async () => {
     // 提供元の評価の順（利用者が先・標準の mapbox が後）で解決してから検査する（m3-t5・X8）
     const spec = normalizeSpec(body, ctx.providers());
     const store = await ctx.store();
-    if (isNormalizedStyle(spec)) return finish(store, await registerStyle(ctx, spec, { mode: 'register', swOrigin: swOrigin() }));
+    if (isNormalizedStyle(spec)) return finish(store, await registerStyle(ctx, spec, { mode: 'register', swOrigin: swOrigin() }), spec.warnings);
     const r = await applyRegister(store, spec);
-    return finish(store, r.source);
+    return finish(store, r.source, spec.warnings);
   });
 
-  const update = (id: string) => serial(async () => {
+  const update = (id: string) => serialRefresh(async () => {
     const store = await ctx.store();
     const rec = await getOwn(store, id);
     const credentials = await store.getCredentials(id);
@@ -307,7 +353,7 @@ export function createControl(ctx: Context): Control {
       const out = await registerStyle(ctx, credentials ? { spec: style, credentials } : { spec: style },
         { mode: 'update', swOrigin: swOrigin() });
       for (const rid of [...before, ...(await resourcesOf(store, await ownerIdsOf(store, out))).map((m) => m.id)]) ctx.corslessStreak.delete(rid);
-      return finish(store, out);
+      return finish(store, out, undeclaredCredentialWarnings([style.url], style.policy.credentialParams));
     }
     // 保存した登録内容で合流と方針を作り直す（資格情報は credentials ストアのものを持ち越す）
     // 保存した登録内容は storedSpecOf で読む（m2 の記録は type が無く、生のまま渡すと型違いの衝突になる。L1 M1）
@@ -317,7 +363,8 @@ export function createControl(ctx: Context): Control {
     const r = await applyUpdate(store, id, spec);
     // CORS の判定をやり直す（仕様 §4.5。corsOk・corslessUntil は registry が消す）
     for (const m of r.resources) ctx.corslessStreak.delete(m.id);
-    return finish(store, r.source);
+    // 正規化の warnings（credential-undeclared）は保存した登録内容から作り直す（applyUpdate が warnings を書き直すため。m4-t8・L8）
+    return finish(store, r.source, undeclaredCredentialWarnings(Array.isArray(stored.url) ? stored.url : [stored.url], stored.policy.credentialParams));
   });
 
   const clean = (body: unknown) => serial(async () => {
@@ -349,7 +396,7 @@ export function createControl(ctx: Context): Control {
     return null;
   });
 
-  const remove = (id: string) => serial(async () => {
+  const remove = (id: string) => serialRefresh(async () => {
     const store = await ctx.store();
     const rec = await getOwn(store, id);
     assertSourceIdle(ctx, id);
@@ -367,7 +414,7 @@ export function createControl(ctx: Context): Control {
     return null;
   });
 
-  const removeResource = (body: unknown) => serial(async () => {
+  const removeResource = (body: unknown) => serialRefresh(async () => {
     const id = idOf(body);
     const resourceId = resourceIdOf(body);
     const store = await ctx.store();

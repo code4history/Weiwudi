@@ -63,6 +63,8 @@ export interface TableState {
   pickCredentialSource?: CredentialSourcePicker;
   /** BroadcastChannel('weiwudi')。無い環境では undefined */
   channel?: BroadcastChannel;
+  /** 表の更新の通知をまとめるタイマ（hook.tableChanged。m4-t8・I8b・R34） */
+  notifyTimer?: ReturnType<typeof setTimeout>;
 }
 
 export interface Context {

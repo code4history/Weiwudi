@@ -14,7 +14,7 @@ import { WeiwudiError, type TileFailure, type WeiwudiErrorCode } from './errors'
 import { DAY_MS, LEGACY_PREFIX, PSEUDO_HOST } from './constants';
 import { lngLatBoundsToTileBox } from './tile_math';
 import {
-  DEFAULT_CREDENTIAL_PARAMS, MAX_TILE_ZOOM, compileTemplate, normalizeTemplate, stripTemplateParams, tokenRejection,
+  DEFAULT_CREDENTIAL_PARAMS, MAX_TILE_ZOOM, compileTemplate, isSecretValue, normalizeTemplate, stripTemplateParams, tokenRejection,
 } from './url_pattern';
 
 // ---- 公開の型（仕様 §12。ページ側 API の型の正本。t8 で weiwudi.ts から export する） ----
@@ -164,6 +164,8 @@ export interface NormalizedSpec {
   spec: StoredSpec;
   /** credentials ストアだけへ入れる。無ければ undefined */
   credentials?: Credentials;
+  /** 登録は通すが知らせること（"credential-undeclared: <名前>"。m4-t8・L8・R36）。無ければ undefined */
+  warnings?: string[];
 }
 
 /** Web メルカトルの緯度の限界 */
@@ -194,8 +196,8 @@ const own = (o: Record<string, unknown>, k: string): unknown =>
 const isNonNegNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 const isNonNegInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
 
-/** 先頭の Bearer ・Token ・Basic （大文字小文字を問わない）と空白を剥がしてから sk. で始まるか（仕様 §10） */
-const isSecretToken = (v: string): boolean => /^sk\./i.test(v.replace(/^\s*(?:(?:bearer|token|basic)\s+)?\s*/i, ''));
+/** 秘密トークンか（仕様 §10）。判定は url_pattern.isSecretValue 1 か所（m4-t8・L7・R35） */
+const isSecretToken = (v: string): boolean => isSecretValue(v);
 
 /** パスの区画の秘密トークン（仕様 §10。I9・R23）: sk.eyJ で始まる区画だけ（sk.osm のような区画名は通す）。大文字小文字を問わない */
 const isSecretPathSegment = (v: string): boolean => /^sk\.eyj/i.test(v);
@@ -431,6 +433,28 @@ const parseExtent = (o: Record<string, unknown>, sourceId: string, scheme: 'xyz'
   return extent;
 };
 
+/** 資格情報らしい値の形（m4-t8・L8・R36。sk. は checkTemplate が先に拒否する） */
+const CREDENTIAL_LIKE = /^(pk|sk|tk)\./i;
+
+/**
+ * テンプレートのクエリのうち、credentialParams（既定＋宣言。大文字小文字を問わない）に無い名前の値が資格情報らしい
+ * （^(pk|sk|tk)\.。生の形か decode した形）項目の warnings（"credential-undeclared: <名前>"。値は書かない。名前ごとに 1 回）。
+ * normalizeMember と、保存した登録内容から作り直す control の update() が共有する（m4-t8・L8・R36）
+ */
+export function undeclaredCredentialWarnings(urls: readonly string[], credentialParams: readonly string[]): string[] {
+  const declared = new Set(credentialParams.map((p) => p.toLowerCase()));
+  const out: string[] = [];
+  for (const t of urls) {
+    for (const p of templateQueryPairs(t)) {
+      if (declared.has(p.name.toLowerCase())) continue;
+      if (!CREDENTIAL_LIKE.test(p.raw) && !CREDENTIAL_LIKE.test(p.decoded)) continue;
+      const w = `credential-undeclared: ${p.name}`;
+      if (out.indexOf(w) < 0) out.push(w);
+    }
+  }
+  return out;
+}
+
 /** 資源の指定に共通の入力（cacheTtl などの方針・credentials・credentialParams。tile は範囲・scheme・tileSize・outOfRange も）。検査は normalizeMember が行う */
 export type CommonPolicyInput = Record<string, unknown>;
 
@@ -562,13 +586,16 @@ export function normalizeMember(
   if (cacheMaxBytes !== undefined) spec.cacheMaxBytes = cacheMaxBytes;
   if (provider) spec.provider = provider.id;
 
-  return credentials ? { spec, credentials } : { spec };
+  const warnings = undeclaredCredentialWarnings(urls, credentialParams);
+  return { spec, ...(credentials ? { credentials } : {}), ...(warnings.length > 0 ? { warnings } : {}) };
 }
 
 /** スタイルの Source（親）の正規化の出力（m3-t7）。資格情報は credentials ストアだけへ入れる */
 export interface NormalizedStyle {
   spec: StyleSpec;
   credentials?: Credentials;
+  /** NormalizedSpec.warnings と同じ（m4-t8・L8） */
+  warnings?: string[];
 }
 
 /** normalizeSpec の出力。kind: 'style' は NormalizedStyle、それ以外は NormalizedSpec */
@@ -603,7 +630,7 @@ const normalizeStyle = (input: Record<string, unknown>, providers?: readonly Wei
   if (fonts) spec.fonts = fonts;
   if (n.spec.cacheMaxBytes !== undefined) spec.cacheMaxBytes = n.spec.cacheMaxBytes;
   if (n.spec.provider !== undefined) spec.provider = n.spec.provider;
-  return n.credentials ? { spec, credentials: n.credentials } : { spec };
+  return { spec, ...(n.credentials ? { credentials: n.credentials } : {}), ...(n.warnings ? { warnings: n.warnings } : {}) };
 };
 
 /**

@@ -533,3 +533,36 @@ describe('normalizeRange・copyRange・normalizeFetchOptions（m4-t3・§7.2・R
     }
   });
 });
+
+describe('m4-t8 L8（R36）: 宣言の無い資格情報らしい値は warnings に credential-undeclared', () => {
+  const U = 'https://a.example/{z}/{x}/{y}.png';
+
+  it('?mytoken=pk.abc は credential-undeclared: mytoken を warnings に足し、値は書かない。登録は成功', () => {
+    const n = normalizeSpec({ kind: 'raster', url: `${U}?mytoken=pk.abc` }) as NormalizedSpec & { warnings?: string[] };
+    expect(n.warnings).toEqual(['credential-undeclared: mytoken']);
+    expect(JSON.stringify(n.warnings)).not.toContain('pk.abc');
+  });
+
+  it('tk. も当たる。percent-encode した値も decode して見る。同じ名前は 1 回', () => {
+    const n = normalizeSpec({ kind: 'raster', url: [`${U}?a=tk.x&b=%70k.y`, `https://b.example/{z}/{x}/{y}.png?a=tk.x`] }) as NormalizedSpec & { warnings?: string[] };
+    expect(n.warnings).toEqual(['credential-undeclared: a', 'credential-undeclared: b']);
+  });
+
+  it('credentialParams: [\'mytoken\'] なら出ない。既定の access_token も出ない。当たらない値も出ない', () => {
+    const declared = normalizeSpec({ kind: 'raster', url: `${U}?mytoken=pk.abc`, credentialParams: ['mytoken'] }) as NormalizedSpec & { warnings?: string[] };
+    expect(declared.warnings).toBeUndefined();
+    const def = normalizeSpec({ kind: 'raster', url: `${U}?access_token=pk.abc` }) as NormalizedSpec & { warnings?: string[] };
+    expect(def.warnings).toBeUndefined();
+    const plain = normalizeSpec({ kind: 'raster', url: `${U}?v=disk.1` }) as NormalizedSpec & { warnings?: string[] };
+    expect(plain.warnings).toBeUndefined();
+  });
+
+  it('sk. は credential-rejected のまま（拒否が先）', () => {
+    expect(codeOf({ kind: 'raster', url: `${U}?mytoken=sk.abc` })).toBe('credential-rejected');
+  });
+
+  it('isSecretToken の判定は url_pattern.isSecretValue（Bearer sk. の資格情報は今のとおり拒否）', () => {
+    expect(codeOf({ kind: 'raster', url: U, credentials: { headers: { authorization: 'Bearer sk.eyJabc' } } })).toBe('credential-rejected');
+    expect(codeOf({ kind: 'raster', url: U, credentials: { query: { q: 'Token  sk.x' } } })).toBe('credential-rejected');
+  });
+});
