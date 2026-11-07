@@ -188,3 +188,39 @@
   - 新しい公開の code `credential-undeclared` は warnings だけに出る。WeiwudiErrorCode は不変
   - storage が制御の失敗としても返る（detail.name）。ページ側が storage をタイルの失敗だけと決めつけていないか確かめる
   - t11: CHANGELOG に credential-undeclared（warnings の code が 1 つ増えた）を書く
+
+## m4-t6 全体上限 setLimits と QuotaExceededError の再試行 — 完了（PR #107 → 1fe1b58）
+
+- 実装: Claude（Codex・Kimi が 5 時間の枠切れ）。037a40e・6994f11（t8 の合流後に載せ直し ffa02fb・836b45c）、レビューの試験の追加 851109a。t8 と並行（t8 の後に合流。衝突は src/control.ts の import 1 か所だけ）
+- 判定: `node_modules/.bin/vitest run` 42 ファイル・1608 件 passed（t8 の合流後）・`tsc --noEmit` exit 0・`eslint src tests` exit 0（warning 2 件は既存）・build 3 構成と `tsc -p tests/dts/tsconfig.json` exit 0・e2e（Chromium）46 passed。CI（Node 22・24、WebKit・Firefox）緑
+- 受け入れ条件の grep: `static setLimits(`（dist/weiwudi.d.ts）1・`setLimits` は docs/api 英日 4・4、README 英日 1・1・`10%` は docs/api 英日 2・2
+- 事前点検 M1: 全体の要素の初めの値は「totals.bytes − totals.pinnedBytes ＋ この tx の全 Resource の deltas.bytes の和 −（willSave かつ old.pinned === 0 なら old.size）」。cursor でも保存するキーを飛ばす。limits.test.ts で旧 getAll を写した参照の関数と種を固定して 100 回突き合わせ（Source の上限と全体上限の両方）
+- 既存の試験の書き換え（計画が台帳への記録を求めたもの）: 「1 回だけ失敗させる」仕掛けを 2 回にした。1 回の再試行で成功してしまい quota が出なくなるため。期待する quota・保存されないこと・stats の count 0 は不変
+  - tests/unit/legacy-storage-failure.test.ts（計画が許可）: :91・:168・:183・:215 の 4 件。仕掛けを entries の put だけを N 回失敗させる補助に替え、`toHaveBeenCalledTimes(3)`・`(1)` を `entryPuts(spy) === 2` に替えた（kv の put が増えたため）。「abort が 1 回なら再試行で保存される」を 1 件追加
+  - 計画の対象外（R-t1-1 と同じ扱い）: tests/unit/core.test.ts:225・:254、glyph.test.ts:484、range-style.test.ts:260 の `mockRejectedValueOnce` を 2 回つないだ
+  - tests/e2e/quota.spec.js: 上限が 1 byte なので再試行も失敗し、書き換えなしで passed（実装担当とレビュー担当の両方が Chromium で確認）
+- Rulings（実装担当）
+  - R-t6-1: EvictionScope.resourceIds は省略できる形。省略したものが全体の要素で、evictScopesFor は Source の要素の後に置く
+  - R-t6-2: 全体上限は Source の上限と同じく固定分を数えない。固定は上限を超えても消さない
+  - R-t6-3: totals が無いときの和は resources を getAll でなく cursor で数える（hook.test.ts:127 が照合表の読み込みの getAll を数えるため）
+  - R-t6-4: 新しい DB を作るとき totals を書かない（upgrade の put が既存の put の仕掛けの試験を壊す）。最初の書き込みの tx が作る
+  - R-t6-5: totals は Entry を増減する書き込みの tx で毎回 put する（差分 0 でも）。getTotals は読むだけ
+  - R-t6-6: evictGlobal(bytes) は bytes ≤ 0 なら tx を作らず 0。消した Entry の数を返す
+  - R-t6-7: 再試行の前の退避が失敗したら再試行せず quota。quota でない失敗は再試行しない。再試行が quota 以外で失敗したら storage
+  - R-t6-8: 移行（migrate.ts）の putEntry は再試行しない（計画は core.save と flush だけ）。全体の要素は evictScopesFor を通るので移行にも効く
+  - R-t6-9: setLimits は次の保存から効く。下げたときにすぐには消さない（文書にも記載）
+  - R-t6-10: setLimits の本文が object でない・maxBytes が null・小数・負・文字列・真偽値・object なら attribute-invalid（attribute は limits／maxBytes）
+  - R-t6-11: range.ts の overPinnedLimit は、全体の要素なら totals.pinnedBytes ≥ maxBytes で quota（計画の対象外のファイルを 3 行。直さないと resourceIds の undefined を回して TypeError）
+  - R-t6-12: control.ts の import は既存の行を変えず 1 行足した（t8 との共有ファイルを追記に留める）
+  - R-t6-13: setLimits は直列（serial・serialRefresh）に入れない。kv に 1 回書くだけで、表も Entry も変えない
+  - R-t6-14（orchestrator・レビュー L4）: グリフの flush の再試行で、同じレコードの固定でない古い部分が evictGlobal でレコードごと消え、再試行は新しい部分だけで作り直す。LRU として正当な退避で失うのはキャッシュだけなので直さない
+- レビュー（L1・L2）: Claude（Codex・Kimi が枠切れ）。判定は合流可。S 0・M 0・L 5。写しで 29 個の変異試験（依頼の 4 点はすべて落ちた）。entries への put・delete の経路を全部洗い、totals の更新の漏れが無いことを確かめた
+  - L1: Math.ceil を floor にしても通った → 固定でない 5 byte で evictGlobal(1) の試験を追加
+  - L2: 再試行が quota 以外で失敗したとき storage の試験が無い → 追加
+  - L3: overPinnedLimit の全体の要素の行（R-t6-11）を消しても通った → setLimits の後の fetchRange が quota で止まる試験を追加
+  - L4: グリフの再試行で古い部分が消える → R-t6-14
+  - L5: kv の limits の検査を外しても通る（書くのは検査済みの setLimits だけで実害なし）→ 見送り
+  - 851109a の 3 件は、該当の行を壊すと落ちることを確かめた
+  - 未確認（レビュー）: 実ブラウザで totals の put が増えた削除の tx が容量超過で abort するか。WebKit・Firefox の quota.spec（手元は Chromium のみ。CI の WebKit・Firefox は緑）。保存のたびに evictScopesFor が kv を 1 回余分に読む性能の影響
+- t10 への申し送り: 実ブラウザでの再試行の成功（abort が 1 回の筋書き。CDP の上限では 1 回だけ失敗させられない）。totals の無い開発用 DB での最初の書き込みと、数 GB の resources の cursor の時間
+- t11 への申し送り: CHANGELOG に「`Weiwudi.setLimits({ maxBytes })`（feat）」と「容量超過のとき固定以外を全体の 10% 退避して 1 回再試行する（1.1.x は保存しなかった。§9 の既知の変化）」
