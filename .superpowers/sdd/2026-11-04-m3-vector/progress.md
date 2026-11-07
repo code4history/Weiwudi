@@ -238,3 +238,9 @@ Ruling: 第 2 回の反映で事前点検を合格とし、再点検は置かな
 - L2（Codex gpt-6-astra）: 合流不可・Major 2（再現済み）: txAfter が変換の失敗で順を崩す・hasEntries がメタだけを見て fetchAll が古い形を取り直さない
 - 直し（d0b6ff7・088b4b8。実装は Kimi kimi-coding/k3。Codex は枠切れ）: 変換の成否を値で受けて先の order を待つ・hasEntries は本体が今の形で読めることまで確かめる・putGlyphParts の prep をキーの検査の後に・parts が本体を超えたら作り直す・変換の入口を readBlob 1 つに・順の試験を変換の順の明示の制御に・文書の件数の確定
 - 申し送り（m4-t7）: hasEntries は旧 API の fetchAll で保存済みのタイルごとに本体を 1 回読む（古い形の判定のため）。移行で旧 DB を ArrayBuffer にした後は、メタだけの判定に戻してよい
+
+## m3 の完了（2026-11-07）
+
+- PR #99（区切りの L2 の Major 1・3。実装は Kimi が途中まで・Claude が仕上げ）9b96e29。合流後の単体試験 1367 passed
+- Ruling（orchestrator）: 本体から除くのは登録した資格情報と同じ値の項目だけ（Kimi の 1 回目の「除く前の URL を集めて戻す」形は、本体が hit の再登録で空になり子が親の値で上書きされるので採らなかった）
+- まとめ: docs/superpowers/reports/2026-11-07-m3-vector-summary.md。state の m3 を completed にした
