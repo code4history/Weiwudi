@@ -39,3 +39,14 @@ describe('store の SourceRecord の補助', () => {
     expect(await nextOrder({ listSources: async () => [rec({ order: 3 }), rec({ order: 7 }), rec({ order: 2 })] })).toBe(8);
   });
 });
+
+// ---- m4-t1（DROPPED_HEADERS・OWN_PREFIX を core.ts から移した。F24）。追記のみ ----
+// 既存の行を変えないため、import はここに足す（import 宣言は巻き上げられる）
+import { DROPPED_HEADERS, OWN_PREFIX } from '../../src/constants';
+
+describe('constants（m4-t1）', () => {
+  it('保存と合成で落とす 4 ヘッダと自前のヘッダの接頭辞は、m3 までの core.ts の値と同じ', () => {
+    expect([...DROPPED_HEADERS]).toEqual(['content-encoding', 'content-length', 'transfer-encoding', 'set-cookie']);
+    expect(OWN_PREFIX).toBe('x-weiwudi-');
+  });
+});
