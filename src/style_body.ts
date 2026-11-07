@@ -347,3 +347,41 @@ export function credentialTargetOf(o: { styleOrigin: string; providerMatches?: (
     }
   };
 }
+
+/**
+ * MapLibre の式の演算子（collectFonts が text-font の式を飛ばすための判定。先頭がこれらの文字列の配列は式）。
+ * フォント名と取り違えないよう、式の仕様の名前だけを並べる（m4-t4・R53）
+ */
+const EXPRESSION_OPERATORS: ReadonlySet<string> = new Set([
+  'array', 'boolean', 'collator', 'format', 'image', 'literal', 'number', 'number-format', 'object', 'string',
+  'to-boolean', 'to-color', 'to-number', 'to-string', 'typeof', 'accumulated', 'feature-state', 'geometry-type', 'id',
+  'line-progress', 'properties', 'at', 'config', 'get', 'has', 'in', 'index-of', 'length', 'slice', 'split', 'join',
+  '!', '!=', '<', '<=', '==', '>', '>=', 'all', 'any', 'case', 'coalesce', 'match', 'within', 'distance', 'global-state',
+  'interpolate', 'interpolate-hcl', 'interpolate-lab', 'step', 'let', 'var', 'concat', 'downcase', 'is-supported-script',
+  'resolved-locale', 'upcase', 'rgb', 'rgba', 'to-rgba', '-', '*', '/', '%', '^', '+', 'abs', 'acos', 'asin', 'atan',
+  'ceil', 'cos', 'e', 'floor', 'ln', 'ln2', 'log10', 'log2', 'max', 'min', 'pi', 'round', 'sin', 'sqrt', 'tan', 'zoom',
+  'heatmap-density', 'elevation',
+]);
+
+/** text-font の値の fontstack（文字列の配列か ["literal", [文字列…]]。式・関数の object は undefined） */
+const fontstackOf = (v: unknown): string | undefined => {
+  let list = v;
+  if (Array.isArray(v) && v.length === 2 && v[0] === 'literal' && Array.isArray(v[1])) list = v[1];
+  else if (Array.isArray(v) && typeof v[0] === 'string' && EXPRESSION_OPERATORS.has(v[0])) return undefined;
+  return isStringArray(list) ? list.join(',') : undefined;
+};
+
+/**
+ * スタイルの layers[*].layout['text-font'] の fontstack（m4-t4・R53）。文字列の配列と ["literal", [文字列…]] を集め、
+ * 配列を , で結んで 1 つの fontstack にする（MapLibre が {fontstack} に入れる形）。式は飛ばす。重複を除き、最初に現れた順
+ */
+export function collectFonts(style: unknown): string[] {
+  const out: string[] = [];
+  const layers = isObj(style) && Array.isArray(style.layers) ? style.layers : [];
+  for (const layer of layers) {
+    const layout = isObj(layer) ? layer.layout : undefined;
+    const fontstack = isObj(layout) ? fontstackOf(layout['text-font']) : undefined;
+    if (fontstack !== undefined && out.indexOf(fontstack) < 0) out.push(fontstack);
+  }
+  return out;
+}

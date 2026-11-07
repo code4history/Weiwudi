@@ -543,8 +543,8 @@ interface RegionInfo {
   `cannot-fetch-all`
 - Only the tiles inside both the range and the registered range of the
   source are fetched. `estimate()` and `RegionInfo.total` count tiles only.
-  In this version a style fetches the tiles of its tile resources; its style,
-  TileJSON, sprites and glyphs follow in a later version
+  A style also fetches its non-tile resources; see
+  [Range fetching of a style](#range-fetching-of-a-style)
 - A source of `kind: 'asset'` accepts `'all'` only (any other range rejects
   with `attribute-invalid`) and fetches and pins its resources. Its
   `estimate()` is `{ tiles: 0 }`
@@ -597,6 +597,44 @@ the page that called `fetchRange()`:
 
 The shapes follow the legacy `fetchAll()` events, with `sourceId`,
 `regionId` and `errors` added.
+
+#### Range fetching of a style
+
+`fetchRange()` of a style source fetches its resources in this order, each
+through the same path as a captured request and pinned the same way:
+
+1. The style itself (a cached copy within `cacheTtl` is used as it is). Its `text-font` values
+   give fontstacks for the glyphs. If the style cannot be read (HTML, broken
+   JSON), only the style counts as `upstream` and the run continues
+2. Each TileJSON and data resource (GeoJSON, images) once
+3. Each sprite with its four files: `.json`, `.png`, `@2x.json`, `@2x.png`
+4. The tiles of every tile resource (also those listed by a TileJSON) inside
+   the range. A resource shared by two sources of the style is fetched once
+5. The glyphs: every fontstack × every range of `glyphRanges`
+
+- `estimate()`, `RegionInfo.total` and `percent` count tiles only. The other
+  resources are counted in `processed`, not in `total`
+- `glyphRanges`: `'common'` (the default) is `0-255`, `256-511`, `8192-8447`,
+  `12288-12543` and `65280-65535`. `'all'` is the 256 ranges from `0-255` to
+  `65280-65535`. An array is used as it is (each item `"<start>-<end>"`)
+- The fontstacks are the union of `FetchRangeOptions.fonts`, the `fonts` of
+  the registered style and the `text-font` values of the style. **Each item of
+  `fonts` is a fontstack**, the value of `{fontstack}`: font names joined by
+  `,` (for example `"Open Sans Regular,Arial Unicode MS Regular"`). A single
+  font name is one fontstack as it is
+- From `text-font`, only a literal array of strings and
+  `["literal", [strings…]]` are read. **Fontstacks chosen by an expression
+  (`["get", …]`, `["case", …]` and so on) cannot be found**; list them in
+  `fonts`
+- The ranges of one fontstack are written to its record at once after its
+  ranges are fetched. Ranges already in the record are not requested again.
+  A failure to write the record counts once per fontstack (`quota` or
+  `storage`). `cancel()` keeps the ranges already fetched for the current
+  fontstack
+- The style, TileJSON, sprite, data and glyph entries are not tied to the
+  geometry of a region. Their pins are meant to stay while any pinned region
+  of any source that refers to the resource remains (releasing pins follows
+  in a later version)
 
 ### `warnings`
 

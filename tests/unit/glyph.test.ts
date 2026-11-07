@@ -422,3 +422,70 @@ describe('固定の競合のグリフ版（m4-t1・L1・R6）', () => {
     await expectConsistent();
   });
 });
+
+// ---- m4-t4（計画 docs/superpowers/plans/2026-11-07-m4-range-release-migration.md の m4-t4・L4・R-G）。追記のみ ----
+
+import { createGlyphCollector } from '../../src/core';
+
+describe('グリフの束ね書き（m4-t4・L4・R-G・第 1 回 M15）', () => {
+  it('collect のある serve は putGlyphPart も evictScopesFor も呼ばず（配信は通常どおり）、flush で 1 回書く', async () => {
+    await store.putSource(sourceRecord('s1', 10_000));
+    const resource = (await store.getResource(GID))!;
+    const collect = createGlyphCollector(ctx, resource, gkey('Noto'));
+    const putOne = vi.spyOn(store, 'putGlyphPart');
+    const putMany = vi.spyOn(store, 'putGlyphParts');
+    // evictScopesFor は Resource の sourceIds の Source を読む（同じモジュールの中の呼び出しは spy できないので読みで数える）
+    const getSource = vi.spyOn(store, 'getSource');
+    const a = glyphBytes('0-255', 9);
+    const b = glyphBytes('256-511', 4);
+    const resA = await serve(ctx, glyphInput('Noto', '0-255', vi.fn<Up>(async () => okBody(a)), { collect }), () => T);
+    const resB = await serve(ctx, glyphInput('Noto', '256-511', vi.fn<Up>(async () => okBody(b)), { collect }), () => T + 1);
+    expect(resA.headers.get('x-weiwudi-status')).toBe('miss');
+    expect(resA.headers.get('x-weiwudi-error')).toBeNull();
+    expect(await bytesOf(resA)).toEqual(a);
+    expect(await bytesOf(resB)).toEqual(b);
+    expect(putOne).not.toHaveBeenCalled();
+    expect(putMany).not.toHaveBeenCalled();
+    expect(getSource).not.toHaveBeenCalled();
+    // まだ書いていない
+    expect(await store.getEntry(gkey('Noto'))).toBeUndefined();
+
+    expect(await collect.flush()).toBeUndefined();
+    expect(putMany).toHaveBeenCalledTimes(1);
+    expect(putOne).not.toHaveBeenCalled();
+    expect(getSource.mock.calls.filter(([id]) => id === 's1')).toHaveLength(1);
+    const got = await store.getEntry(gkey('Noto'));
+    expect(Object.keys(got!.body.parts!).sort()).toEqual(['0-255', '256-511']);
+    expect(got!.meta).toMatchObject({ fetchedAt: T + 1, size: 13, pinned: 0 });
+    const never = vi.fn<Up>(async () => ({ kind: 'network', error: new Error('x') }));
+    expect(await bytesOf(await serve(ctx, glyphInput('Noto', '0-255', never), () => T + 2))).toEqual(a);
+    expect(await bytesOf(await serve(ctx, glyphInput('Noto', '256-511', never), () => T + 2))).toEqual(b);
+    // 2 回目の flush は何も書かない（集めた部分は 1 回で出し切る）
+    expect(await collect.flush()).toBeUndefined();
+    expect(putMany).toHaveBeenCalledTimes(1);
+    await expectConsistent();
+  });
+
+  it('同じ範囲を 2 回集めると後のものが勝つ。flush の失敗は quota／storage を 1 つ返す（投げない）', async () => {
+    const resource = (await store.getResource(GID))!;
+    const collect = createGlyphCollector(ctx, resource, gkey('Noto'));
+    await serve(ctx, glyphInput('Noto', '0-255', vi.fn<Up>(async () => okBody(glyphBytes('0-255', 5, 1))), { collect }), () => T);
+    const later = glyphBytes('0-255', 6, 2);
+    // 集めた部分はまだ Entry でないので、同じ範囲の 2 回目も上流へ出る
+    const second = vi.fn<Up>(async () => okBody(later));
+    await serve(ctx, glyphInput('Noto', '0-255', second, { collect }), () => T + 1);
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(await collect.flush()).toBeUndefined();
+    const never = vi.fn<Up>(async () => ({ kind: 'network', error: new Error('x') }));
+    expect(await bytesOf(await serve(ctx, glyphInput('Noto', '0-255', never), () => T + 2))).toEqual(later);
+
+    const failing = createGlyphCollector(ctx, resource, gkey('Other'));
+    await serve(ctx, glyphInput('Other', '0-255', vi.fn<Up>(async () => okBody(glyphBytes('0-255', 3))), { collect: failing }), () => T);
+    vi.spyOn(store, 'putGlyphParts').mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
+    expect(await failing.flush()).toBe('quota');
+    const broken = createGlyphCollector(ctx, resource, gkey('Broken'));
+    await serve(ctx, glyphInput('Broken', '0-255', vi.fn<Up>(async () => okBody(glyphBytes('0-255', 3))), { collect: broken }), () => T);
+    vi.spyOn(store, 'putGlyphParts').mockRejectedValueOnce(new Error('boom'));
+    expect(await broken.flush()).toBe('storage');
+  });
+});

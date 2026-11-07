@@ -483,7 +483,7 @@ interface RegionInfo {
 - `'all'` は**呼び出したときの** Source の範囲です（スタイルはタイルの資源の範囲）。後の `update()` で region は変わりません。
   `box`・`bounds` の無い Source の `'all'` は `cannot-fetch-all`
 - 取るのは、範囲と Source の登録の範囲の両方に入るタイルだけです。`estimate()` と `RegionInfo.total` はタイルだけを数えます。
-  この版のスタイルはタイルの資源のタイルを取ります（スタイル・TileJSON・スプライト・グリフは後の版）
+  スタイルはタイル以外の資源も取ります（[スタイルの範囲取得](#スタイルの範囲取得) を参照）
 - `kind: 'asset'` の Source は `'all'` だけを受け（ほかの範囲は `attribute-invalid`）、資源を取って固定します。
   `estimate()` は `{ tiles: 0 }`
 - `ratio` は `{ratio}` に入ります。指定が無ければ `fetchRange()` は `devicePixelRatio > 1` なら `'@2x'`、そうでなければ `''` を
@@ -517,6 +517,31 @@ interface RegionInfo {
 | `opaque` | `{ type, sourceId, resourceId }`。資源が CORS に対応しないと分かったとき（24 時間の CORS なしの扱いを始めた・取得が `opaque` で止まった）に、全ページへ 1 回 |
 
 形は旧 API の `fetchAll()` のイベントに `sourceId`・`regionId`・`errors` を足したものです。
+
+#### スタイルの範囲取得
+
+スタイルの Source の `fetchRange()` は、資源を次の順に取ります。どれも捕捉した要求と同じ経路で取り、同じように固定します:
+
+1. スタイル自身（`cacheTtl` の内の保存済みはそれを使います）。本体の `text-font` からグリフの fontstack を集めます。スタイルが読めなければ
+   （HTML・壊れた JSON）、スタイルだけを `upstream` に数えて続けます
+2. TileJSON とデータ（GeoJSON・画像）を 1 件ずつ
+3. スプライトを 4 つのファイル（`.json`・`.png`・`@2x.json`・`@2x.png`）ずつ
+4. タイルの資源（TileJSON が並べるものも）の、範囲に入るタイル。スタイルの 2 つの Source が共有する資源は 1 回だけ
+5. グリフ: fontstack ごとに `glyphRanges` の範囲を全部
+
+- `estimate()`・`RegionInfo.total`・`percent` はタイルだけを数えます。ほかの資源は `processed` に入りますが、`total` には入りません
+- `glyphRanges`: `'common'`（既定）は `0-255`・`256-511`・`8192-8447`・`12288-12543`・`65280-65535`。`'all'` は `0-255` から
+  `65280-65535` までの 256 個。配列はそのまま使います（各要素は `"<開始>-<終わり>"`）
+- fontstack は `FetchRangeOptions.fonts`・登録したスタイルの `fonts`・スタイルの `text-font` の和です。**`fonts` の要素は
+  fontstack** です（`{fontstack}` に入る値。フォント名を `,` で結んだもの。例 `"Open Sans Regular,Arial Unicode MS Regular"`）。
+  フォント名 1 つでも、そのまま 1 つの fontstack になります
+- `text-font` から読むのは、文字列の配列と `["literal", [文字列…]]` だけです。**式（`["get", …]`・`["case", …]` など）で
+  選ぶ fontstack は見つけられません**。`fonts` に並べてください
+- 1 つの fontstack の範囲は、取り終えてからまとめて 1 回でレコードに書きます。レコードに既に有る範囲は取り直しません。
+  レコードの書き込みの失敗は fontstack ごとに 1 件（`quota` か `storage`）に数えます。`cancel()` しても、取りかけの fontstack の
+  取れた範囲は残します
+- スタイル・TileJSON・スプライト・データ・グリフの Entry は region の幾何に結び付きません。その固定は、その資源を参照する
+  全 Source のどれかに固定つきの region が残っている間は保つ決まりです（固定の解放は後の版）
 
 ### `warnings`
 
