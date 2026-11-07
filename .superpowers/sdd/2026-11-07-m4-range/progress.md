@@ -224,3 +224,33 @@
   - 未確認（レビュー）: 実ブラウザで totals の put が増えた削除の tx が容量超過で abort するか。WebKit・Firefox の quota.spec（手元は Chromium のみ。CI の WebKit・Firefox は緑）。保存のたびに evictScopesFor が kv を 1 回余分に読む性能の影響
 - t10 への申し送り: 実ブラウザでの再試行の成功（abort が 1 回の筋書き。CDP の上限では 1 回だけ失敗させられない）。totals の無い開発用 DB での最初の書き込みと、数 GB の resources の cursor の時間
 - t11 への申し送り: CHANGELOG に「`Weiwudi.setLimits({ maxBytes })`（feat）」と「容量超過のとき固定以外を全体の 10% 退避して 1 回再試行する（1.1.x は保存しなかった。§9 の既知の変化）」
+
+## m4-t9 開発用ページを新 API に直す（#41） — 完了（PR #108 → 110be77）
+
+- 実装: Kimi（dsh・k3）が index.html を途中まで書いたところで週（7 日）の利用上限の 429 で停止 → Claude が引き継いで完成（Codex も枠切れ）。3507667、レビューの直し e0caf40
+- 判定: build 4 構成（lib・sw-es・sw-umd・demo。build:demo と同じ並び）・`node_modules/.bin/vitest run` 42 ファイル・1608 件 passed（demo-third-party.test.ts を含む）・`tsc --noEmit`・`eslint src tests` exit 0。CI（Node 22・24、WebKit・Firefox）緑
+- 受け入れ条件の grep: `registerMap|fetchAll`（index.html）0・`fetchRange` 1・`Fetch all tiles`（README.md）0・usage policy（index.html 2・README.md 1）・`利用規約`（README.ja.md）2
+- 実ブラウザの 4 手順（計画が台帳への記録を求めたもの。vite の dev サーバ 127.0.0.1:5190・手元の Playwright の Chromium・ズーム 16）
+  1. 登録: 状態 Active・表示中のタイル 6/6・stats count 6・usage tile.openstreetmap.org 6 件
+  2. 表示範囲の取得: 確認「Fetch 22 tiles (zoom 16-17)?」→ region complete・pinned・total 22・error 0・stats count 22
+  3. オフライン（setOffline(true)）で再読み込み: 状態 Active・タイル 6/6 がキャッシュから表示・stats と regions は手順 2 と同じ。レビューの直しの後にも手順 3 をやり直し、控えのキャッシュに入るのはページ・vite のモジュール・dist/weiwudi.es.js・Leaflet の 7 件だけでタイルは入らないことを確かめた
+  4. 解放: stats count 0・regions 空・usage 0 件
+  - OSM からの実取得は合計約 50 枚（1 回目 22 枚 × 2 回と、直しの後の手順 3 の 6 枚）。計画の R54 の最小限の範囲
+- 計画の対象ファイルの追加: public/demo-sw.js（計画は「変えない見込み。変えるなら対象に足す」）。オフラインの再読み込みでページ本体が `net::ERR_INTERNET_DISCONNECTED` になったため
+- Rulings（実装担当）
+  - R-t9-1: demo-sw.js に、同じオリジンと unpkg.com の要求を NetworkFirst（cacheName weiwudi-demo-shell）で控える経路を足した。対象は request.mode === 'navigate' か destination が script・style のものだけ（レビュー S1 で絞った。タイルや照合ルートに当たらない）。既存の試験が見る `https://` の文字列は使わず hostname で照合
+  - R-t9-2: 殻の控えには、オンラインでの再読み込みが 1 回要る（SW の制御下に入る前の読み込みは控えに入らない）。画面と README の英日に書いた（レビュー S5）
+  - R-t9-3: usage() も 2 秒ごとに更新する（初期化の時だけだと登録直後の 0 が残る）
+  - R-t9-4: 提供元名の表示を innerHTML から DOM 生成に替えた（XSS の対策。innerHTML は定数の '' だけ）
+  - R-t9-5: 判定の build に、package.json の build にある public/weiwudi-sw.js への写しを再現した（dev のページはこのファイルを読む）。出力は判定の後に戻した
+  - R-t9-6: estimate が 0 枚なら取得せずに断る。結果が complete 以外なら error の色で出す（レビュー S4）
+- レビュー（L1）: Claude（Codex が枠切れ・Kimi は週の上限）。判定は合流可。小さな指摘 6 件 → e0caf40 で 4 件を直した
+  - 直した: demo-sw.js の控えの条件（R-t9-1）・showMessage のタイマを clearTimeout してから作り直す・0 枚の取得と complete 以外の色（R-t9-6）・オフラインの注意（R-t9-2）
+  - 直さない: 控えのキャッシュ weiwudi-demo-shell に期限も件数の上限も無い（開発用ページで実害は小さい）。計画の対象ファイルの追加は本節に記録
+  - 未確認（レビュー）: 同じブラウザで、デモの SW（scope `/`）が手で開いた他のページに及ぼす影響（e2e は demo-sw.js を使わない）
+- t10 への申し送り
+  - releaseRange（keep なし）は、範囲取得の前から捕捉していた region の範囲の中の Entry も消す（stats 0）。e2e は keep: true の場合も見る
+  - stats().total は Source の範囲全体なので percent は小さい。範囲が決まる Source の count は範囲の中の Entry の数（t8）
+  - Playwright の context.on('request') はページの要求と SW の要求を両方数える（初期表示の 6 枚が 12 件）。上流の取得枚数を数えるときは注意
+  - オフラインの e2e は、オンラインで 1 回読み直してからオフラインにする。vite の HMR の WebSocket のエラーは無視してよい
+  - 開発用ページの範囲取得は confirm() のダイアログを出すので、自動化では accept が要る
