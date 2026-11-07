@@ -289,7 +289,7 @@ interface TileBox { minX: number; maxX: number; minY: number; maxY: number }
 Expired entries are treated as missing when serving requests and are deleted in batches on the first
 store-using Weiwudi request after the service worker starts, and when a job ends.
 Pinned entries are never deleted by this cleanup. Glyphs expire per stored range.
-Cleanup visits at most 2,000 records per request; unfinished cleanup continues on the next eligible request.
+Each cleanup run visits at most 2,000 records; unfinished cleanup continues on the next eligible request.
 It pauses while a job is running. Neither ping endpoint nor `fetchAll` dispatch starts cleanup;
 `fetchAll` runs it when the job ends.
 

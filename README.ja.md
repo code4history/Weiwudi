@@ -198,7 +198,7 @@ console.log(source.warnings, await source.stats());
 `cacheRetention` は `fetchedAt` からの削除期限をミリ秒で指定します（既定は無期限）。
 期限を過ぎた Entry は配信で無いものとして扱い、SW の起動後の最初の store を使う Weiwudi の要求と、
 ジョブの完了時にまとめて消します。この掃除では固定した Entry は消さない仕様です。グリフは保存した範囲ごとに期限を判定します。
-1 回に走査するのは最大 2,000 件で、残りは次の対象要求で続けます。ジョブの実行中は掃除を止めます。
+掃除 1 回で走査するのは最大 2,000 件で、残りは次の対象要求で続けます。ジョブの実行中は掃除を止めます。
 両方の ping と `fetchAll` の dispatch は掃除の契機から除き、`fetchAll` はジョブの終了時に掃除します。
 
 詳しくは [Source の API](docs/api/weiwudi.ja.md#source-の-api) を参照してください。
