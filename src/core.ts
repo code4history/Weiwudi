@@ -65,6 +65,29 @@ export interface ServeInput {
    * （同時要求のまとめと hit は save を通らない。R46）。偽・無しは pinned = 0 で書き、保存済みの固定は commitEntry が保つ
    */
   pin?: boolean;
+  /**
+   * グリフの束ね書き（m4-t4・L4・R-G）。part と共にあれば、save は putGlyphPart も evictScopesFor も呼ばずに部分を
+   * collect.add へ渡す（配信・cacheWillUpdate・まとめは通常どおり）。書き込みは collect.flush の 1 回
+   */
+  collect?: GlyphCollector;
+}
+
+/** 束ね書きの 1 部分（save が渡す。本体は cacheWillUpdate の後のもの） */
+export interface GlyphCollectedPart {
+  part: string;
+  body: Blob;
+  fetchedAt: number;
+  headers: Record<string, string>;
+}
+
+/** 1 fontstack のレコードの部分を集め、1 回の putGlyphParts で書く（m4-t4・L4・R-G。range が 1 単位ごとに作る） */
+export interface GlyphCollector {
+  add(p: GlyphCollectedPart): void;
+  /**
+   * 集めた部分を書く（evictScopesFor を 1 回・putGlyphParts を 1 回）。集めた部分は渡した時点で手放す（2 回目は何もしない）。
+   * 投げない: 失敗は 'quota'・'storage'、書いた（部分が無い・Resource が消えたも含む）ときは undefined
+   */
+  flush(): Promise<'quota' | 'storage' | undefined>;
 }
 
 /** x-weiwudi-status の値（公開の契約。仕様 §6） */
@@ -509,6 +532,11 @@ const save = async (
   // 退避の範囲の読み出しの失敗も保存の失敗として storage を返し、配信を続ける（m4-t1・I1a・I1b・R-I1。仕様 §9）。
   // reject にすると照合ルートの serveHit が素通しして上流へ 2 回出る
   let evict: EvictionScope[];
+  // 束ね書き（m4-t4・L4）: 退避の範囲も読まずに集める（flush が 1 回だけ読む）
+  if (input.part !== undefined && input.collect) {
+    input.collect.add({ part: input.part, body: blob, fetchedAt: t, headers });
+    return undefined;
+  }
   try {
     evict = await evictScopesFor(store, resource);
   } catch (_e) {
@@ -522,6 +550,39 @@ const save = async (
     return WeiwudiError.from(err).code === 'quota' ? 'quota' : 'storage';
   }
 };
+
+/**
+ * 束ね書きの集め手（m4-t4・L4・R-G・第 1 回 M15）。key は fontstack までのレコードのキー。flush は Resource を読み直して
+ * 退避の範囲を 1 回だけ作り、store.putGlyphParts を 1 回呼ぶ（同じ範囲は後勝ち。fetchedAt は部分ごと）
+ */
+export function createGlyphCollector(ctx: Context, resource: ResourceMeta, key: string): GlyphCollector {
+  let parts: GlyphCollectedPart[] = [];
+  return {
+    add: (p) => {
+      parts.push(p);
+    },
+    flush: async () => {
+      const batch = parts;
+      parts = [];
+      if (batch.length === 0) return undefined;
+      try {
+        const store = await ctx.store();
+        const fresh = (await store.getResource(resource.id)) ?? resource;
+        const evict = await evictScopesFor(store, fresh);
+        const last = batch[batch.length - 1];
+        const t = batch.reduce((m, p) => Math.max(m, p.fetchedAt), -Infinity);
+        const meta: EntryMeta = {
+          key, resourceId: resource.id, size: batch.reduce((n, p) => n + p.body.size, 0), fetchedAt: t, accessedAt: t, pinned: 0,
+        };
+        if (last.headers['content-type'] !== undefined) meta.contentType = last.headers['content-type'];
+        await store.putGlyphParts(meta, batch.map((p) => ({ part: p.part, blob: p.body, fetchedAt: p.fetchedAt })), last.headers, evict);
+        return undefined;
+      } catch (err) {
+        return WeiwudiError.from(err).code === 'quota' ? 'quota' : 'storage';
+      }
+    },
+  };
+}
 
 // ---- ジョブ ----
 

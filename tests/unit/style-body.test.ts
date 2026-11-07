@@ -440,3 +440,54 @@ describe('userinfo の組（L2 B: accepts が無くても子作りと除去で�
     expect(rewriteTileJsonBody(tj, TJ_BASE, { strip: stripA })).toBe(tj);
   });
 });
+
+// ---- m4-t4（計画 docs/superpowers/plans/2026-11-07-m4-range-release-migration.md の m4-t4・R53）。追記のみ ----
+
+import { collectFonts } from '../../src/style_body';
+
+describe('collectFonts（m4-t4・R53）', () => {
+  const styleWith = (layers: unknown[]) => ({ version: 8, sources: {}, layers });
+
+  it('文字列の配列の text-font を , で結んで 1 つの fontstack にする', () => {
+    const s = styleWith([
+      { id: 'a', type: 'symbol', layout: { 'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'] } },
+      { id: 'b', type: 'symbol', layout: { 'text-font': ['Noto Sans Bold'] } },
+    ]);
+    expect(collectFonts(s)).toEqual(['Open Sans Regular,Arial Unicode MS Regular', 'Noto Sans Bold']);
+  });
+
+  it('["literal", [文字列…]] を読む', () => {
+    const s = styleWith([{ id: 'a', type: 'symbol', layout: { 'text-font': ['literal', ['Noto Sans Regular', 'Noto Sans CJK JP Regular']] } }]);
+    expect(collectFonts(s)).toEqual(['Noto Sans Regular,Noto Sans CJK JP Regular']);
+  });
+
+  it('式（先頭が演算子の配列）・関数の object・空の配列・文字列でない要素は飛ばす', () => {
+    const s = styleWith([
+      { id: 'a', type: 'symbol', layout: { 'text-font': ['get', 'font'] } },
+      { id: 'b', type: 'symbol', layout: { 'text-font': ['case', ['has', 'x'], ['literal', ['A']], ['literal', ['B']]] } },
+      { id: 'c', type: 'symbol', layout: { 'text-font': ['coalesce', ['get', 'f'], ['literal', ['C']]] } },
+      { id: 'd', type: 'symbol', layout: { 'text-font': { stops: [[0, ['D']]] } } },
+      { id: 'e', type: 'symbol', layout: { 'text-font': [] } },
+      { id: 'f', type: 'symbol', layout: { 'text-font': ['E', 1] } },
+      { id: 'g', type: 'symbol', layout: { 'text-font': ['literal', 'F'] } },
+      { id: 'h', type: 'symbol', layout: { 'text-font': ['Kept Regular'] } },
+    ]);
+    expect(collectFonts(s)).toEqual(['Kept Regular']);
+  });
+
+  it('重複を除く（最初に現れた順）', () => {
+    const s = styleWith([
+      { id: 'a', type: 'symbol', layout: { 'text-font': ['B Regular'] } },
+      { id: 'b', type: 'symbol', layout: { 'text-font': ['A Regular'] } },
+      { id: 'c', type: 'symbol', layout: { 'text-font': ['literal', ['B Regular']] } },
+    ]);
+    expect(collectFonts(s)).toEqual(['B Regular', 'A Regular']);
+  });
+
+  it('layout の無い layer・layers の無いスタイル・object でない値は空', () => {
+    expect(collectFonts(styleWith([{ id: 'a', type: 'background' }, { id: 'b', type: 'symbol', layout: null }, null, 'x']))).toEqual([]);
+    expect(collectFonts({ version: 8, sources: {} })).toEqual([]);
+    expect(collectFonts(null)).toEqual([]);
+    expect(collectFonts('x')).toEqual([]);
+  });
+});

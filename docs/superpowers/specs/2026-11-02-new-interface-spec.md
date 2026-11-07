@@ -512,6 +512,14 @@ type RangeSpec =
 - 固定は、成功と数えたキー全部へのバッチの後の `setPinned(keys, 1)`（200 件ずつ）の 1 本で、region が有るときだけ付ける。保存と同じ tx で付ける近道（`ServeInput.pin`）は使わない（同時要求のまとめと hit は保存を通らず、近道は途中で region が消えたときにどの region にも属さない固定を残す。R46・PR #102 M2）。確かめが止めたバッチでも、取れた分は固定する。確かめで取れたタイルが列挙で失敗と数えたものなら、その場で成功に数え直す
 - 固定した Entry の和が Source の `cacheMaxBytes` に達したら `stop`（`quota`）。開始のときと各バッチの後に見る（R55）
 
+**スタイルの範囲取得（m4-t4）**:
+
+- 型の順に取る: スタイル（hit でよい）→ TileJSON・データ（1 件ずつ）→ スプライト（`{spriteSuffix}` の `.json`・`.png`・`@2x.json`・`@2x.png`）→ タイル（TileJSON の下の子も。同じ `Resource` は 1 回）→ グリフ。どれも `hook.serveResource` を通し、固定は他と同じバッチの後の `setPinned`（region が有るときだけ）。スタイルは先に別の段で取り、本体（`style_body.parseStyle`）から fontstack を集めてからグリフの単位を作る。読めないスタイル（HTML は配信の段で `upstream-error`）はスタイルの単位だけ `upstream` に数えて続ける
+- fontstack は `FetchRangeOptions.fonts` ∪ `StyleSpec.fonts` ∪ `collectFonts(style)` の和（重ねない）。要素は `{fontstack}` に入る値（フォント名を `,` で結んだもの。名前 1 つもそのまま 1 つ。R53）。`collectFonts` は `layers[*].layout['text-font']` の文字列の配列と `["literal", [文字列…]]` を `,` で結ぶ。先頭が式の演算子の配列と関数の object は飛ばす
+- `glyphRanges` の `'common'` は上の 5 つ、`'all'` は `0-255` から `65280-65535` の 256 個、配列はそのまま（重複も残し、後勝ち。R32）
+- `estimate`・`RegionInfo.total`・`percent` はタイルだけ。非タイルの単位は `processed` に入れる（R29）
+- 非タイル資源の固定は、その `Resource` を参照する全 Source（子は親に読み替え）の固定つきの region が 1 つでも残る間は保つ（R11。外すのは m4-t5 の解放）
+
 ## 8. 差し込み口（#36）
 
 容量超過で保存しない部分は `putItemWithEviction`（#29）で済んでいる。残りは差し込み口である。
@@ -631,7 +639,7 @@ type Credentials = { query?: Record<string, string>; headers?: Record<string, st
 - `{fontstack}/{range}.pbf` を、fontstack ごとに **1 レコード**へ束ねる。Entry の `key` は fontstack までで、`parts` に `{ '<range>': { offset, length, fetchedAt } }`、本体に連結したバイト列を持つ（保存は ArrayBuffer。§5.2）
 - 再生は `blob.slice(offset, offset + length)`（読み出した本体の Blob から）
 - 保存は同じトランザクションで読み、残す部分の切り出しと新しい分を 1 つの ArrayBuffer に連結し直して書く（新しい分は tx の前に ArrayBuffer にする）。古い部分の差し替えで空きが残らない
-- 範囲取得のときは 1 fontstack 分を溜めてから 1 回で書く。逐次に書くと fontstack の大きさ × 範囲数の書き込みになる
+- 範囲取得のときは 1 fontstack 分を溜めてから 1 回で書く。逐次に書くと fontstack の大きさ × 範囲数の書き込みになる。実装は `core.createGlyphCollector(ctx, resource, key)`: `ServeInput.collect`（`ServeResourceOptions.collect` から渡す）があると、`save` は `putGlyphPart` も `evictScopesFor` も呼ばずに部分を集め、配信は通常どおり返す。範囲取得は 1 fontstack を 1 単位にし、`try … finally` で `flush`（`evictScopesFor` を 1 回・`store.putGlyphParts` を 1 回）する。取り消しは範囲の間で見て、取れた範囲は書く。既に有る範囲は `getEntry` の `parts` で見て（fontstack ごとに 1 回）取らない。`flush` の失敗は fontstack ごとに 1 件（`quota`・`storage`）（m4-t4・L4）
 - 削除と LRU と統計は fontstack 単位。鮮度は部分ごと（`fetchedAt`）に見る
 - 試作は `consolidated.pbf` の実装を持たない（`handleFontRequest` は範囲ごとに保存）
 

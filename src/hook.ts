@@ -18,7 +18,7 @@
 //   style・tilejson は isStyleLike と transform（style_body の rewrite*）を付け、sprite のキーは {spriteSuffix} で作る（m3-t6・I3）
 import type { RouteHandlerCallback, RouteHandlerCallbackOptions, RouteMatchCallback } from 'workbox-core';
 import type { Context, CredentialSourcePicker, LoadedTable, TableState } from './context';
-import { passThrough, serve, type ServeInput } from './core';
+import { passThrough, serve, type GlyphCollector, type ServeInput } from './core';
 import { createUpstream, hasCredentials, isAuthenticated, isStorable } from './upstream';
 import type { Credentials, ResourceMeta, ResourcePolicy, ResourceType, SourceRecord } from './store';
 import type { WeiwudiProvider } from './plugins';
@@ -259,6 +259,8 @@ export interface ServeResourceOptions {
    * update() でスタイルの URL が変わって Resource に当たらないときも、新しい正規化の値で除ける）
    */
   parent?: { url: string; provider?: string; policy: Pick<ResourcePolicy, 'credentialParams'> };
+  /** グリフの束ね書き（範囲取得の 1 fontstack の単位。m4-t4・L4・第 1 回 M4）。glyph の範囲の要求だけに渡す */
+  collect?: GlyphCollector;
 }
 
 const byOrder = (a: SourceRecord, b: SourceRecord): number => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -361,7 +363,7 @@ export async function serveResource(
     ...(resource.type === 'tile' && m.z !== undefined && m.x !== undefined && m.y !== undefined
       ? { coord: { z: m.z, x: m.x, y: m.y } } : {}),
     // グリフは範囲を渡す（同じ fontstack の範囲を 1 レコードへ束ねるのは core と store。仕様 §11）
-    ...(resource.type === 'glyph' && m.range !== undefined ? { part: m.range } : {}),
+    ...(resource.type === 'glyph' && m.range !== undefined ? { part: m.range, ...(opts.collect ? { collect: opts.collect } : {}) } : {}),
     ...styleLike,
     ...(opts.revalidate === true ? { revalidate: true } : {}),
     request,

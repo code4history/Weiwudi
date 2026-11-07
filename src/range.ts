@@ -12,12 +12,17 @@
 // - region の終わりの書き込みは patchRegion で「有り・running」のときだけ（R5）。終わりの順は region → ctx.job → postMessage（R45）
 // - ジョブは各バッチの前に Source と region の有無を見る（Source が無ければ stop（source-not-found）・region が無ければ canceled。
 //   R13・R57）。バッチの後の setPinned の前にも region を見る
+// - スタイルの非タイル資源（m4-t4・§7.2・§11）: 型の順に style → tilejson・data → sprite（{spriteSuffix} の 4 値）→ tile → glyph。
+//   style は先に別の runJob で取り（hit でよい）、本体から（style_body.collectFonts） fontstack を集めてから glyph の単位を作る。
+//   glyph は 1 fontstack を 1 単位にし、範囲を順に取って core.createGlyphCollector で 1 回に書く（finally で flush。L4・R-G）。
+//   固定はグリフも onBatch の pinKeys() だけ（flush の後にキーを足す）。total・percent はタイルだけ（R29）
 import type { Context, JobState, OpaqueNotice } from './context';
-import { evictScopesFor, runJob, sweepOnce } from './core';
+import { createGlyphCollector, evictScopesFor, runJob, sweepOnce, type GlyphCollector } from './core';
 import { credentialsForResource, serveResource } from './hook';
 import { probeNoCors } from './upstream';
 import {
-  isChildRecord, storedSpecOf, styleSpecOf, templatesOf, type Credentials, type RegionRecord, type ResourceMeta, type SourceRecord, type Store,
+  isChildRecord, storedSpecOf, styleSpecOf, templatesOf, type Credentials, type RegionRecord, type ResourceMeta, type ResourceType,
+  type SourceRecord, type Store,
 } from './store';
 import {
   copyRange, normalizeFetchOptions, normalizeRange, type NormalizedFetchOptions, type NormalizedRange, type RangeSource, type RegionInfo,
@@ -25,6 +30,7 @@ import {
 } from './spec';
 import { compileTemplate, entryKey, expandTemplate, matchUrl, type CompiledTemplate, type MatchResult } from './url_pattern';
 import { scaleTileBox } from './tile_math';
+import { collectFonts, parseStyle } from './style_body';
 import { WeiwudiError, type TileFailure } from './errors';
 import { LEGACY_PREFIX } from './constants';
 
@@ -191,7 +197,7 @@ interface RangePlan {
   range: RegionInfo['range'];
   normalized: NormalizedRange;
   options: NormalizedFetchOptions;
-  /** タイル（asset は非タイル）の Resource */
+  /** 取る Resource（タイルと非タイル。asset は非タイルだけ）。total はタイルだけで数える */
   resources: ResourceMeta[];
   total: number;
 }
@@ -212,9 +218,9 @@ const planOf = async (
     return { range: copy, normalized: assetRange(), resources: resources.filter((r) => r.type !== 'tile'), total: 0 };
   }
   const n = normalized ?? normalizeRange(copy, await rangeSourceOf(store, rec, owners));
-  // スタイルの非タイル資源は m4-t4（R-t3-1）
+  // スタイルの非タイル資源も取る（m4-t4）。枚数はタイルだけ（§7.2・R29）
   const tiles = resources.filter((r) => r.type === 'tile');
-  return { range: copy, normalized: n, resources: tiles, total: tiles.reduce((t, r) => t + countRange(r, n), 0) };
+  return { range: copy, normalized: n, resources, total: tiles.reduce((t, r) => t + countRange(r, n), 0) };
 };
 
 /** estimate（§7.2・R29）。タイルの枚数だけ（同じ Resource は 1 回）。asset は 0（R52） */
@@ -369,15 +375,40 @@ export const createNotifier = (ctx: Context) => (m: OpaqueNotice): void => {
 
 // ---- ジョブ（§7.2・§4.5-3・§4.6） ----
 
-type Unit = { resource: ResourceMeta; tile?: [number, number, number] };
+/** 1 単位。tile はタイル、spriteSuffix はスプライトの 4 値の 1 つ、fontstack はグリフ（範囲は単位の中で回す） */
+type Unit = { resource: ResourceMeta; tile?: [number, number, number]; spriteSuffix?: string; fontstack?: string };
 
-function* unitsOf(plan: RangePlan): Generator<Unit> {
-  for (const resource of plan.resources) {
-    if (resource.type !== 'tile') {
+/** 型の順（§7.2・m4-t4）。style は別の段で先に取る */
+const typeRank = (t: ResourceType): number =>
+  t === 'style' ? 0 : t === 'tilejson' ? 1 : t === 'data' ? 2 : t === 'sprite' ? 3 : t === 'tile' ? 4 : 5;
+
+/** スプライトの {spriteSuffix} の 4 値 */
+const spriteSuffixes = (): string[] => ['.json', '.png', '@2x.json', '@2x.png'];
+
+/** glyphRanges の範囲（R32）。'common' は 5 つ、'all' は 0-255 から 65280-65535 の 256 個、配列はそのまま（重複も残す） */
+export const glyphRangesOf = (g: NormalizedFetchOptions['glyphRanges']): string[] => {
+  if (g === 'common') return ['0-255', '256-511', '8192-8447', '12288-12543', '65280-65535'];
+  if (g === 'all') return Array.from({ length: 256 }, (_v, i) => `${i * 256}-${i * 256 + 255}`);
+  return g.slice();
+};
+
+/**
+ * 段の単位（phase 'style' はスタイルの Resource だけ、'rest' はそれ以外を型の順に）。fontstacks はグリフの単位を作る時に読む
+ * （style の段の後なので、スタイルの本体から集めた分が入っている）
+ */
+function* unitsOf(plan: RangePlan, phase: 'style' | 'rest', fontstacks: () => readonly string[]): Generator<Unit> {
+  const list = plan.resources.filter((r) => (phase === 'style') === (r.type === 'style'))
+    .map((r, i) => ({ r, i })).sort((a, b) => typeRank(a.r.type) - typeRank(b.r.type) || a.i - b.i).map(({ r }) => r);
+  for (const resource of list) {
+    if (resource.type === 'tile') {
+      for (const tile of enumerate(resource, plan.normalized)) yield { resource, tile };
+    } else if (resource.type === 'sprite') {
+      for (const spriteSuffix of spriteSuffixes()) yield { resource, spriteSuffix };
+    } else if (resource.type === 'glyph') {
+      for (const fontstack of fontstacks()) yield { resource, fontstack };
+    } else {
       yield { resource };
-      continue;
     }
-    for (const tile of enumerate(resource, plan.normalized)) yield { resource, tile };
   }
 }
 
@@ -385,7 +416,7 @@ const experienced = (m: ResourceMeta | undefined): boolean => !!m && (m.count > 
 
 /** ジョブの中で 1 単位の URL と照合の結果を作る（R2）。ミラーは無作為に 1 つ（§4.5 末尾） */
 const target = (
-  compiled: Map<string, CompiledTemplate>, unit: Unit, ratio: string,
+  compiled: Map<string, CompiledTemplate>, unit: Unit, ratio: string, range?: string,
 ): { url: URL; m: MatchResult; key: string } | undefined => {
   const { resource, tile } = unit;
   const template = resource.templates[Math.floor(Math.random() * resource.templates.length)] ?? resource.templates[0];
@@ -400,7 +431,12 @@ const target = (
     compiled.set(template, c);
   }
   try {
-    const url = new URL(expandTemplate(template, tile ? { z: tile[0], x: tile[1], y: tile[2], ratio } : { ratio }));
+    const url = new URL(expandTemplate(template, {
+      ...(tile ? { z: tile[0], x: tile[1], y: tile[2] } : {}), ratio,
+      ...(unit.spriteSuffix !== undefined ? { spriteSuffix: unit.spriteSuffix } : {}),
+      ...(unit.fontstack !== undefined ? { fontstack: unit.fontstack } : {}),
+      ...(range !== undefined ? { range } : {}),
+    }));
     const m = matchUrl(c, url);
     if (!m) return undefined;
     return { url, m, key: entryKey(resource.id, resource.type, m, url, resource.policy.credentialParams) };
@@ -446,6 +482,12 @@ const runRangeJob = async (
   const errors = job.failures;
   /** 失敗と数えたタイルのキーと種類（確かめで取れたら数え直す。PR #102 L2） */
   const failed = new Map<string, TileFailure>();
+  /** グリフの fontstack（opts.fonts ∪ StyleSpec.fonts ∪ collectFonts。重ねない。m4-t4・R53） */
+  const fontstacks: string[] = [];
+  const addFontstack = (f: string) => {
+    if (fontstacks.indexOf(f) < 0) fontstacks.push(f);
+  };
+  for (const f of [...options.fonts, ...(styleSpecOf(rec)?.fonts ?? [])]) addFontstack(f);
 
   const fail = (kind: TileFailure, key?: string) => {
     job.error++;
@@ -463,51 +505,49 @@ const runRangeJob = async (
     return p;
   };
 
-  /** 1 単位を serveResource で取る。結果は x-weiwudi-status・x-weiwudi-error と状態コード */
-  const fetchUnit = async (unit: Unit, t: { url: URL; m: MatchResult }): Promise<{ error: TileFailure | undefined; status: number }> => {
+  /**
+   * 1 単位を serveResource で取る。結果は x-weiwudi-error と状態コード。text なら本体を文字列で返す（スタイル）。
+   * collect はグリフの束ね書き（m4-t4）
+   */
+  const fetchUnit = async (
+    unit: Unit, t: { url: URL; m: MatchResult }, extra: { collect?: GlyphCollector; text?: boolean } = {},
+  ): Promise<{ error: TileFailure | undefined; status: number; text?: string }> => {
     const picked = await credentialsOf(unit.resource, t.url.origin);
     const res = await serveResource(ctx, unit.resource, new Request(t.url.href), t.url, t.m, picked.credentials, {
       ...(picked.credentialSourceId !== undefined ? { credentialSourceId: picked.credentialSourceId } : {}),
+      ...(extra.collect ? { collect: extra.collect } : {}),
     });
     const err = res.headers.get('x-weiwudi-error');
     const status = res.status;
+    let text: string | undefined;
     try {
-      await res.arrayBuffer(); // 配信しない本体も読み切る
+      // 配信しない本体も読み切る
+      if (extra.text) text = await res.text();
+      else await res.arrayBuffer();
     } catch (_e) {
       // 読めなくても数え方は変えない
     }
-    return { error: isFailure(err) ? err : undefined, status };
+    return { error: isFailure(err) ? err : undefined, status, ...(text !== undefined ? { text } : {}) };
   };
 
-  const run = async (unit: Unit): Promise<void> => {
-    const t = target(compiled, unit, options.ratio);
-    processed++;
-    if (unit.tile) processedTiles++;
-    if (!t) {
-      // 照合に外れた（展開とテンプレートの食い違い）。internal として storage に数える（計画 R2）
-      fail('storage');
-      return;
-    }
-    const [has] = await store.hasEntries([t.key]);
-    if (has) {
-      keys.push(t.key);
-      return;
-    }
-    const { error, status } = await fetchUnit(unit, t);
-    if (!error) {
-      keys.push(t.key);
-      opaqueStreak.delete(unit.resource.id);
-      authStreak = 0;
-      quotaStreak = 0;
-      return;
-    }
+  const succeeded = (unit: Unit) => {
+    opaqueStreak.delete(unit.resource.id);
+    authStreak = 0;
+    quotaStreak = 0;
+  };
+
+  /**
+   * 失敗の数え方（§4.5-3・§4.6）。opaque の連続数はタイルだけで数える（確かめはタイルを選ぶ。非タイルの単位は数が少なく、
+   * 範囲の枚数で確かめられない。m4-t4）
+   */
+  const classify = async (unit: Unit, t: { url: URL; key: string }, error: TileFailure, status: number): Promise<void> => {
     quotaStreak = error === 'quota' ? quotaStreak + 1 : 0;
     if (error === 'network') {
-      // §4.5-3: TypeError のタイルは no-cors で確かめる。opaque は upstream に数え、実績が無ければ連続数に足す
+      // §4.5-3: TypeError の単位は no-cors で確かめる。opaque は upstream に数え、実績が無ければ連続数に足す
       const probe = await probeNoCors(t.url.href);
       if (probe === 'opaque') {
         fail('upstream', t.key);
-        if (!confirmed.has(unit.resource.id) && !experienced(await store.getResource(unit.resource.id))) {
+        if (unit.tile && !confirmed.has(unit.resource.id) && !experienced(await store.getResource(unit.resource.id))) {
           opaqueStreak.set(unit.resource.id, (opaqueStreak.get(unit.resource.id) ?? 0) + 1);
         }
         return;
@@ -523,6 +563,126 @@ const runRangeJob = async (
     } else {
       authStreak = 0;
     }
+  };
+
+  /**
+   * スタイル（m4-t4・§7.2 の 1）。hit でよい（hasEntries で飛ばさない）。本体から collectFonts で fontstack を集める。
+   * 読めなければ（invalid-style の形。HTML は core が upstream-error にする）スタイルの単位だけ upstream に数える
+   */
+  const runStyle = async (unit: Unit, t: { url: URL; m: MatchResult; key: string }): Promise<void> => {
+    const { error, status, text } = await fetchUnit(unit, t, { text: true });
+    let readable = false;
+    if (text !== undefined) {
+      try {
+        for (const f of collectFonts(parseStyle(text))) addFontstack(f);
+        readable = true;
+      } catch (_e) {
+        // 下で数える
+      }
+    }
+    if (error) {
+      // 読めるスタイルの記録が既に有れば（stale）固定の対象に入れてから失敗を数える（R-t4-5 とそろえる。PR #104 L2）
+      if (readable && (await store.hasEntries([t.key]))[0]) keys.push(t.key);
+      await classify(unit, t, error, status);
+      return;
+    }
+    if (!readable) {
+      fail('upstream', t.key);
+      return;
+    }
+    keys.push(t.key);
+    succeeded(unit);
+  };
+
+  /**
+   * グリフの 1 fontstack（m4-t4・§11・L4・R-G・第 1 回 M15）。既に有る範囲は getEntry の parts で見て飛ばし（1 回）、
+   * 無い範囲を順に取って collect に集め、finally で 1 回だけ書く（取り消しで途中まででも捨てない）。
+   * 失敗は単位ごとに 1 件: flush の失敗（quota・storage）を先に、無ければ最初の範囲の失敗
+   */
+  const runGlyph = async (unit: Unit): Promise<void> => {
+    const targets: { url: URL; m: MatchResult; key: string }[] = [];
+    for (const range of glyphRangesOf(options.glyphRanges)) {
+      const t = target(compiled, unit, options.ratio, range);
+      if (!t) {
+        fail('storage');
+        return;
+      }
+      targets.push(t);
+    }
+    if (targets.length === 0) return;
+    const key = targets[0].key;
+    let exists: boolean;
+    let have: string[];
+    try {
+      const got = await store.getEntry(key);
+      exists = !!got;
+      have = Object.keys(got?.body.parts ?? {});
+    } catch (_e) {
+      fail('storage', key);
+      return;
+    }
+    const missing = targets.filter((t) => have.indexOf(t.m.range ?? '') < 0);
+    let first: { error: TileFailure; status: number; t: { url: URL; key: string } } | undefined;
+    let got = false;
+    if (missing.length > 0) {
+      const collect = createGlyphCollector(ctx, unit.resource, key);
+      let flushed: 'quota' | 'storage' | undefined;
+      try {
+        for (const t of missing) {
+          // 取り消しは範囲の間で見る（取れた範囲は下の flush で書く）
+          if (job.cancel) break;
+          const r = await fetchUnit(unit, t, { collect });
+          if (r.error) first ??= { error: r.error, status: r.status, t };
+          else got = true;
+        }
+      } finally {
+        flushed = await collect.flush();
+      }
+      if (flushed) {
+        quotaStreak = flushed === 'quota' ? quotaStreak + 1 : 0;
+        fail(flushed, key);
+        if (exists) keys.push(key);
+        return;
+      }
+    }
+    if (exists || got) keys.push(key);
+    if (first) {
+      await classify(unit, { url: first.t.url, key }, first.error, first.status);
+      return;
+    }
+    succeeded(unit);
+  };
+
+  const run = async (unit: Unit): Promise<void> => {
+    if (unit.resource.type === 'glyph') {
+      processed++;
+      await runGlyph(unit);
+      return;
+    }
+    const t = target(compiled, unit, options.ratio);
+    processed++;
+    if (unit.tile) processedTiles++;
+    if (t && unit.resource.type === 'style') {
+      await runStyle(unit, t);
+      return;
+    }
+    if (!t) {
+      // 照合に外れた（展開とテンプレートの食い違い）。internal として storage に数える（計画 R2）
+      fail('storage');
+      return;
+    }
+    const [has] = await store.hasEntries([t.key]);
+    if (has) {
+      keys.push(t.key);
+      return;
+    }
+    const { error, status } = await fetchUnit(unit, t);
+    if (!error) {
+      keys.push(t.key);
+      succeeded(unit);
+      return;
+    }
+    await classify(unit, t, error, status);
   };
 
   /** §4.5-3: opaque が 3 回続いた Resource を、範囲から無作為に 5 枚 cors で確かめる */
@@ -590,8 +750,8 @@ const runRangeJob = async (
   let result: 'finished' | 'canceled' | 'gone' | 'stopped' = 'finished';
   try {
     if (options.pin && await overPinnedLimit(store, plan.resources)) throw stopError('quota', 'The pinned entries reach cacheMaxBytes');
-    result = await runJob<Unit>({
-      tasks: unitsOf(plan),
+    // スタイルの段を先に終えてから残りの単位を作る（グリフの fontstack がスタイルの本体に依る。m4-t4）
+    const spec = {
       batchSize: options.concurrency,
       isAlive: async () => !!(await self.clients.get(client.id)),
       isCanceled: async () => {
@@ -606,7 +766,8 @@ const runRangeJob = async (
       },
       run,
       onBatch: async () => {
-        job.count = processed;
+        // job.total はタイルの枚数なので、count もタイルだけで数える（旧 API の fetch-busy の文面。PR #104 L3）
+        job.count = processedTiles;
         if (!(await store.getRegion(regionId))) {
           regionGone = true;
           keys = [];
@@ -634,7 +795,9 @@ const runRangeJob = async (
           // 送れなくてもジョブは続ける
         }
       },
-    });
+    };
+    result = await runJob<Unit>({ ...spec, tasks: unitsOf(plan, 'style', () => fontstacks) });
+    if (result === 'finished') result = await runJob<Unit>({ ...spec, tasks: unitsOf(plan, 'rest', () => fontstacks) });
     if (regionGone && result === 'finished') result = 'canceled';
   } catch (e) {
     result = 'stopped';
