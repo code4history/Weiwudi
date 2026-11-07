@@ -294,3 +294,44 @@
 - 判定: 手元の Firefox 159（Playwright の moz-firefox・WebDriver BiDi）で直す前は CI と同じ 5 件が落ち、直した後は range.spec.js 6 件・e2e 全件 37 件 passed。Chromium の e2e 全件 58 passed・vitest 1609 件（persist が決して解決しない・同期の例外の試験を追加。直す前は時間切れで落ちる）・tsc・eslint exit 0。CI: Node 22・24 緑、e2e-engines の WebKit 35 passed・2 skipped（R-t10-5）、**Firefox（firefox-1555・Juggler）37 passed・失敗 0**
 - 手元の罠: vite の開発サーバは、起動後に作り直した /dist/weiwudi.es.js を配らない（メモリの古い版を返す）。build し直したら vite も起動し直す
 - 教訓: Firefox の段は continue-on-error なので、チェックが緑でも log の失敗の件数を読む。t11 以降の PR でも e2e-engines の log の集計を見る
+
+## m4-t11 文書の総仕上げ — 完了（PR #111 → b685ad1）
+
+- 実装: Codex（gpt-6-astra）。作業の途中で枠切れ（out of credits）。変更は作業ツリーに揃っていたので、orchestrator が差分を確かめて a391d9f として commit した（commit の本文に記載）
+- 内容: CHANGELOG に `## [Unreleased]`（Added 10 行・Changed 13 行）。README・docs/api・docs/api/sw の英日から m4 と「予定」の語を外した。仕様 §14.1・§16。I13（applyCredentials の表を sw.md・sw.ja.md に）。CI の件数の記述（37 件。WebKit 35 passed・2 skipped、Firefox 37）。資産の clean(range) の注記（R-t5-5）
+- 判定: vitest・tsc・eslint exit 0。CI: Node 22・24 緑、e2e-engines の log で WebKit 35 passed・2 skipped、Firefox 37 passed・失敗 0
+- 版は 1.1.1 のまま（1.2.0 の公開は次の月次トレイン）
+
+## m4 の区切り（全体レビュー・セキュリティ点検）— 合流可（PR #112 → e3ac007）
+
+- 担当（水準 2）: Claude。**別ベンダーの条件は満たしていない**。Codex は 2026-11-07 に 3 回枠切れ、Kimi は週の上限（17:03Z の 429）で起動できなかった。各タスクのレビューと同じ扱いとして Ruling R-cp-1 で受け入れる
+- 判定: S 0・M 0。合流可
+- セキュリティ点検（7 項目すべて合格。守っている行を 1 か所ずつ壊して試験が落ちることも確かめた）
+
+  | 項目 | 結果 |
+  |---|---|
+  | 範囲取得の資格情報は捕捉と同じ相手にだけ付く | 合格 |
+  | 他の Source の範囲に触れない | 合格 |
+  | 新しい制御の操作にも送り手の検査が効く | 合格 |
+  | 移行で set-cookie などのヘッダを落とす | 合格 |
+  | CORS なしの確かめに資格情報を付けない | 合格 |
+  | 範囲の一覧・イベント・止まったときの文面に資格情報と URL のクエリが出ない | 合格 |
+  | 資格情報の文書（I11） | 合格 |
+
+  semgrep でも m4 で変えた行に指摘なし
+- 工程の境目（全体の数と解放・stats() と範囲・移行と再試行）に食い違いなし。二重実装の grep は migrate.ts:60 のコメント 1 件（L6）を除き 0 件
+- 指摘と扱い
+  - L1（記録のみ）: 移行が容量超過で止まった地図は失敗のまま旧 DB に残る。データは失われず読み出せる
+  - L2（直した）: opaque の知らせの親への読み替え・`map:` の除外・全 window client への配送の試験が無い
+  - L3（直した）: 範囲取得の開始時の固定分の上限の判定の試験が無い
+  - L4（直した）: (a) 他の Source の終わった範囲への job/resume の拒否、(b) 最後のバッチの途中で範囲が消えたときの canceled、の試験が無い
+  - L5（記録のみ）: ページ側の `setLimits(null)` で上限が黙って外れる。TypeScript の型では防げる
+  - L6（直した）: migrate.ts のコメントの `tileKeySuffix` の語
+- 直し（e41900c。レビュー担当がそのまま直した）: tests/unit/range.test.ts に 4 件。変異 6 つ（L2 は 3 つ）で、どれも狙った試験 1 件だけが落ちる。vitest 1613 passed・tsc・eslint exit 0。`grep tileKeySuffix src/range.ts src/migrate.ts` 0 件
+- CI（PR #112）: Node 22・24 緑（Chromium 58 passed）。e2e-engines の log で WebKit 35 passed・2 skipped、Firefox 37 passed・失敗 0
+- 範囲の外（記録のみ・後で決める）: 既存の cache.spec.js の 2 件が実の OSM（0/0/0）へ出る（t10 の申し送り）
+- Rulings
+  - R-cp-1: 別ベンダーが使えないので水準 2 を Claude で行い、条件を満たしていないことをここに記録して合流へ進む
+  - R-cp-2: L1・L5 は実害が無いか型で防げるので m4 では直さない
+  - R-cp-3: P4 の 2 点目（`grep -c 'class WeiwudiError' dist/weiwudi.d.ts` が 1 以上）は 0 件だった。class は dist/errors.d.ts に `export declare class WeiwudiError` として宣言され、dist/weiwudi.d.ts は `export { WeiwudiError, … } from './errors'` で再公開している（tests/dts の check-dts も両方 ok）。型は意図どおり公開されているので満たしたとみなす。計画の grep は d.ts の分割を想定していなかった
+- master への合流の条件（wv-cp・e41900c で build して確かめた）: dist の 4 点は errors.d.ts あり・WeiwudiError の再公開（R-cp-3）・es.js の export 1・umd.js の WeiwudiError 1・public/weiwudi-sw.js の x-weiwudi-error 1。`check-dts.mjs` を weiwudi.d.ts と weiwudi_gw.d.ts で exit 0・`tsc -p tests/dts/tsconfig.json` exit 0。CHANGELOG の Unreleased あり・version 1.1.1 のまま
