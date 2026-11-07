@@ -574,3 +574,68 @@ export async function runJob<T>(job: JobSpec<T>): Promise<'finished' | 'canceled
     if (!exhausted) it.return?.();
   }
 }
+
+/**
+ * 保持期間の掃除（仕様 §7.1・m4 R8〜R10）。1 回は訪問するメタ 2,000 件まで。
+ * 未完の走査は時刻・方針・cursor をメモリに残し、次の契機（force も含む）で続ける。
+ * 失敗は呼び出し側が記録する。ページの完了前には cursor を進めないので、次回やり直せる。
+ */
+export function sweepOnce(ctx: Context, opts: { force?: boolean } = {}): Promise<void> {
+  const state = ctx.maintenance;
+  if (state.sweeping) return state.sweeping;
+  if (ctx.job || (state.swept && !opts.force)) return Promise.resolve();
+  state.swept = false;
+  const run = async () => {
+    const store = await ctx.store();
+    if (!state.sweep) {
+      const resources = (await store.listResources()).filter(r => r.policy.cacheRetention !== undefined);
+      state.sweep = { now: Date.now(), resources, tilesDone: false, glyphIndex: 0 };
+    }
+    const scan = state.sweep;
+    const tiles = new Map(scan.resources.filter(r => r.type !== 'glyph').map(r => [r.id, r]));
+    const glyphs = scan.resources.filter(r => r.type === 'glyph');
+    let remaining = 2_000;
+    if (tiles.size === 0) scan.tilesDone = true;
+    if (!scan.tilesDone) {
+      const before = scan.now - Math.min(...[...tiles.values()].map(r => r.policy.cacheRetention!));
+      while (remaining > 0 && !scan.tilesDone) {
+        if (ctx.job) return;
+        const page = await store.listUnpinnedBefore(before, Math.min(200, remaining), scan.after);
+        remaining -= page.metas.length;
+        const groups = new Map<string, string[]>();
+        for (const meta of page.metas) {
+          const resource = tiles.get(meta.resourceId);
+          if (!resource || scan.now - meta.fetchedAt <= resource.policy.cacheRetention!) continue;
+          const keys = groups.get(resource.id) ?? [];
+          keys.push(meta.key);
+          groups.set(resource.id, keys);
+        }
+        for (const [id, keys] of groups) {
+          if (ctx.job) return;
+          await store.deleteEntries(keys, { unpinnedOnly: true, fetchedBefore: scan.now - tiles.get(id)!.policy.cacheRetention! });
+        }
+        scan.after = page.next;
+        scan.tilesDone = page.next === undefined;
+      }
+    }
+    while (remaining > 0 && scan.tilesDone && scan.glyphIndex < glyphs.length) {
+      if (ctx.job) return;
+      const resource = glyphs[scan.glyphIndex];
+      const page = await store.entriesOf(resource.id, Math.min(200, remaining), scan.glyphAfter);
+      remaining -= page.metas.length;
+      for (const meta of page.metas) {
+        if (ctx.job) return;
+        if (meta.pinned === 0) await store.pruneGlyphParts(meta.key, scan.now - resource.policy.cacheRetention!);
+      }
+      scan.glyphAfter = page.next;
+      if (page.next === undefined) scan.glyphIndex++;
+    }
+    if (scan.tilesDone && scan.glyphIndex === glyphs.length) {
+      state.swept = true;
+      state.sweep = undefined;
+    }
+  };
+  const running = run().finally(() => { state.sweeping = undefined; });
+  state.sweeping = running;
+  return running;
+}

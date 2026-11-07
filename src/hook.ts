@@ -396,9 +396,10 @@ export function installHook(ctx: Context, registerRoute: RegisterRoute, deps: Ho
     if (!current || !isCandidate(request)) return false;
     return current.table.match(url) ?? false;
   };
-  const matchHandler: RouteHandlerCallback = async ({ url, request, params }: RouteHandlerCallbackOptions) => {
+  const matchHandler: RouteHandlerCallback = async ({ url, request, params, event }: RouteHandlerCallbackOptions) => {
     const hit = (params as TableHit | undefined) ?? ctx.table.current?.table.match(url) ?? undefined;
     if (!hit) return fetch(request);
+    ctx.maintain?.(event);
     return serveHit(ctx, request, url, hit, ctx.table.current);
   };
   registerRoute(matchRoute, matchHandler, 'GET');
@@ -409,7 +410,7 @@ export function installHook(ctx: Context, registerRoute: RegisterRoute, deps: Ho
     if (s.current || !isCandidate(request)) return false;
     return !!s.loading || Date.now() >= s.retryAt;
   };
-  const gateHandler: RouteHandlerCallback = async ({ url, request }: RouteHandlerCallbackOptions) => {
+  const gateHandler: RouteHandlerCallback = async ({ url, request, event }: RouteHandlerCallbackOptions) => {
     const p = ensureLoad(ctx, Date.now());
     if (!p) return fetch(request);
     let loaded: LoadedTable;
@@ -426,6 +427,7 @@ export function installHook(ctx: Context, registerRoute: RegisterRoute, deps: Ho
     }
     const hit = loaded.table.match(url);
     if (!hit) return fetch(request);
+    ctx.maintain?.(event);
     return serveHit(ctx, request, url, hit, loaded);
   };
   queueMicrotask(() => registerRoute(gateRoute, gateHandler, 'GET'));

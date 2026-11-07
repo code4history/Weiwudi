@@ -61,6 +61,25 @@ export interface Context {
   store(): Promise<Store>;
   /** 同じキーの同時要求を 1 本にまとめる（core.serve が使う） */
   inflight: Map<string, Promise<Response>>;
+  /** store を使う要求が起こす保守。配線が waitUntil と結び付ける（m4-t2・R9） */
+  maintain?: (event: ExtendableEvent) => void;
+  /** SW の生存期間だけ持つ保守の状態。migrated は m4-t7 が使う */
+  maintenance: {
+    swept: boolean;
+    running?: Promise<void>;
+    migrated?: boolean;
+    /** ジョブ完了時の直接呼び出しとも掃除を共有する */
+    sweeping?: Promise<void>;
+    /** 2,000 件で区切った走査の続き。時刻と Resource の方針は走査中に変えない */
+    sweep?: {
+      now: number;
+      resources: ResourceMeta[];
+      tilesDone: boolean;
+      after?: IDBValidKey;
+      glyphIndex: number;
+      glyphAfter?: string;
+    };
+  };
   /** 動いているジョブ。無ければ undefined */
   job?: JobState;
   /** 照合表（t7） */
@@ -110,6 +129,7 @@ export function createContext(options: ContextOptions | (() => Promise<Store>) =
       return opening;
     },
     inflight: new Map(),
+    maintenance: { swept: false },
     table: { generation: 0, failures: 0, retryAt: 0 },
     corslessStreak: new Map(),
     providers: () => providers(),

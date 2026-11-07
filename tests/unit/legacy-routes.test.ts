@@ -100,3 +100,40 @@ describe('照合ルート・門番と旧 API のルート（m2-t7）', () => {
     expect(res?.headers.get('access-control-expose-headers')).toBe('x-weiwudi-status, x-weiwudi-error');
   });
 });
+
+// m4-t2: store を使う Weiwudi の要求だけが保守の契機（既存の試験は変更しない）。
+describe('保守を waitUntil へ渡すルート', () => {
+  it('門番と照合ルートの dispatch は照合に当たったときだけ保守を起こす', async () => {
+    const { createContext } = await import('../../src/context');
+    const { applyRegister } = await import('../../src/registry');
+    const { normalizeSpec } = await import('../../src/spec');
+    const h = createSwHarness();
+    const store = await createContext().store();
+    try {
+      await applyRegister(store, normalizeSpec({ kind: 'raster', url: 'https://retention.example/{z}/{x}/{y}.png' }));
+      h.fetch.mockImplementation(async () => new Response('tile'));
+      await h.flushRoutes();
+      expect(Object.keys(h.listeners).sort()).toEqual(['activate', 'install']);
+      // 表のない状態での最初のヒットは門番、次は照合ルート。
+      await h.dispatch('https://retention.example/0/0/0.png');
+      expect(h.waitUntilCalls).toHaveLength(1);
+      await Promise.all(h.waitUntilCalls);
+      await h.dispatch('https://retention.example/0/0/0.png');
+      expect(h.waitUntilCalls).toHaveLength(2);
+      await Promise.all(h.waitUntilCalls);
+      await h.dispatch('https://unmatched.example/0/0/0.png');
+      expect(h.waitUntilCalls).toHaveLength(2);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('制御 POST は送り手の検査を通った後だけ保守を起こす', async () => {
+    const h = createSwHarness();
+    await h.post('/v2/sources', {}, { client: { id: 'foreign', url: 'https://foreign.example/' } });
+    expect(h.waitUntilCalls).toHaveLength(0);
+    await h.post('/v2/sources', {});
+    expect(h.waitUntilCalls).toHaveLength(1);
+    await Promise.all(h.waitUntilCalls);
+  });
+});

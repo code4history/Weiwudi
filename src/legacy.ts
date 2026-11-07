@@ -14,7 +14,7 @@
 //   現行の getImage の読み出し（設定と Entry）の失敗と同じ経路・同じ形（m2-t5 の Ruling）
 import type { RouteHandlerCallbackOptions } from 'workbox-core';
 import type { Context, JobState } from './context';
-import { passThrough, runJob, serve } from './core';
+import { passThrough, runJob, serve, sweepOnce } from './core';
 import type { MapSetting, ResourceMeta, Store, TileExtent } from './store';
 import { nextOrder } from './store';
 import { DAY_MS, LEGACY_PREFIX } from './constants';
@@ -204,6 +204,10 @@ const fetchAll = async (ctx: Context, job: JobState, client: Client, setting: Ma
       total: totalTile,
       mapID,
     });
+  } finally {
+    release();
+    // fetchAll の waitUntil はジョブ 1 つのまま。掃除の失敗で終了イベントを変えない（R9・R56）。
+    try { await sweepOnce(ctx, { force: true }); } catch (e) { console.error(e); }
   }
 };
 
@@ -401,6 +405,7 @@ export const handleLegacy = async (ctx: Context, { url, request, event }: RouteH
   const client = fetchEvent && fetchEvent.clientId ? await self.clients.get(fetchEvent.clientId) : undefined;
   const matched = url.pathname.match(/^\/api\/([\w\d]+)(?:\/(.+))?$/);
   if (matched) {
+    if (matched[1] !== 'ping' && matched[1] !== 'fetchAll') ctx.maintain?.(event);
     const query = [...url.searchParams.entries()].reduce((obj: Query, e) => {
       const values = url.searchParams.getAll(e[0]);
       if (values.length === 1) obj[e[0]] = values[0];

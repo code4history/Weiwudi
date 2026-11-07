@@ -126,7 +126,9 @@ describe('門番と照合ルート', () => {
     const { IDBObjectStore } = await import('fake-indexeddb');
     const getAll = vi.spyOn(IDBObjectStore.prototype, 'getAll');
     await h.flushRoutes();
-    await Promise.all([h.dispatch(TILE), h.dispatch('https://t.example/3/1/3.png'), h.dispatch('https://x.example/')]);
+    // m4-t2: この試験は照合表の読み込みだけを数える。waitUntil の無いイベントで保守の走査を分ける。
+    await Promise.all([TILE, 'https://t.example/3/1/3.png', 'https://x.example/']
+      .map(url => h.dispatch(url, { event: {} })));
     const resourceReads = getAll.mock.instances.filter((s) => (s as unknown as { name: string }).name === 'resources');
     expect(resourceReads).toHaveLength(1);
   });

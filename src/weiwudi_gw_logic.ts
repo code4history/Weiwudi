@@ -4,7 +4,8 @@
 // 疑似ホストの GET のうち /v2/ で始まるパス（ping）は control へ、それ以外は legacy へ渡す（legacy から control を
 // 呼ばない。第 2 回 O12）。
 import type { RouteHandlerCallback, RouteMatchCallback } from 'workbox-core';
-import { createContext } from './context';
+import { createContext, type Context } from './context';
+import { sweepOnce } from './core';
 import { createControl } from './control';
 import { handleLegacy } from './legacy';
 import { installHook } from './hook';
@@ -15,6 +16,17 @@ import { appendQueryCredentials } from './upstream';
 import { acceptsMember } from './spec';
 
 declare const self: ServiceWorkerGlobalScope;
+
+/** 保守の配線（m4-t7 はこの中に migrateStep を足す）。配信へ失敗を伝えない。 */
+const runMaintenance = (ctx: Context): Promise<void> => {
+  const state = ctx.maintenance;
+  if (state.running) return state.running;
+  const running = Promise.resolve().then(async () => {
+    if (!state.swept) await sweepOnce(ctx);
+  }).catch(e => { console.error(e); }).finally(() => { state.running = undefined; });
+  state.running = running;
+  return running;
+};
 
 // Allow string based method to be compatible with both Workbox types and simple strings
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -28,6 +40,10 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp | RouteMatchCal
     providers,
     acceptsMember: (type, templates, credentialParams) => acceptsMember(type, templates, credentialParams, providers()),
   });
+
+  ctx.maintain = (event) => {
+    if (typeof event?.waitUntil === 'function') event.waitUntil(runMaintenance(ctx));
+  };
 
   // 初回ナビゲーションをリロードせずに SW の制御下へ置くため、install で skipWaiting・
   // activate で clients.claim を実行する（#30）
