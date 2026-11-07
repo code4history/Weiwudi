@@ -475,6 +475,19 @@ describe('範囲取得（m4-t3・§7.2・R22・R45・R58・R-ratio・I5b）', ()
     expect(persist).toHaveBeenCalledTimes(1);
   });
 
+  it('persist が解決しなくても（Firefox は許可の確認を出し、答えるまで待たせる）POST を出して解決する。同期の例外も無視する', async () => {
+    const m = await setup();
+    const persist = vi.fn(() => new Promise<boolean>(() => {}));
+    (navigator as unknown as { storage: unknown }).storage = { persist };
+    answer({ fetchRange: () => region({ status: 'complete' }) });
+    const src = await m.default.register({ kind: 'raster', url: TPL });
+    expect(await src.fetchRange(RANGE)).toMatchObject({ id: 'g1', status: 'complete' });
+    expect(persist).toHaveBeenCalledTimes(1);
+    (navigator as unknown as { storage: unknown }).storage = { persist: () => { throw new Error('sync'); } };
+    expect(await src.fetchRange(RANGE)).toMatchObject({ id: 'g1', status: 'complete' });
+    expect(bodies('fetchRange')).toHaveLength(2);
+  });
+
   it("ratio の既定は devicePixelRatio > 1 なら '@2x'。指定があればそのまま", async () => {
     const m = await setup();
     vi.stubGlobal('devicePixelRatio', 2);

@@ -375,16 +375,18 @@ export class WeiwudiSource extends WeiwudiEventTarget {
     }
 
     /**
-     * 範囲を取得して固定する（§7.2）。持続的な保存領域を求め（失敗は無視。I5b）、ratio の既定は devicePixelRatio > 1 なら
+     * 範囲を取得して固定する（§7.2）。持続的な保存領域を求め（待たず、失敗は無視。I5b）、ratio の既定は devicePixelRatio > 1 なら
      * '@2x'（R-ratio）。終わり（finish・canceled は resolve、stop は WeiwudiError で reject）まで待つ。30 秒イベントが来なければ
      * job/resume を送る（R22・R45）
      */
     async fetchRange(range: RangeSpec, opts: FetchRangeOptions = {}): Promise<RegionInfo> {
         this.alive();
+        // 持続化は求めるだけで待たない（断られても取得は続ける）。Firefox は許可の確認を出し、利用者が答えるまで
+        // persist() の Promise が決まらないので、待つと範囲取得が始まらない
         try {
-            await navigator.storage?.persist?.();
+            navigator.storage?.persist?.()?.catch(() => undefined);
         } catch (_e) {
-            // 持続化を断られても取得は続ける
+            // 同期の例外も無視する
         }
         const ratio = opts.ratio ?? (typeof devicePixelRatio === 'number' && devicePixelRatio > 1 ? '@2x' : '');
         const info = await postV2<RegionInfo>('fetchRange', { id: this.id, range, options: { ...opts, ratio } });

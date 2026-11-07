@@ -516,7 +516,7 @@ interface RegionInfo {
   `estimate()` は `{ tiles: 0 }`
 - `ratio` は `{ratio}` に入ります。指定が無ければ `fetchRange()` は `devicePixelRatio > 1` なら `'@2x'`、そうでなければ `''` を
   送ります（保存のキーは、地図ライブラリの要求と同じく `@2x` を含むため）
-- `fetchRange()` は先に持続的な保存領域を求めます（`navigator.storage.persist()`。断られても続けます）
+- `fetchRange()` は先に持続的な保存領域を求めます（`navigator.storage.persist()`。答えを待たず、断られても続けます。Firefox は利用者に確認を出し、答えるまで決まりません）
 - 保存済みのタイルは取り直さず、固定だけ付けます。同じ範囲をもう一度取ると、途中で止まった取得の再開になります
 - 要求は `fetch(url)` と同じ形（`mode: 'cors'`・`credentials: 'same-origin'`）です。登録の `credentials` は、捕捉した要求と
   同じ Source・オリジンにだけ足します。**別オリジンで Cookie だけで認証するサーバは対象外**です

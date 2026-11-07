@@ -595,7 +595,8 @@ interface RegionInfo {
   if `devicePixelRatio > 1` and `''` otherwise, because the cached key
   includes `@2x` the same way the map library requests it
 - `fetchRange()` first asks for persistent storage
-  (`navigator.storage.persist()`; a refusal is ignored)
+  (`navigator.storage.persist()`; it does not wait for the answer, and a refusal
+  is ignored. Firefox asks the user and settles the request only after an answer)
 - Tiles that are already cached are not requested again; they are only pinned.
   Running the same range again therefore resumes an interrupted run
 - Requests are made like `fetch(url)` (`mode: 'cors'`,
