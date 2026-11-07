@@ -99,7 +99,7 @@
     "docs/superpowers/reports/2026-11-02-onboard-summary.md",
     "docs/superpowers/specs/2026-11-02-new-interface-spec.md"
   ],
-  "next_action": "m4 を進める。計画 docs/superpowers/plans/2026-11-07-m4-range-release-migration.md・台帳 .superpowers/sdd/2026-11-07-m4-range/progress.md。m4-t1 は完了（PR #100 → 36fe34b）。m4-t2 も完了（PR #101 → 576ab0c）。m4-t7 も完了（PR #103 → 22be6a9）。m4-t3 も完了（PR #102 → 5c73c63）。m4-t4 も完了（PR #104 → 135b448）。m4-t5 も完了（PR #105 → e944774）。m4-t8 も完了（PR #106 → eaddaf8）。m4-t6 も完了（PR #107 → 1fe1b58）。m4-t9 も完了（PR #108 → 110be77。#41）。m4-t10 も完了（PR #109 → 610a864）。次は Firefox で fetchRange が解決しない件（CI の記録のみの段で range の 5 件が失敗）を調べて直し、その後 t11（文書と master への合流）。委任は Codex → Kimi → Claude・並行 2 まで。#78 の設計 PR #96 は未レビュー。e2e は build してから走らせる",
+  "next_action": "m4 を進める。計画 docs/superpowers/plans/2026-11-07-m4-range-release-migration.md・台帳 .superpowers/sdd/2026-11-07-m4-range/progress.md。m4-t1 は完了（PR #100 → 36fe34b）。m4-t2 も完了（PR #101 → 576ab0c）。m4-t7 も完了（PR #103 → 22be6a9）。m4-t3 も完了（PR #102 → 5c73c63）。m4-t4 も完了（PR #104 → 135b448）。m4-t5 も完了（PR #105 → e944774）。m4-t8 も完了（PR #106 → eaddaf8）。m4-t6 も完了（PR #107 → 1fe1b58）。m4-t9 も完了（PR #108 → 110be77。#41）。m4-t10 も完了（PR #109 → 610a864）。Firefox で fetchRange が始まらない件も直した（PR #110 → f95dd19。persist() を待たない）。次は t11（文書と master への合流）。委任は Codex → Kimi → Claude・並行 2 まで。#78 の設計 PR #96 は未レビュー。e2e は build してから走らせる",
   "delegation_environment": {
     "order": "Codex（gpt-6-astra）→ Kimi（dsh・kimi-coding/k3）→ Claude。並行は 2 まで（2026-11-07 人間の指示）",
     "codex": "5 時間の枠を 2026-11-07 08:45Z ごろと 14:08Z ごろに使い切った（戻ってから約 9 分で再び切れた）",

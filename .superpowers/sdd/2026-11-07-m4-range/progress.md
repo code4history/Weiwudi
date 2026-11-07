@@ -284,3 +284,13 @@
   - 文書の「CI の 29 件」（docs/api/weiwudi.md の 29 tests）は range のタグ無し 6 件と migrate の 2 件ぶん変わる
   - 文書の「WebKit は Blob を保存できない」と、WebKit の CI で migrate の 1・2 件目が skip になることが合っているか確かめる
   - cache.spec.js が実の OSM へ出る件をどう扱うか決める
+
+## m4 の追加の直し: Firefox で fetchRange が始まらない — 完了（PR #110 → f95dd19）
+
+- 発見: PR #109（t10）の CI の e2e-engines の Firefox の段（記録のみ・continue-on-error。チェックは緑のまま）で range.spec.js の 5 件が 30 秒の時間切れ。orchestrator が CI の log を読んで気づいた
+- 原因（製品の不具合）: ページ側の fetchRange が制御の POST の前に `await navigator.storage.persist()` をしていた。Firefox の persist() は利用者に許可の確認を出し、答えるまで Promise が決まらない → 範囲取得が始まらない（無視されれば永久に）。根拠: 手元の Firefox 159 で persist() が 5 秒 pending・/v2/fetchRange の POST が出ない・落ちた 5 件はすべて fetchRange を呼び、通った 3 件（global limit・migrate 2 件）は呼ばない
+- 直し: persist() は求めるだけで待たない（失敗と同期の例外は無視）。仕様 I5b「試す（失敗は無視）」のまま。docs/api 英日に 1 文ずつ。a5f455e
+- 実装と調査: Claude（e2e が要るので Codex の sandbox では不可・Kimi は週の上限）。レビュー: orchestrator が差分を読んで L1（小さな差分）
+- 判定: 手元の Firefox 159（Playwright の moz-firefox・WebDriver BiDi）で直す前は CI と同じ 5 件が落ち、直した後は range.spec.js 6 件・e2e 全件 37 件 passed。Chromium の e2e 全件 58 passed・vitest 1609 件（persist が決して解決しない・同期の例外の試験を追加。直す前は時間切れで落ちる）・tsc・eslint exit 0。CI: Node 22・24 緑、e2e-engines の WebKit 35 passed・2 skipped（R-t10-5）、**Firefox（firefox-1555・Juggler）37 passed・失敗 0**
+- 手元の罠: vite の開発サーバは、起動後に作り直した /dist/weiwudi.es.js を配らない（メモリの古い版を返す）。build し直したら vite も起動し直す
+- 教訓: Firefox の段は continue-on-error なので、チェックが緑でも log の失敗の件数を読む。t11 以降の PR でも e2e-engines の log の集計を見る
