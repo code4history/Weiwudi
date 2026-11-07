@@ -200,6 +200,10 @@ console.log(source.warnings, await source.stats());
   Secret tokens (`sk.` in queries, `sk.eyJ…` path segments) are rejected, and
   mirrors with different values for the same credential parameter are
   rejected with `attribute-invalid`.
+- For a signed URL (for example a presigned S3 URL with `X-Amz-Signature`), list
+  the signature query items in `credentialParams`: they are then not kept in cache
+  keys, and the same tile stays one entry. The service worker cannot create
+  signatures, so they cannot be added through `credentials`.
 - `mapbox://` URLs are resolved to `https://api.mapbox.com/…` by default (pass the
   access token as `credentials: { query: { access_token } }`). Checking the
   provider's terms of service, including whether offline storage is allowed, is
@@ -219,6 +223,11 @@ console.log(source.warnings, await source.stats());
   or the `importScripts` line) and register your own Workbox routes after it.
   A catch-all route (for example `/.*/`) registered before Weiwudi takes every
   tile request from it.
+- Weiwudi's gatekeeper route (it holds tile requests while the URL table loads
+  after the service worker starts) is registered right after the evaluation of
+  your service worker script. It takes those requests before any route you
+  register later (in an event handler or after an `await`) and before your
+  default handler (`setDefaultHandler`).
 
 `cacheRetention` sets a deletion deadline in milliseconds from `fetchedAt` (no deadline by default).
 Expired entries are treated as missing when serving requests and are deleted in batches on the first

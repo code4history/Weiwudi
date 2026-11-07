@@ -341,6 +341,11 @@ It pauses while a job is running. Neither ping endpoint nor `fetchAll` dispatch 
   is chosen by the upstream in `Location`, and the query of the original request
   is not carried over (unless the upstream itself writes it there; the upstream
   is assumed to be trusted).
+- For a style, credentials go only to the origin of the registered style URL
+  and to its provider, also when the style URL redirects. They are added to the
+  URLs of the registered URL's origin inside the body returned by the redirect
+  target too, so do not register a style URL that redirects to an untrusted
+  upstream.
 - Query items whose name or value starts with `sk.` are not put in cache keys.
 - **A resource id is never rewritten.** The id of a resource first created by a
   source that does not declare a `credentialParams` item keeps that item. Declare
@@ -356,6 +361,12 @@ A resource that cannot be merged with an existing one does **not** make
 A template of another shape that matches the same requests (`{y}` and `{-y}`,
 for example) is only reported as `template-shadowed`; the later registration is
 not captured.
+
+`register`, `update`, `clean`, `remove`, `removeResource` and `releaseRange`
+run one at a time in a queue of the service worker. The queue does not span
+service workers: calls made at the same time from pages controlled by service
+workers of a separate scope (same origin) are not serialized against each
+other. Register sources from one scope.
 
 ### Styles (`kind: 'style'`)
 
@@ -419,6 +430,8 @@ transparent PNG (raster) or an empty body (vector). `source.resources` and
   runs `register`, `update`, `clean` and `remove`, so those calls wait for it.
   `source()`, `sources()` and `stats()` do not wait and can show a style in the
   middle of its registration (some resources, older `warnings`).
+  There is no timeout on this wait (no upper limit): failing a slow upstream
+  would make the registration itself fail (`invalid-style` or `fetch-failed`).
 
 ### `Weiwudi.source(id)`
 
@@ -500,6 +513,9 @@ interface SourceStats {
   byResource: Record<string, { count: number; bytes: number }>;
 }
 ```
+
+When the range is known, `count` is the number of entries inside the range and
+`percent` stops at 100. `size` and `byResource` count the whole resources.
 
 ### Range fetching
 
@@ -688,6 +704,7 @@ the style.
 | `fetch-failed` | A style: a resource (a TileJSON) could not be fetched and had no cached entry. The subject is its resource id |
 | `same-origin-skipped` | A style: a URL of the page's origin referred to by a style or TileJSON of another origin was not registered. The subject is the URL without its query, or the name in the style (`sources.<name>`, `glyphs`, `sprite`, `sprite.<id>`) when its path holds a secret token or it has user info |
 | `unsupported-source` | A style: a source that is not registered (`video`, an unknown `type`, a URL that cannot be a template). The subject is `sources.<name>`, `glyphs`, `sprite`, `sprite.<id>` (an item of a `sprite` array) or `imports` |
+| `credential-undeclared` | A query item of a template has a value that looks like a token (`pk.`, `tk.`) but its name is not in `credentialParams` (the defaults or the declared ones). The registration succeeds, but the item stays in the cache keys and in `url`. The subject is the query name (the value is not written). Declare the name in `credentialParams` |
 
 Ignore any code you do not know: new codes may be added in a minor release.
 
@@ -821,6 +838,9 @@ try {
 
 **Other codes:** `db-blocked`, `quota`, `internal` (from wrapped exceptions, see
 above) and `network`, `upstream`, `storage` (tile failures, see below).
+The source API also rejects with `storage` (`detail.name` is the exception
+name) when IndexedDB fails with an exception that is not `quota` or
+`db-blocked`. Other exceptions stay `internal`.
 
 **Codes of the source API** (rejected as `WeiwudiError`, see [Source API](#source-api)):
 `unsupported-template` and `credential-rejected` (`register`),
