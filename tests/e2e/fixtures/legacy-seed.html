@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weiwudi Legacy Seed Page</title>
+</head>
+
+<body>
+    <h1>Weiwudi Legacy Seed E2E Test Page</h1>
+    <div id="status">Initializing...</div>
+
+    <script type="module">
+        import Weiwudi from '/dist/weiwudi.es.js';
+
+        // 旧 DB からの移行の e2e（m4-t10・migrate.spec.js）。1.1.1 の形の旧 DB を IndexedDB に直接作ってから、SW
+        // （offline-sw.js）を登録する。どちらも試験の側から呼ぶ（seed → startSW）。
+        // - Weiwudi.mapSetting（keyPath: mapID）: /api/add が保存した MapSetting
+        // - Weiwudi_<mapID>.tileCache（keyPath: z_x_y）: { z_x_y, headers, blob, epoch }
+        // epoch はページを開いた時刻（24 時間を過ぎると stale・refresh になり hit を確かめられない）。本体は
+        // `legacy:z/x/y` で、上流の `tile:z/x/y` と見分ける
+        window.Weiwudi = Weiwudi;
+        const OPENED = Date.now();
+
+        const open = (name, upgrade) => new Promise((resolve, reject) => {
+            const req = indexedDB.open(name, 1);
+            req.onupgradeneeded = () => upgrade(req.result);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+        const putAll = (db, storeName, values) => new Promise((resolve, reject) => {
+            const t = db.transaction([storeName], 'readwrite');
+            for (const v of values) t.objectStore(storeName).put(v);
+            t.oncomplete = () => resolve();
+            t.onabort = () => reject(t.error);
+        });
+
+        const isBlobUnsupported = (e) => !!e && (e.name === 'DataCloneError' ||
+            /\b(blob|file)\b/i.test(String(e.message ?? '')));
+
+        /**
+         * 旧 DB を作る。maxZoom までの全タイル（1.1.1 の xyz・width = height = 256 × 2^maxZoom）を tileCache に入れる。
+         * Blob を保存できない環境（WebKit の非永続領域）では { blobUnsupported: true } を返す。
+         * 戻り値の count は旧のタイルの件数
+         */
+        window.seed = async ({ mapID, url, maxZoom }) => {
+            const n = 2 ** maxZoom;
+            const setting = {
+                mapID, type: 'xyz', url, width: 256 * n, height: 256 * n, tileSize: 256,
+                maxZoom, minZoom: 0, minX: 0, maxX: n - 1, minY: 0, maxY: n - 1,
+            };
+            let total = 0;
+            for (let z = 0; z <= maxZoom; z++) total += 4 ** z;
+            setting.totalTile = total;
+            const records = [];
+            for (let z = 0; z <= maxZoom; z++) {
+                const m = 2 ** z;
+                for (let x = 0; x < m; x++) {
+                    for (let y = 0; y < m; y++) {
+                        records.push({
+                            z_x_y: `${z}_${x}_${y}`,
+                            headers: { 'content-type': 'image/png', 'Cache-Control': 'max-age=60' },
+                            blob: new Blob([`legacy:${z}/${x}/${y}`], { type: 'image/png' }),
+                            epoch: OPENED,
+                        });
+                    }
+                }
+            }
+            const tiles = await open(`Weiwudi_${mapID}`, (d) => d.createObjectStore('tileCache', { keyPath: 'z_x_y' }));
+            try {
+                await putAll(tiles, 'tileCache', records);
+            } catch (e) {
+                // Blob を保存できないと判別できる失敗だけを返す（DataCloneError か、WebKit の
+                // 「Error preparing Blob/File data to be stored in object store」）。ほかの失敗は試験の不具合として投げ直す
+                if (isBlobUnsupported(e)) return { blobUnsupported: true, error: `${e.name}: ${e.message}` };
+                throw e;
+            } finally {
+                tiles.close();
+            }
+            const settings = await open('Weiwudi', (d) => d.createObjectStore('mapSetting', { keyPath: 'mapID' }));
+            await putAll(settings, 'mapSetting', [setting]);
+            settings.close();
+            return { count: records.length, opened: OPENED };
+        };
+
+        /**
+         * 旧 DB への接続を開いたままにする（移行の deleteDatabase との競合を見る）。closeOnVersionChange なら
+         * onversionchange で閉じ（1.1.1 の Weiwudi が閉じなかった別タブの代わりは false）、届いたことを記録する
+         */
+        window.held = {};
+        window.hold = (name, closeOnVersionChange) => new Promise((resolve, reject) => {
+            const req = indexedDB.open(name);
+            req.onsuccess = () => {
+                const db = req.result;
+                const entry = { db, versionchange: 0, closed: false };
+                db.onversionchange = () => {
+                    entry.versionchange++;
+                    if (closeOnVersionChange) {
+                        db.close();
+                        entry.closed = true;
+                    }
+                };
+                window.held[name] = entry;
+                resolve();
+            };
+            req.onerror = () => reject(req.error);
+        });
+        window.release = (name) => {
+            const entry = window.held[name];
+            entry.db.close();
+            entry.closed = true;
+        };
+        window.heldState = () => Object.fromEntries(Object.entries(window.held)
+            .map(([name, e]) => [name, { versionchange: e.versionchange, closed: e.closed }]));
+
+        window.databases = async () => (await indexedDB.databases()).map((d) => d.name).sort();
+
+        // SW を経由して取り、状態・本体を返す
+        window.tile = async (url) => {
+            const res = await fetch(url);
+            const buf = new Uint8Array(await res.arrayBuffer());
+            return {
+                url,
+                status: res.status,
+                wstatus: res.headers.get('x-weiwudi-status'),
+                text: new TextDecoder().decode(buf),
+            };
+        };
+
+        window.attempt = async (fn) => {
+            try {
+                return { ok: true, value: await fn() };
+            } catch (e) {
+                return { ok: false, code: e && e.code, message: String(e && e.message || e) };
+            }
+        };
+
+        window.startSW = () => Weiwudi.registerSW('./offline-sw.js', { scope: '/tests/e2e/fixtures/' })
+            .then(() => { document.getElementById('status').textContent = 'Ready'; return true; });
+
+        window.pageReady = true;
+    </script>
+</body>
+
+</html>

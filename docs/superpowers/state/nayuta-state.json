@@ -1,0 +1,109 @@
+{
+  "schema_version": 2,
+  "cycle": {
+    "id": 1,
+    "uid": "2026-11-02-weiwudi-vector-cache",
+    "slug": "weiwudi-vector-cache",
+    "root_type": "project",
+    "created_at": "2026-11-02",
+    "scope_declaration": [
+      "Weiwudi/**（code4history/Weiwudi の vector-cache ブランチ。利用側の Maplat・MaplatCore は触らない）"
+    ],
+    "orchestration": {}
+  },
+  "lane": "light",
+  "branch_policy": {
+    "base_branch": "vector-cache",
+    "merge_branch": "vector-cache",
+    "notes": [
+      {
+        "at": "2026-11-02",
+        "text": "人間の決定（2026-11-02）: 長期ブランチ。master から vector-cache を切り、タスクの PR はここへ入れる。全里程の完了後に vector-cache を master へ合流する。公開は合流後の次の月次トレイン。master は定期的に取り込む。作業 clone は ~/zcode/weiwudi-work/Weiwudi（root checkout の Weiwudi/ は触らない）"
+      }
+    ],
+    "merge_condition": "移行（仕様 §14.2）が無い状態で master へ入れない"
+  },
+  "project_name": "Weiwudi ベクタタイル対応と新インタフェース",
+  "status": "in_progress",
+  "current_milestone": "m3",
+  "milestones": [
+    {
+      "id": "m1",
+      "title": "基礎固めと新インタフェース仕様（#42 の仕様・#34・#33・#32）",
+      "status": "completed",
+      "completed_at": "2026-11-03",
+      "plan": "docs/superpowers/plans/2026-11-02-m1-foundation.md",
+      "ledger": ".superpowers/sdd/2026-11-02-m1-foundation/progress.md",
+      "summary": "docs/superpowers/reports/2026-11-03-m1-foundation-summary.md",
+      "security_review": "passed"
+    },
+    {
+      "id": "m2",
+      "title": "URL 直接フックの新コア（#42・#37・#36 の差し込み口）と旧 IF の上乗せ（仕様 §16 で m4 から前倒し）",
+      "status": "completed",
+      "plan": "docs/superpowers/plans/2026-11-03-m2-core.md",
+      "ledger": ".superpowers/sdd/2026-11-03-m2-core/progress.md",
+      "security_review": "passed",
+      "carried_from_precheck": "m1 の事前点検で見送った CORS・resource-conflict・範囲取得の細部（台帳の第 6 回の節）を m2 の事前点検で改めて見る。S-I は m1 で反映済みだが m2 の点検で確かめ直す",
+      "completed_at": "2026-11-04",
+      "summary": "docs/superpowers/reports/2026-11-04-m2-core-summary.md"
+    },
+    {
+      "id": "m3",
+      "title": "ベクタ資源（スタイル・タイル・フォント・スプライト。#39・#40・#38）",
+      "status": "completed",
+      "plan": "docs/superpowers/plans/2026-11-04-m3-vector.md",
+      "ledger": ".superpowers/sdd/2026-11-04-m3-vector/progress.md",
+      "security_review": "passed",
+      "carried_from_precheck": "m1 の事前点検の第 6 回から: O-4 asset の衝突で範囲が制限なしになる・O-7 スタイルの update() で新しく現れた下位資源の衝突（出どころは m2 の計画 887caee 版の「事前点検で見てほしい範囲」の表）",
+      "carried_from_implementation": [
+        "資格情報は差し込み口を通した後の要求のオリジンが元と同じときだけ足す（requestChanged を使う）。資格情報を足した要求はリダイレクトを同じオリジンだけ追うか文書に書く（セキュリティ M-2・既知）",
+        "1 つの Source の中でミラーごとに資格情報が違う場合（spec.ts が先のミラーの値 1 つにまとめる。I2 の残り）",
+        "style・tilejson で isStyleLike を立てる／style・asset を足すときは control.ts の infoOf・statsOf・refreshTable の絞り込みを広げる",
+        "WeiwudiError.from が未知の code を internal に作り直す（新しい SW の code が消える）。ResourceType・WeiwudiErrorCode は閉じた union（Codex の推奨）",
+        "定数と小さな補助の一本化（map: の前置き・疑似ホスト・templatesOf と storedSpecOf・登録順の採番・24 時間の定数）",
+        "制御 API で要求元の client のオリジンを確かめる（セキュリティ L-4）",
+        "WebKit・Firefox を測るとき（R14）: 別オリジンのページからの読み取り・controllerchange・navigate と script に触らないことの e2e を流す。sandbox の srcdoc の iframe が制御を継ぐか",
+        "Resource の id は書き換わらないので、宣言しない Source が先に作ると id に資格情報が残る（§5.1 か §10 に一言）／明示の credentials.query を持つ Source が Entry のある Resource に後から登録すると resource-conflict になる（文書の注意に足す）",
+        "パスの sk. の判定は区画の先頭だけで、sk.osm のような正当な名前も拒否する（誤検出を減らすなら sk.eyJ に絞る）／credentialParams 以外のクエリの sk. はキーに残る",
+        "{y} と {-y} のように同じ要求に当たる別の照合の形は template-shadowed で警告するだけ",
+        "m3 区切りのセキュリティ点検 L1: 同じオリジンの判定は登録 URL で行い、リダイレクト先（Response.url）を見ない → m4",
+        "m3-t10: hasEntries は fetchAll で保存済みのタイルごとに本体を 1 回読む。m4-t7 の移行の後はメタだけの判定に戻してよい",
+        "m3 区切りの L2 推奨: docs/api/sw.md の applyCredentials の説明の整理・credentialParams の既定値の列挙"
+      ],
+      "summary": "docs/superpowers/reports/2026-11-07-m3-vector-summary.md"
+    },
+    {
+      "id": "m4",
+      "title": "範囲取得と解放・保持期間・移行・#41・master への合流",
+      "status": "in_progress",
+      "plan": "docs/superpowers/plans/2026-11-07-m4-range-release-migration.md",
+      "ledger": ".superpowers/sdd/2026-11-07-m4-range/progress.md",
+      "security_review": "pending",
+      "carried_from_precheck": "m1 の事前点検の第 6 回から O-3 持ち主の Source の削除で範囲だけの region が残る（region は範囲取得と一緒に作る）と、m2 の R20（opaque イベント）と、m1 のまとめの「m4 への申し送り」（dist の 4 点・latToMercY(90) が有限・移行無しで master へ入れない）、m2 の R13・R15（範囲取得の CORS・認証、容量超過時の退避と再試行）、m2-t2 の水準 1 Minor 1（上限つきの putEntry が保存のたびに全件 getAll する。bytes−pinnedBytes で予算内なら走査を省き、超えるときだけ索引の cursor で古い順に引く）",
+      "carried_from_implementation": [
+        "serve が reject すると（save の evictScopesFor の読み出しの失敗）上流へ 2 回出る／容量の判定の読み出しの失敗を storage として配信を続ける形に（§9 に記録済み）",
+        "IndexedDB の open が終わらないと門番が毎回 3 秒待ち、照合表の読み込みが終わらないと変更の op も待ち続ける",
+        "stats の count・percent を「その Source の範囲の中の Entry」で数える（今は共有で 100 を超え得る）",
+        "control の IndexedDB の失敗を storage に分類する／register の途中で store が失敗したときも照合表を作り直す",
+        "範囲つきの clean・regions の削除・persist()／ジョブのイベントは WeiwudiSource の message の受け口を使う／opaque イベントと jobOpaqueStreak",
+        "直列の待ち行列は 1 つの SW の中だけ（同じオリジンの別スコープの SW の同時の登録）",
+        "旧 DB（Weiwudi・Weiwudi_<mapID>）の移行と削除／QuotaExceededError の再試行（R15）／旧 API の mapID に \\0 が入るとキーの範囲が他の地図にかぶる",
+        "署名つき URL のクエリ（X-Amz-Signature など）の扱い（セキュリティ L-3）／BroadcastChannel の通知を短い間隔でまとめる（L-5）／門番が既定のハンドラより先に受けることを §4.3 と README に書く",
+        "Range の素通しに資格情報を足すか（PMTiles・COG と一緒に。Issue #78）",
+        "保存済みの Resource.templates は合成し直すまで古いまま（PR #83 の L-1 の直しは合成のときだけ）"
+      ]
+    }
+  ],
+  "design_references": [
+    "docs/superpowers/reports/2026-11-02-onboard-summary.md",
+    "docs/superpowers/specs/2026-11-02-new-interface-spec.md"
+  ],
+  "next_action": "m4 の t1〜t11 と区切り（水準 2 は Claude。PR #112 → e3ac007）を vector-cache へ合流した。次は vector-cache → master の PR（merge commit・vector-cache は残す）。1.2.0 の公開は次の月次トレイン。その後 #78（設計 PR #96）",
+  "delegation_environment": {
+    "order": "Codex（gpt-6-astra）→ Kimi（dsh・kimi-coding/k3）→ Claude。並行は 2 まで（2026-11-07 人間の指示）",
+    "codex": "5 時間の枠を 2026-11-07 08:45Z ごろと 14:08Z ごろに使い切った（戻ってから約 9 分で再び切れた）",
+    "kimi": "2026-11-07 10:15Z ごろ 5 時間の枠、17:03Z に週（7 日）の利用上限の 429。週の窓が明けるまで使えない",
+    "note": "ツールの利用枠は開発計画の『お返事待ち』に並べない"
+  }
+}

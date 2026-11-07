@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weiwudi Range Test Page</title>
+</head>
+
+<body>
+    <h1>Weiwudi Range E2E Test Page</h1>
+    <div id="status">Initializing...</div>
+
+    <script type="module">
+        import Weiwudi from '/dist/weiwudi.es.js';
+
+        // 範囲取得・解放・全体上限の e2e（m4-t10・range.spec.js）。SW は offline-sw.js（同じスコープ）。登録は試験の側で行う
+        window.Weiwudi = Weiwudi;
+
+        // SW を経由して取り、状態・本体を返す
+        window.tile = async (url) => {
+            const res = await fetch(url);
+            const buf = new Uint8Array(await res.arrayBuffer());
+            return {
+                url,
+                status: res.status,
+                wstatus: res.headers.get('x-weiwudi-status'),
+                error: res.headers.get('x-weiwudi-error'),
+                text: new TextDecoder().decode(buf),
+                size: buf.length,
+            };
+        };
+
+        // 失敗を { code, message } で返す（WeiwudiError の code を試験で見る）
+        window.attempt = async (fn) => {
+            try {
+                return { ok: true, value: await fn() };
+            } catch (e) {
+                return { ok: false, code: e && e.code, message: String(e && e.message || e) };
+            }
+        };
+
+        // Source の範囲取得のイベントを window.events に積む（type ごとの detail の並び）
+        window.events = [];
+        window.track = (src) => {
+            for (const type of ['proceed', 'finish', 'stop', 'canceled', 'opaque']) {
+                src.addEventListener(type, (e) => window.events.push({ type, detail: e.detail }));
+            }
+        };
+
+        // fetchRange を待たずに始め、結果を window.job に置く（取得の途中で止める・取り消す試験）
+        window.startRange = (src, range, opts) => {
+            window.job = { done: false };
+            window.job.promise = window.attempt(() => src.fetchRange(range, opts)).then((r) => {
+                window.job.done = true;
+                window.job.result = r;
+                return r;
+            });
+        };
+
+        Weiwudi.registerSW('./offline-sw.js', { scope: '/tests/e2e/fixtures/' })
+            .then(() => {
+                window.swReady = true;
+                document.getElementById('status').textContent = 'Ready';
+            })
+            .catch((e) => {
+                window.swError = String(e);
+                document.getElementById('status').textContent = 'Error: ' + String(e);
+            });
+    </script>
+</body>
+
+</html>

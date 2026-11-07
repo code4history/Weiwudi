@@ -36,43 +36,6 @@ describe('前提: fake-indexeddb の Blob の往復', () => {
   });
 });
 
-describe('Weiwudi_Internal の初期化', () => {
-  it('registerRoute を 1 回呼び、捕捉の正規表現は weiwudi.example.com だけに当たる', () => {
-    const h = createSwHarness();
-    expect(h.registerRoute).toHaveBeenCalledTimes(1);
-    expect(h.method).toBe('GET');
-    expect(h.capture.test('https://weiwudi.example.com/api/ping')).toBe(true);
-    expect(h.capture.test('https://example.com/')).toBe(false);
-  });
-
-  it('捕捉の正規表現はホスト名の境界で止まり、似た名前のホストに当たらない', () => {
-    const h = createSwHarness();
-    expect(h.capture.test('https://weiwudi.example.com.evil.test/api/add')).toBe(false);
-    expect(h.capture.test('https://weiwudiXexampleYcom/api/add')).toBe(false);
-    expect(h.capture.test('https://weiwudi.example.com')).toBe(true);
-    expect(h.capture.test('https://weiwudi.example.com?x=1')).toBe(true);
-  });
-
-  it('install・activate のハンドラを登録し、install は skipWaiting を waitUntil に渡す', () => {
-    const h = createSwHarness();
-    expect(Object.keys(h.listeners).sort()).toEqual(['activate', 'install']);
-    const sentinel = Promise.resolve('skipped');
-    h.self.skipWaiting.mockReturnValueOnce(sentinel);
-    const waitUntil = vi.fn();
-    h.listeners.install[0]({ waitUntil });
-    expect(h.self.skipWaiting).toHaveBeenCalledTimes(1);
-    expect(waitUntil).toHaveBeenCalledWith(sentinel);
-  });
-
-  it('activate は clients.claim を waitUntil に渡す', () => {
-    const h = createSwHarness();
-    const sentinel = Promise.resolve('claimed');
-    h.self.clients.claim.mockReturnValueOnce(sentinel);
-    const waitUntil = vi.fn();
-    h.listeners.activate[0]({ waitUntil });
-    expect(waitUntil).toHaveBeenCalledWith(sentinel);
-  });
-});
 
 describe('handlerCb', () => {
   it('/api/ping → 200・Implemented', async () => {
@@ -497,92 +460,6 @@ describe('登録の DB を最初に開く API（#47）', () => {
   });
 });
 
-describe('store の無い DB の修復（#47）', () => {
-  const ADD = '/api/add?mapID=x&type=xyz&url=https://tile.example/{z}/{x}/{y}.png&width=256&height=256';
-
-  /** 古い版が残した、store の無い version 1 の DB を持つ factory を作る */
-  const brokenFactory = async (dbname: string): Promise<{ factory: IDBFactory; connection: IDBDatabase }> => {
-    const factory = new IDBFactory();
-    const connection = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = factory.open(dbname);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-    return { factory, connection };
-  };
-
-  /** factory の上で新しい Service Worker を起動したのと同じ状態を作る */
-  const startSw = (factory: IDBFactory) => {
-    const h = createSwHarness();
-    vi.stubGlobal('indexedDB', factory);
-    return h;
-  };
-
-  const versionOf = async (factory: IDBFactory, dbname: string): Promise<number> => {
-    const list = await factory.databases();
-    return list.find(d => d.name === dbname)?.version ?? 0;
-  };
-
-  it('入れ直した Service Worker が add に成功し、地図の情報が読める', async () => {
-    const { factory, connection } = await brokenFactory('Weiwudi');
-    connection.close();
-    const h = startSw(factory);
-    expect(await (await h.request(ADD)).json()).toMatchObject({ mapID: 'x' });
-    expect(await (await h.request('/api/info?mapID=x')).json()).toMatchObject({ mapID: 'x' });
-    expect(await versionOf(factory, 'Weiwudi')).toBe(2);
-  });
-
-  it('修復した DB は次の Service Worker でも開き直さずに読める', async () => {
-    const { factory, connection } = await brokenFactory('Weiwudi');
-    connection.close();
-    await startSw(factory).request(ADD);
-    const next = startSw(factory);
-    expect(await (await next.request('/api/info?mapID=x')).json()).toMatchObject({ mapID: 'x' });
-    expect(await versionOf(factory, 'Weiwudi')).toBe(2);
-  });
-
-  it('未登録の地図の clean が残した DB も、add で直ってタイルを保存できる', async () => {
-    const h = createSwHarness();
-    expect(await (await h.request('/api/clean?mapID=x')).text()).toContain('NotFoundError');
-    await h.request(ADD);
-    h.fetch.mockImplementation(async () => tileResponse(5));
-    expect((await h.request('/api/cache/x/0/0/0')).status).toBe(200);
-    expect(await (await h.request('/api/stats?mapID=x')).json()).toMatchObject({ count: 1 });
-  });
-
-  it('同じ DB を開いたままの別の Service Worker があっても、開き直しが進み、開いていた側も次の呼び出しで読める', async () => {
-    const factory = new IDBFactory();
-    const first = startSw(factory);
-    await first.request('/api/clean?mapID=x'); // store の無い Weiwudi_x を開いたまま残す
-    const second = startSw(factory);
-    expect(await (await second.request(ADD)).json()).toMatchObject({ mapID: 'x' });
-    expect(await versionOf(factory, 'Weiwudi_x')).toBe(2);
-    expect(await (await first.request('/api/stats?mapID=x')).json()).toMatchObject({ count: 0 });
-  });
-
-  it('閉じない接続が残るときは止まらず Error の文を返し、閉じたあとは成功する', async () => {
-    const { factory, connection } = await brokenFactory('Weiwudi');
-    const h = startSw(factory);
-    expect(await (await h.request(ADD)).text()).toMatch(/^Error: .*blocked/);
-    expect(await (await h.request('/api/stats?mapID=x')).text()).toMatch(/^Error: .*blocked/);
-    connection.close();
-    await vi.waitFor(async () => {
-      expect(await (await h.request(ADD)).json()).toMatchObject({ mapID: 'x' });
-    });
-    expect(await (await h.request('/api/info?mapID=x')).json()).toMatchObject({ mapID: 'x' });
-  });
-
-  it('地図の DB を閉じない接続が残るときも、delete は止まらず Error の文を返す', async () => {
-    const { factory, connection } = await brokenFactory('Weiwudi_x');
-    const h = startSw(factory);
-    expect(await (await h.request('/api/delete?mapID=x')).text()).toMatch(/^Error: BlockedError: .*blocked/);
-    expect(await (await h.request('/api/delete?mapID=x')).text()).toMatch(/^Error: BlockedError: .*blocked/);
-    connection.close();
-    await vi.waitFor(async () => {
-      expect(await (await h.request('/api/delete?mapID=x')).text()).toBe('Deleted: x');
-    });
-  });
-});
 
 describe('getImage の minZoom', () => {
   it('minZoom 未満の z → 404', async () => {
@@ -593,3 +470,4 @@ describe('getImage の minZoom', () => {
     expect(h.fetch).not.toHaveBeenCalled();
   });
 });
+

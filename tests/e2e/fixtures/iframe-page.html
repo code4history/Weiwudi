@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weiwudi Engines Test Page</title>
+</head>
+
+<body>
+    <h1>Weiwudi Engines E2E Test Page</h1>
+    <div id="status">Initializing...</div>
+
+    <script type="module">
+        import Weiwudi from '/dist/weiwudi.es.js';
+
+        // エンジンごとの差を見る e2e（m3-t10・engines.spec.js・I7）。SW は hook-sw.js（同じスコープ）。登録は試験の側で行う
+        window.Weiwudi = Weiwudi;
+
+        // 失敗を { code, message } で返す（WeiwudiError の code を試験で見る）
+        window.attempt = async (fn) => {
+            try {
+                return { ok: true, value: await fn() };
+            } catch (e) {
+                return { ok: false, code: e && e.code, message: String(e && e.message || e) };
+            }
+        };
+
+        // 読み込みを待つ（load か error のどちらか。来なければ timeout）
+        const waitLoad = (el, attach) => new Promise((resolve) => {
+            const timer = setTimeout(() => resolve('timeout'), 10000);
+            el.onload = () => {
+                clearTimeout(timer);
+                resolve('load');
+            };
+            el.onerror = () => {
+                clearTimeout(timer);
+                resolve('error');
+            };
+            attach(el);
+        });
+
+        // <script src> で読む（destination は script。本体は PNG なので実行はされない。出たことだけを見る）
+        window.loadScript = async (url) => {
+            const el = document.createElement('script');
+            const result = await waitLoad(el, (s) => {
+                s.src = url;
+                document.body.appendChild(s);
+            });
+            el.remove();
+            return result;
+        };
+
+        // iframe に読ませる（mode は navigate）
+        window.loadFrame = async (url) => {
+            const el = document.createElement('iframe');
+            const result = await waitLoad(el, (f) => {
+                f.src = url;
+                document.body.appendChild(f);
+            });
+            el.remove();
+            return result;
+        };
+
+        // sandbox（allow-scripts allow-same-origin）の srcdoc の iframe の中で、controller の有無を見て新 API で登録する
+        window.srcdocProbe = (url) => new Promise((resolve, reject) => {
+            const frame = document.createElement('iframe');
+            const tag = 'srcdoc-' + Math.random().toString(36).slice(2);
+            const timer = setTimeout(() => reject(new Error('srcdoc timeout')), 15000);
+            const onMessage = (e) => {
+                if (!e.data || e.data.tag !== tag) return;
+                clearTimeout(timer);
+                window.removeEventListener('message', onMessage);
+                frame.remove();
+                resolve(e.data);
+            };
+            window.addEventListener('message', onMessage);
+            frame.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+            frame.srcdoc = `<script type="module">
+                const tag = ${JSON.stringify(tag)};
+                const post = (data) => parent.postMessage({ tag, href: location.href, ...data }, '*');
+                try {
+                    const { default: Weiwudi } = await import('/dist/weiwudi.es.js');
+                    const controlled = navigator.serviceWorker.controller !== null;
+                    let result;
+                    try {
+                        const src = await Weiwudi.register({ kind: 'raster', url: ${JSON.stringify(url)} });
+                        result = { ok: true, value: { id: src.id, url: src.url } };
+                    } catch (e) {
+                        result = { ok: false, code: e && e.code, message: String(e && e.message || e) };
+                    }
+                    post({ controlled, result });
+                } catch (e) {
+                    post({ error: String(e && e.message || e) });
+                }
+            <\/script>`;
+            document.body.appendChild(frame);
+        });
+
+        const done = (error) => {
+            if (error) window.swError = String(error);
+            else window.swReady = true;
+            document.getElementById('status').textContent = error ? 'Error: ' + String(error) : 'Ready';
+        };
+
+        Weiwudi.registerSW('./hook-sw.js', { scope: '/tests/e2e/fixtures/' }).then(() => done(), done);
+    </script>
+</body>
+
+</html>

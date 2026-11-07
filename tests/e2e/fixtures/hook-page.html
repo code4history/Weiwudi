@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weiwudi Hook Test Page</title>
+</head>
+
+<body>
+    <h1>Weiwudi Hook E2E Test Page</h1>
+    <div id="status">Initializing...</div>
+
+    <script type="module">
+        import Weiwudi from '/dist/weiwudi.es.js';
+
+        // 実 URL の捕捉の e2e（m2-t9・hook.spec.js）。登録は試験の側で行う
+        window.Weiwudi = Weiwudi;
+
+        // fetch で取り、状態・型・x-weiwudi-*・本体・先頭 8 バイトを返す
+        window.tile = async (url, init) => {
+            const res = await fetch(url, init);
+            const buf = new Uint8Array(await res.arrayBuffer());
+            return {
+                status: res.status,
+                type: res.headers.get('content-type'),
+                wstatus: res.headers.get('x-weiwudi-status'),
+                werror: res.headers.get('x-weiwudi-error'),
+                text: new TextDecoder().decode(buf),
+                head: Array.from(buf.slice(0, 8))
+            };
+        };
+
+        // <img>（no-cors）で読む。読めたか
+        window.img = (url) => new Promise((resolve) => {
+            const el = new Image();
+            el.onload = () => resolve({ loaded: true, width: el.naturalWidth });
+            el.onerror = () => resolve({ loaded: false, width: 0 });
+            el.src = url;
+        });
+
+        // 失敗を { code, message } で返す（WeiwudiError の code を試験で見る）
+        window.attempt = async (fn) => {
+            try {
+                return { ok: true, value: await fn() };
+            } catch (e) {
+                return { ok: false, code: e && e.code, message: String(e && e.message || e) };
+            }
+        };
+
+        const done = (error) => {
+            if (error) window.swError = String(error);
+            else window.swReady = true;
+            document.getElementById('status').textContent = error ? 'Error: ' + String(error) : 'Ready';
+        };
+
+        if (new URLSearchParams(location.search).get('scope') === 'out') {
+            // スコープ外: SW をこのページの内側でないスコープに登録し、active になるまで待つ（ページは制御されない）
+            navigator.serviceWorker.register('./hook-sw.js', { scope: '/tests/e2e/fixtures/scoped/' })
+                .then((reg) => new Promise((resolve) => {
+                    const sw = reg.installing || reg.waiting || reg.active;
+                    if (sw.state === 'activated') return resolve();
+                    sw.addEventListener('statechange', () => {
+                        if (sw.state === 'activated') resolve();
+                    });
+                }))
+                .then(() => done(), done);
+        } else {
+            Weiwudi.registerSW('./hook-sw.js', { scope: '/tests/e2e/fixtures/' }).then(() => done(), done);
+        }
+    </script>
+</body>
+
+</html>

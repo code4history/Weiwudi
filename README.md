@@ -28,17 +28,26 @@ Weiwudi is open-source under the MIT License.
 - Automatic tile caching in IndexedDB via a cached URL template
 - First-visit proxy activation (`skipWaiting` + `clients.claim`) without a page reload
 - Per-map cache capacity limit (`cacheMaxBytes`) with least-recently-used eviction
+- Global cache limit across all sources (`Weiwudi.setLimits({ maxBytes })`), and a 10% least-recently-used eviction with one retry when the browser's storage quota is exceeded
 - Bulk prefetch (`fetchAll`) with progress events (`proceed` / `finish` / `stop`)
 - Works with any map library (Leaflet, OpenLayers, etc.) through the URL template
+- Source API (`Weiwudi.register`) that caches the real raster and vector tile URLs the map library already requests
+- Style registration with referenced TileJSON, tiles, glyphs, sprites, GeoJSON and images
+- Offline range fetching and pinning (`estimate`, `fetchRange`, `regions`, `cancel`), range release (`releaseRange`) and cleaning (`clean`)
+- Cache retention deadlines (`cacheRetention`), with pinned entries protected from expiry
+- Gradual migration of existing tile caches, with offline reads during migration
+- Built-in `mapbox://` URL resolution and custom providers (`addProvider`)
+- Service worker plugins (`addPlugin`) for requests, cache reads and cache writes
 - Open-source (MIT) with a peer dependency on `workbox-routing`
 
 <!-- SECTION 5: Quick Start -->
 ## Quick Start
 
 <!-- release-pinned:start -->
-> **Current release: `1.1.1`**. This block is the only place in
-> this repository that carries a release version (ADR-0012); everything outside it is
-> written against the 1.0 release.
+> **Current release: `1.1.1`**. The installation instructions and legacy API examples
+> below target this release (ADR-0012). The feature list and API documentation also describe changes
+> implemented on this branch; changes listed in [Unreleased](CHANGELOG.md#unreleased)
+> are not included in the current npm release.
 > npm: [`@c4h/weiwudi`](https://www.npmjs.com/package/@c4h/weiwudi)
 > [![npm](https://img.shields.io/npm/v/@c4h/weiwudi)](https://www.npmjs.com/package/@c4h/weiwudi)
 
@@ -81,6 +90,23 @@ page URL is outside the registration scope). `cacheMaxBytes` limits the total
 size of cached tiles for a map and evicts the least-recently-used tiles; omit it
 for no capacity limit.
 
+Rejections stay strings, so existing `e.match(...)` checks keep working. To
+branch on the cause, convert them with `WeiwudiError.from` (codes and messages:
+[Errors](docs/api/weiwudi.md#errors)):
+
+```typescript
+import Weiwudi, { WeiwudiError } from '@c4h/weiwudi';
+
+try {
+  await map.fetchAll();
+} catch (e) {
+  if (WeiwudiError.from(e).code === 'fetch-busy') { /* another fetch is running */ }
+}
+```
+
+Tiles served through `map.url` carry the response header `x-weiwudi-error`
+(`network` / `upstream` / `quota` / `storage`) when fetching or caching failed.
+
 ### CDN (jsDelivr)
 
 For browser usage without a build tool, load Weiwudi via CDN:
@@ -98,6 +124,162 @@ importScripts("https://cdn.jsdelivr.net/npm/workbox-core@7.4.0/build/workbox-cor
 importScripts("https://cdn.jsdelivr.net/npm/workbox-routing@7.4.0/build/workbox-routing.prod.js");
 importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.1.1/dist/weiwudi-sw.umd.js");
 ```
+
+### Upgrading from 1.1.x
+
+- The tile cache of 1.1.x is carried over gradually, starting with the first request after the update (it does not stall even with several GB, and the cached tiles stay readable offline during the migration).
+- Going back to 1.1.x does not break anything (its cache starts empty, so the tiles are fetched again). Where `indexedDB.databases()` is not available (older Firefox), a cache that 1.1.x recreated while you were back on it is not migrated again.
+- During the migration, `fetchAll` and `stats` count only the tiles migrated so far (`fetchAll` fetches the tiles not migrated yet again when online, and the `percent` of `stats` is temporarily low).
+
+### Service worker plugins
+
+`@c4h/weiwudi/sw` exports `addPlugin` to hook into how tiles are fetched and
+cached. It is Weiwudi's own API that borrows the hook names of Workbox plugins.
+Call it at the top of your service worker script; with the UMD build use
+`self.Weiwudi_SW.addPlugin`.
+
+```js
+// sw.js (ES module service worker)
+import { addPlugin } from '@c4h/weiwudi/sw';
+
+addPlugin({
+  async requestWillFetch({ request }) {
+    return new Request(request, { headers: { 'x-api-key': 'public-key' } });
+  },
+  async cacheWillUpdate({ response }) {
+    return response.headers.get('content-type')?.startsWith('image/') ? response : null; // null: do not cache
+  },
+});
+```
+
+Headers added in `requestWillFetch` are dropped by the browser when the request
+is `no-cors` (for example a tile requested by an `<img>` element). Build a new
+`Request` with `mode: 'cors'` if the upstream needs them.
+
+Details: [Service worker API](docs/api/sw.md).
+
+### Caching real tile URLs (source API)
+
+`Weiwudi.register` registers the URL templates that your map library requests.
+The service worker then caches those real URLs directly, so you pass the
+original URL to the map library.
+
+```typescript
+import Weiwudi from '@c4h/weiwudi';
+
+await Weiwudi.registerSW('./sw.js', { scope: './' });
+const source = await Weiwudi.register({
+  kind: 'raster', // or 'vector'
+  url: 'https://tile.example.com/{z}/{x}/{y}.png',
+});
+// Create the map after register() resolves; earlier requests are not cached
+L.tileLayer(source.url as string).addTo(leafletMap);
+
+console.log(source.warnings, await source.stats());
+```
+
+- Chromium is tested locally and in CI. **WebKit** (Playwright's WebKit on Linux) is tested in CI, except
+  the tests that only work on Chromium: going offline (`context.setOffline`), stopping the service worker
+  (CDP), the real storage quota, and the Mapbox tests (Playwright cannot intercept requests from a service
+  worker on WebKit). Linux WebKit is not the same as Safari on iOS. In CI's non-persistent WebKit session, seeding the legacy IndexedDB cache with a
+  `Blob` fails. Weiwudi stores new cache bodies as `ArrayBuffer`. Of the 37 selected
+  CI tests, WebKit passes 35 and skips the two migration tests that need legacy
+  `Blob` data; those migration cases are therefore unverified in that WebKit session.
+  Firefox passes all 37 selected tests in CI, but it is not a required check.
+- A sandboxed `srcdoc` iframe (`allow-scripts allow-same-origin`) inherits the page's service worker on
+  Chromium and WebKit, so it can use the API there. On Firefox it does not, and calls in it reject with
+  `sw-not-controlling`.
+- `kind` is `'raster'`, `'vector'`, `'style'` or `'asset'`. A style registers
+  everything it refers to (TileJSON, tiles, glyphs, sprites, GeoJSON, images);
+  pass `source.url` to MapLibre after `register()` resolves:
+
+  ```typescript
+  const style = await Weiwudi.register({ kind: 'style', url: 'https://example.com/style.json' });
+  const map = new maplibregl.Map({ container, style: style.url as string });
+  ```
+
+  Credentials of a style are sent only to the origin of the style and to its
+  provider, and a style from another origin cannot capture URLs of the page's
+  origin. `update()` fetches the style again
+  ([Styles](docs/api/weiwudi.md#styles-kind-style)).
+- An explicit `id` is a public value (it appears in `sources()` and `warnings`).
+  Do not put credentials in it; pass them as `credentials` instead.
+- The service worker adds `credentials` only to requests on the page request's
+  origin, and sends requests with credential headers with `redirect: 'error'`.
+  Secret tokens (`sk.` in queries, `sk.eyJ…` path segments) are rejected, and
+  mirrors with different values for the same credential parameter are
+  rejected with `attribute-invalid`.
+- For a signed URL (for example a presigned S3 URL with `X-Amz-Signature`), list
+  the signature query items in `credentialParams`: they are then not kept in cache
+  keys, and the same tile stays one entry. The service worker cannot create
+  signatures, so they cannot be added through `credentials`.
+- `mapbox://` URLs are resolved to `https://api.mapbox.com/…` by default (pass the
+  access token as `credentials: { query: { access_token } }`). Checking the
+  provider's terms of service, including whether offline storage is allowed, is
+  your responsibility. `mapbox://` inside a third-party style is not resolved:
+  only styles you register with a `mapbox://` URL or a Mapbox `https` URL are,
+  so your Mapbox token is never used for someone else's style. Other providers
+  can be added in the service worker with `addProvider`
+  ([Service worker API](docs/api/sw.md#addproviderprovider-weiwudiprovider-void)).
+- `source.removeResource(resourceId)` deletes the cached entries of one resource
+  even when it is shared with another source (`clean()` keeps shared ones); the
+  resource stays registered. `Weiwudi.usage()` reports the stored amount in total
+  and per provider (`byProvider`, keyed by provider or origin).
+- Failures reject with `WeiwudiError` (`sw-not-controlling`, `sw-outdated`,
+  `source-not-found`, `resource-not-found`, …). A resource that cannot be merged with an existing one
+  does not fail `register()`; it is reported in `source.warnings`.
+- In your service worker, **put the Weiwudi import first** (`import '@c4h/weiwudi/sw'`
+  or the `importScripts` line) and register your own Workbox routes after it.
+  A catch-all route (for example `/.*/`) registered before Weiwudi takes every
+  tile request from it.
+- Weiwudi's gatekeeper route (it holds tile requests while the URL table loads
+  after the service worker starts) is registered right after the evaluation of
+  your service worker script. It takes those requests before any route you
+  register later (in an event handler or after an `await`) and before your
+  default handler (`setDefaultHandler`).
+
+`cacheRetention` sets a deletion deadline in milliseconds from `fetchedAt` (no deadline by default).
+Expired entries are treated as missing when serving requests and are deleted in batches on the first
+store-using Weiwudi request after the service worker starts, and when a job ends.
+Pinned entries are never deleted by this cleanup. Glyphs expire per stored range.
+Each cleanup run visits at most 2,000 records; unfinished cleanup continues on the next eligible request.
+It pauses while a job is running. Neither ping endpoint nor `fetchAll` dispatch starts cleanup;
+`fetchAll` runs it when the job ends.
+
+To keep an area available offline, fetch it with `fetchRange()`. The tiles are
+fetched like captured requests and pinned (never evicted or expired):
+
+```typescript
+await Weiwudi.registerSW('./sw.js', { scope: './' });
+const style = await Weiwudi.register({ kind: 'style', url: 'https://example.com/style.json' });
+const map = new maplibregl.Map({ container, style: style.url as string });
+await style.fetchRange({ bounds: [139.7, 35.6, 139.8, 35.7], minZoom: 10, maxZoom: 14 });
+```
+
+`estimate(range)` returns the number of tiles first, `regions()` lists the
+fetched regions and `cancel()` stops a running fetch. One fetch runs at a time
+(`fetch-busy`), and an interrupted fetch resumes by itself while the page stays
+open. Requests are made with `mode: 'cors'` and `credentials: 'same-origin'`,
+so a server of another origin that authenticates by cookies only cannot be
+fetched this way. In this version a style fetches the tiles of its tile
+resources ([Range fetching](docs/api/weiwudi.md#range-fetching)).
+
+`await source.releaseRange(regionId)` releases a fetched region; entries not
+needed by another pinned region are deleted for exclusive resources. Use
+`{ keep: true }` to keep their bodies. Shared resource entries stay, and their
+pins stay where any referring source's pinned region needs them (style children
+count as their parent). Non-tile pins stay until the last such region is released.
+`clean(range)` deletes only unpinned tiles of exclusive resources;
+`clean(range, { force: true })` also deletes pinned tiles and marks this source's
+overlapping regions `partial`, leaving shared entries and other sources' regions
+unchanged. `clean()` releases all regions before clearing exclusive resources.
+During this source's job, `clean`, `remove` and `releaseRange` reject with
+`fetch-busy`: first `await source.cancel()`. It waits for the batch already
+started (up to `concurrency` tiles, or glyph work for one fontstack—up to 256
+ranges with `glyphRanges: 'all'`). See
+[Releasing and cleaning ranges](docs/api/weiwudi.md#releasing-and-cleaning-ranges).
+
+Details: [Source API](docs/api/weiwudi.md#source-api).
 
 ### API reference
 
@@ -122,10 +304,14 @@ pnpm dev
 ```
 
 Access `http://localhost:5173/` in your browser. The demo features:
-- Leaflet map with OSM tiles cached via Weiwudi
-- Real-time cache statistics (tile count, cache size)
-- Fetch all tiles button
-- Clear cache functionality
+- Leaflet map with OSM tiles captured via `Weiwudi.register()` (the map uses `source.url`)
+- Real-time statistics: `stats()` (count, size, percent), `usage()` by provider, `regions()`, warnings and `opaque` notices
+- "Fetch Visible Range" (`estimate()` then `fetchRange()` from the current zoom to 17) and "Release" per region (`releaseRange()`)
+- "Clear Cache" (`clean()`) and a global limit input (`Weiwudi.setLimits()`)
+
+Range fetching on OSM tiles is for minimal operation checks only: the demo refuses a range of more than 50 tiles. Bulk downloading is prohibited by the [OSM tile usage policy](https://operations.osmfoundation.org/policies/tiles/). In production, use your own tiles or an upstream whose terms allow it.
+
+To load the demo offline, reload it once online first so that the service worker controls the page.
 
 #### Build
 
