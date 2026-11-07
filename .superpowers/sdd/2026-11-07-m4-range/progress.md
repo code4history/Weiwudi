@@ -66,3 +66,43 @@
   - 未確認（レビュー）: 同じ SW の中で R59 のやり直しとハンドラの copySettings が逆順になる競合。起きても移行が次の SW まで遅れるだけ
 - t10 への申し送り: 実ブラウザでの blocked・onversionchange、旧 Blob の arrayBuffer()（WebKit の非永続領域）、数 GB で止まらないこと、SW 更新直後の最初の要求の読み通し。1.1.x の DB を作ってから新 SW を起動する筋書きを推奨
 - t11 への申し送り: CHANGELOG に「1.1.x のキャッシュの引き継ぎ（feat）」と「NUL を含む mapID の拒否（§9 の既知の変化。文面は `Error: MapID must not contain a NUL character`）」
+
+## m4-t3 範囲取得の土台とタイルの fetchRange — 完了（PR #102 → 5c73c63）
+
+- 実装: Claude（Codex・Kimi が 5 時間の枠切れ。Kimi の中継は 429 で何も書かずに停止）。2a5e584・ac2c419、レビューの直し b3ae98d（t7 の合流後に載せ直し、923f7d4）
+- 判定: `node_modules/.bin/vitest run` 38 ファイル・1516 件 passed（t7 の合流後）・`tsc --noEmit` exit 0・`eslint src tests` exit 0（warning 2 件は既存）・build（lib・sw-es・sw-umd）と check-dts 2 本・`tsc -p tests/dts/tsconfig.json` exit 0。CI（Node 22・24、WebKit・Firefox）緑
+- 受け入れ条件の grep: `fetchRange(`（dist/weiwudi.d.ts）1・`fetch(`・`tileKeySuffix`（range.ts）0・`credentialsFor(`（hook.ts）0・`fetchRange`（docs/api 英日・README 英日）11・11・2・2・skip/only/todo 0・package.json と lock 無変更
+- 事前点検の反映: M3（job/resume の作り直しは直列の中・各バッチの前に Source と region の有無を見る）・M4（ページ側の cancel() は canceled か終わりのイベントを受けてから解決。30 秒で regions() に落ちる）
+- 計画の対象ファイルの外: src/store.ts の RegionRecord を RegionInfo + normalized + options に広げた（再開に要る）。既存の試験 4 本は import の行の書き換え以外は追記のみ
+- Rulings（実装担当）
+  - R-t3-1: スタイルの fetchRange は子のタイルの資源だけを取る。スタイル・TileJSON・スプライト・グリフは t4
+  - R-t3-2: スタイルの 'all' は子の tile の範囲の和（最大の maxZoom に揃えて子の box を拡大）。box の無い子が 1 つでもあれば cannot-fetch-all
+  - R-t3-3: 検査済みの指定（options）を region に保存し、job/resume は同じ指定で作り直す。RegionInfo には出さない
+  - R-t3-4: 範囲なしの clean() は t3 で Source の region を消す。固定の解放は t5 の releaseAllOf
+  - R-t3-5: probeNoCors は { mode: 'no-cors', credentials: 'omit' }。資格情報も Cookie も送らない
+  - R-t3-6: ミラーは持ち主の Source（スタイルは子）が登録したテンプレートから選ぶ。該当が無ければ Resource の全テンプレート
+  - R-t3-7: network の失敗は実績があっても毎回 no-cors で確かめる。opaque なら upstream に数え、連続数は実績が無いときだけ足す（仕様 §4.5-3。計画本文の「実績が無ければ」より広い。レビュー L4 で確定）
+  - R-t3-8: 確かめの 5 枚は重ならないように選ぶ。取れた 200 はその場で固定の対象に入れ、列挙で失敗と数えたタイルならその場で成功に数え直す（レビュー L2）
+  - R-t3-9: ジョブが opaque で止めるときは ctx.notify だけで、corslessUntil は書かない
+  - R-t3-10: 固定分の上限（R55）は pin: true のときだけ見る
+  - R-t3-11: gone（ページが閉じた）のときは終わりのイベントを送らない（旧 fetchAll と同じ）。region は partial
+  - R-t3-12: cancel の応答は { regionId: string | null }
+  - R-t3-13: 範囲取得の固定はバッチの後の setPinned 1 本で、region が有るときだけ。ServeInput.pin の近道は使わず ServeResourceOptions.pin は外した（レビュー M2）。確かめが stop を投げてもそのバッチの取れた分は固定する（レビュー L1）
+  - R-t3-14: ページ側は終わりのメッセージを使っても消さない。release() と上限 64 件（古いものから）で捨てる（レビュー M1・L5）
+- レビュー（L1・L2）: Claude（Codex・Kimi が枠切れ）。S 0・M 3・L 5 → b3ae98d で M1・M2・L1・L2・L5 を直し、新しい試験が直す前の実装で落ちることを確かめた（L1 は M2 を入れたまま finally を外して確認）
+  - M1: canceled が cancel の POST の応答より先に届くと cancel() が 30 秒止まる → R-t3-14
+  - M2: ジョブ中の clean() で、どの region にも属さない固定が残る → R-t3-13
+  - M3: R-t3-7〜12 の記録が無い → 本節に記録
+  - L3: 「cancel() の後の clean() が通る」試験は、t3 の clean() が ctx.job を見ないので何も確かめていない → t5 で fetch-busy を入れるときに効くことを確かめる
+  - L4: R-t3-7 で確定、直さない
+  - 未確認（レビュー）: POST の応答と postMessage の順が実ブラウザで入れ替わるか。stop の message に URL が混ざる経路が無いか（全部は追っていない）
+- t4 への申し送り
+  - range.ts の planOf は asset 以外では tile の Resource だけを残す（resources.filter(type === 'tile')）。ここに非タイルの単位を足す
+  - 単位は { resource, tile? }。processedTiles と percent はタイルだけで数える。fetchUnit は credentialSourceId を渡し済み
+  - normalizeFetchOptions の glyphRanges・fonts は検査して region の options に保存済み（未使用）
+  - 固定は onBatch の pinKeys() だけで付ける。グリフの flush の後の setPinned も region の有無を見てから
+  - 失敗の数え直し（fail(kind, key) と failed の Map）は t4 の単位でも使える
+- t5 への申し送り
+  - control.clean は「region を消す → clearEntries」。region を消す行を releaseAllOf に置き換え、ジョブ中の fetch-busy（R48）を足す。あわせてレビュー L3 の試験が効くことを確かめる
+  - 解放の列挙は enumerate と countRange を使える。resourcesOf は extents を持ち主の分に絞った写しを返す
+  - 子を親に読み替える処理は createNotifier にある（parentId）
