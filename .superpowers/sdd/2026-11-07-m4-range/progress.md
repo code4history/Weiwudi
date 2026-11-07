@@ -254,3 +254,33 @@
   - Playwright の context.on('request') はページの要求と SW の要求を両方数える（初期表示の 6 枚が 12 件）。上流の取得枚数を数えるときは注意
   - オフラインの e2e は、オンラインで 1 回読み直してからオフラインにする。vite の HMR の WebSocket のエラーは無視してよい
   - 開発用ページの範囲取得は confirm() のダイアログを出すので、自動化では accept が要る
+
+## m4-t10 範囲取得・解放・移行・全体上限の e2e — 完了（PR #109 → 610a864）
+
+- 実装: Claude（Codex は sandbox で port の bind と network ができず、Kimi は週の上限）。142c1d5、レビューの直し 4fa0fe5
+- 判定: 新規 12 件（range 9・migrate 3）を Chromium で 3 回続けて passed（揺れなし）。直しの後も range・migrate・offline の 21 件を 3 回続けて passed。e2e の全件（Chromium）58 passed。`vitest run` 1608 件・`tsc --noEmit`・`eslint src tests` exit 0。src の直しはなし
+  - 直しの後の最初の 3 回のループで 3 回目が無出力だった（原因は未確認）。単独の 1 回の passed の後、改めて 3 回続けて passed
+- 受け入れ条件: `127.0.0.1` の grep（対象 4 ファイル）0 件。全試験の最後で実ネットワークの計数（localhost:5173・5174 以外と weiwudi.example.com が 0 件）を expect（offline.spec の追記分にもレビュー L1 で追加）
+- CI（4fa0fe5）: Node 22・24 緑。e2e-engines の WebKit は 35 passed・2 skipped（migrate の 1・2 件目。R-t10-5 の Blob を保存できない環境の skip が想定どおりに働いた）
+  - **Firefox（記録のみの段。continue-on-error）で range の 5 件が失敗**: pins fetched tiles against cacheMaxBytes・releases a range and frees entries・keeps overlapping tiles on release・reports an opaque event for a server without cors・cancels a running job。いずれも `fetchRange` の Promise が 30 秒で解決しない（page.evaluate の timeout）。enforces a global limit と migrate の 2 件は Firefox でも passed。Chromium・WebKit では通る → Firefox 固有の不具合の疑い。m4 の合流の前に調べる（下の申し送り）
+- 申し送りの未確認点のうち確かめたもの（Chromium）: 旧 DB の blocked と onversionchange（Weiwudi_x は閉じて消え、閉じない Weiwudi は削除が blocked のまま残り、ページが閉じると通る）・旧 Blob の arrayBuffer() からの配信・SW 更新直後の最初の要求の読み通し・1365 件（7 バッチ分）の移行の途中のオフラインで末尾のキーが hit・SW を止めてから 31 秒未満で job/resume して complete
+- 確かめられなかったもの: WebKit の非永続領域での移行（種の Blob を作れない）・再試行の成功（CDP の上限では 1 回だけ失敗させられない）・totals の無い開発用 DB の最初の書き込み・数 GB の cursor と移行の時間・別の SW への表の通知の 100 ms 遅れ（同じスコープの SW 1 つの試験のみ）
+- Rulings（実装担当）
+  - R-t10-1: tile-server.mjs に `/slow/{z}/{x}/{y}.png`（250 ms 待って 200・CORS あり）を足した（計画が許す「端点を足すとき」）。SW の停止と取り消しの試験で z0〜3 の 85 枚・約 4 秒
+  - R-t10-2: 「30 秒以内に job/resume」は、SW を止めた時刻から最初の POST まで 31 秒未満で判定（届くまでの遅れに 1 秒の余裕）
+  - R-t10-3: releases a range and frees entries に、keep: true で本体が残る確認と、解放済みの id が attribute-invalid になる確認を追記（t9 の申し送り）
+  - R-t10-4: スタイルの範囲取得は fontstack を fonts で渡す（basic.json に text-font が無い）。既定の common の 5 範囲を上流が受けたことも見る
+  - R-t10-5: migrate の種で Blob の put が失敗する環境では理由つきで test.skip（1.1.1 もその環境では保存できず移す旧 DB が無い）。skip にするのは DataCloneError か文面に blob・file を含む失敗だけで、ほかは投げ直す（レビュー M1）。計画どおりタグは付けない
+  - R-t10-6: 範囲・移行のページの SW は offline-sw.js（hook-sw.js の利用者のルートは不要）
+  - R-t10-7（レビュー M2）: 移行の完了は要求の回数でなく 20 秒の期限つきのループ（要求 → 完了条件の確認 → 50 ms）で待つ
+- レビュー（L1）: Codex（gpt-6-astra。19:05Z に枠が戻って起動）。S 0・M 2・L 1 → 4fa0fe5 で全部直した
+  - M1: legacy-seed の putAll の例外を種類によらず skip にしていた → R-t10-5
+  - M2: 移行の完了を最大 40 要求で打ち切っていた（移行は waitUntil で並行し、要求は同じ Promise を共有する）→ R-t10-7
+  - L1: offline.spec の追記した試験に通信の計数が無かった → 追加
+  - 固定の 1 秒待ち（range.spec.js:342。取り消し後の通信数の観測）は指摘として残さず記録のみ
+- 範囲の外で気づいたこと: 既存の cache.spec.js の 2 件（should cache tile requests・should clear cached tiles）は test-page.html が tile.openstreetmap.org を登録し、route を置かずに 0/0/0 を取る。e2e の全件を走らせると実の OSM へ数回出る
+- t11 への申し送り
+  - Firefox の range の 5 件の失敗を調べてから master へ合流する（m4 の中で直す）
+  - 文書の「CI の 29 件」（docs/api/weiwudi.md の 29 tests）は range のタグ無し 6 件と migrate の 2 件ぶん変わる
+  - 文書の「WebKit は Blob を保存できない」と、WebKit の CI で migrate の 1・2 件目が skip になることが合っているか確かめる
+  - cache.spec.js が実の OSM へ出る件をどう扱うか決める
