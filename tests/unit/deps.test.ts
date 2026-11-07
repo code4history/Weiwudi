@@ -16,7 +16,7 @@ const SRC = fileURLToPath(new URL('../../src', import.meta.url));
 // constants は全ファイルが import してよい（表の注。constants 自身は何も import しない）
 const ABOVE_ALL = [
   'constants', 'tile_math', 'errors', 'url_pattern', 'spec', 'style_body', 'plugins', 'providers', 'store', 'context',
-  'registry', 'upstream', 'core', 'hook', 'style', 'control', 'legacy', 'migrate',
+  'registry', 'upstream', 'core', 'hook', 'style', 'range', 'control', 'legacy', 'migrate',
 ];
 const DEPS_TABLE: Record<string, readonly string[]> = {
   constants: [],
@@ -34,7 +34,9 @@ const DEPS_TABLE: Record<string, readonly string[]> = {
   core: ['context', 'store', 'plugins', 'url_pattern', 'tile_math', 'constants', 'errors'],
   hook: ['core', 'upstream', 'context', 'store', 'url_pattern', 'style_body', 'constants', 'errors'],
   style: ['hook', 'core', 'registry', 'spec', 'style_body', 'url_pattern', 'context', 'store', 'constants', 'errors'],
-  control: ['hook', 'core', 'registry', 'spec', 'style', 'context', 'store', 'tile_math', 'constants', 'errors'],
+  // m4 で range を足す（m4-t1。range.ts は t3 で作る）
+  range: ['hook', 'core', 'upstream', 'registry', 'context', 'store', 'spec', 'url_pattern', 'tile_math', 'style_body', 'constants', 'errors'],
+  control: ['hook', 'core', 'registry', 'spec', 'style', 'range', 'context', 'store', 'tile_math', 'constants', 'errors'],
   // m4 で migrate を足す（表の「（m4 で migrate）」）
   legacy: ['core', 'context', 'store', 'tile_math', 'constants', 'errors', 'migrate'],
   migrate: ['store', 'constants', 'errors'],
