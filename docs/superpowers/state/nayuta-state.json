@@ -99,5 +99,5 @@
     "docs/superpowers/reports/2026-11-02-onboard-summary.md",
     "docs/superpowers/specs/2026-11-02-new-interface-spec.md"
   ],
-  "next_action": "m4 を進める。計画 docs/superpowers/plans/2026-11-07-m4-range-release-migration.md（事前点検は合格）・台帳 .superpowers/sdd/2026-11-07-m4-range/progress.md。次は m4-t1（保存の土台の直し）。並行してよい組は計画の「並行」の節のとおり。委任は Codex → Kimi → Claude・並行 2 まで。#78 の設計 PR #96 は未レビュー。e2e は build してから走らせる"
+  "next_action": "m4 を進める。計画 docs/superpowers/plans/2026-11-07-m4-range-release-migration.md・台帳 .superpowers/sdd/2026-11-07-m4-range/progress.md。m4-t1 は完了（PR #100 → 36fe34b）。次は m4-t2（保持期間の掃除と保守の契機。worktree ~/zcode/weiwudi-work/wv-t2・枝 m4-t2-retention で実装中）。その後は t3〜t5 の列と t7 を並行、t6 と t8 を並行。委任は Codex → Kimi → Claude・並行 2 まで。#78 の設計 PR #96 は未レビュー。e2e は build してから走らせる"
 }
