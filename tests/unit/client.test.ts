@@ -631,3 +631,33 @@ describe('範囲取得（m4-t3・§7.2・R22・R45・R58・R-ratio・I5b）', ()
     await rejectsWith(src.cancel(), 'no-fetch-process', m);
   });
 });
+
+// m4-t5: release and ranged clean preserve the control wire shape.
+describe('releaseRange and clean(range, options)', () => {
+  it('posts regionId/keep and range/force, keeping no-argument clean compatible', async () => {
+    const m = await setup();
+    const src = await m.default.register({ kind: 'raster', url: TPL });
+    const range = { box: { minX: 0, maxX: 1, minY: 0, maxY: 1 }, minZoom: 1, maxZoom: 1 };
+    await src.releaseRange('region');
+    await src.releaseRange('region', { keep: true });
+    await src.clean();
+    await src.clean(range);
+    await src.clean(range, { force: true });
+    const wire = posts().filter((p) => /\/(releaseRange|clean)$/.test(p.url)).map((p) => JSON.parse(String(p.init!.body)));
+    expect(wire).toEqual([
+      { id: TPL, regionId: 'region', options: {} }, { id: TPL, regionId: 'region', options: { keep: true } },
+      { id: TPL }, { id: TPL, range }, { id: TPL, range, options: { force: true } },
+    ]);
+  });
+
+  it('propagates fetch-busy and checks released instances for both methods', async () => {
+    const m = await setup();
+    const src = await m.default.register({ kind: 'raster', url: TPL });
+    postReply = async () => jsonRes({ ok: false, error: { code: 'fetch-busy', message: 'busy', detail: {} } });
+    await rejectsWith(src.releaseRange('region'), 'fetch-busy', m);
+    await rejectsWith(src.clean('all', { force: true }), 'fetch-busy', m);
+    src.release();
+    await rejectsWith(src.releaseRange('region'), 'instance-released', m);
+    await rejectsWith(src.clean('all'), 'instance-released', m);
+  });
+});

@@ -428,12 +428,13 @@ interface UsageReport {
 | `warnings` | `string[]`。`register()`・`update()` の時点の写し（後で変わらない） |
 | `stats()` | `Promise<SourceStats>` |
 | `update()` | 保存した登録内容で合流と方針を作り直し、CORS の判定をやり直す。自分の資源が衝突すると `resource-conflict` で reject し、何も変えない。スタイルは代わりに取り直し、`resource-conflict` では reject しない（衝突は `warnings` に書く）。スタイルが読めなければ `invalid-style` |
-| `clean()` | 保存した Entry を消す。他の Source と共有する資源の Entry は残す |
+| `clean(range?, opts?: { force?: boolean })` | 範囲なしでは全 region を解放し、排他の資源の Entry を消す。範囲ありでは範囲内の固定されていないタイルを消す。`force: true` なら固定も消し、重なる region を `partial` にする。共有資源は残す。[範囲の解放と掃除](#範囲の解放と掃除) を参照 |
 | `removeResource(resourceId)` | この Source（スタイルは登録した資源）の資源 1 つの Entry を消す。**他の Source と共有していても、範囲だけ（`rangeOnly`）で参照していても消す**（利用者が名指ししたため）。グリフの資源は全 fontstack のレコードを消す。資源の記録と捕捉は残り、次の要求で取り直して保存する。その Source が参照しない資源の id なら `resource-not-found` で reject。スタイルで受ける id は、`remove()` が外す子（途中で止まった update が残した孤児の子も含む）の資源の id |
 | `remove()` | 登録と Entry を消し、`release()` を呼ぶ。他の Source が `sourceIds` に持つ資源の Entry は残す。`sourceIds` が空になった資源は、範囲だけ（`rangeOnly`）で参照している Source があっても Entry ごと消す |
 | `release()` | ページ側のリスナを外す。以後のメソッドは `instance-released` で reject（待っている `fetchRange()`・`cancel()` も同じ） |
 | `estimate(range)` | `Promise<{ tiles: number }>`。`fetchRange(range)` が取るタイルの枚数。[範囲取得](#範囲取得) を参照 |
 | `fetchRange(range, opts?)` | 範囲のタイルを全部取って固定し、終わりの `RegionInfo` で解決する |
+| `releaseRange(regionId, opts?: { keep?: boolean })` | `Promise<void>`。region を解放し、残る固定つき region が必要としない Entry を消す。`keep: true` なら本体を残す。共有資源は残す。[範囲の解放と掃除](#範囲の解放と掃除) を参照 |
 | `regions()` | `Promise<RegionInfo[]>`。この Source の region の一覧 |
 | `cancel()` | この Source の `fetchRange()` を止める |
 
@@ -504,7 +505,7 @@ interface RegionInfo {
   30 秒イベントが来なければ、ページはサービスワーカーに再開を求めます（`POST /v2/job/resume`）。サービスワーカーが止まって
   途切れた取得はこれで続きます。ほかの取得が動いていれば `fetch-busy` で reject
 - `regions()` は、動いていない `running` の region（サービスワーカーが止まった・別の region を取っている）を `partial` と
-  見せます。取得の途中に `clean()` が消した region は書き戻しません。`clean()` はその Source の region も消します
+  見せます（保存した status は書き換えません）。範囲なしの `clean()` は固定を解放して、その Source の region も消します
 
 `WeiwudiSource` のイベント（`addEventListener(type, e => e.detail)`）。`fetchRange()` を呼んだページへ送ります:
 
@@ -541,7 +542,30 @@ interface RegionInfo {
   レコードの書き込みの失敗は fontstack ごとに 1 件（`quota` か `storage`）に数えます。`cancel()` しても、取りかけの fontstack の
   取れた範囲は残します
 - スタイル・TileJSON・スプライト・データ・グリフの Entry は region の幾何に結び付きません。その固定は、その資源を参照する
-  全 Source のどれかに固定つきの region が残っている間は保つ決まりです（固定の解放は後の版）
+  全 Source（スタイルの子は親に読み替え）のどれかに固定つきの region が残っている間は保ちます。グリフは範囲ごとではなく fontstack のレコード単位で解放します
+
+#### 範囲の解放と掃除
+
+- `await source.releaseRange(regionId)` は region を消し、残る固定つき region のどれにも入らないタイルの固定を外します。
+  既定では、その Source だけが参照する排他の資源の Entry も消します。第 2 引数に `{ keep: true }` を渡すと、
+  本体を残して固定だけ外します。存在しない id や他の Source の region は `attribute-invalid`（`attribute: 'regionId'`）です。
+- 重なりは Resource のタイル座標に直した幾何で判定します。対象は**その Resource を参照する全 Source** の固定つき region
+  （範囲だけの参照も含む）です。スタイルの子は、region が保存される親へ読み替えます。`partial`・`canceled` でも固定つきなら
+  保護を続け、`pin: false` で取得した region は固定を保護しません。
+- 非タイル資源（スタイル・TileJSON・スプライト・データ・グリフ）の解放は幾何で判定しません。参照する全 Source から
+  固定つき region がなくなったときだけ固定を外します。別のスタイルと共有するグリフも同じで、fontstack のレコード単位です。
+- `await source.clean(range)` は範囲内の固定されていないタイルの Entry だけ消します。範囲の書き方・座標は `fetchRange()` と
+  同じで、削除のトランザクション内でも固定を見直します。第 2 引数に `{ force: true }` を渡すと固定も消し、その Source の
+  重なる region を `partial` にします。他の Source の region は書き換えません。
+- **共有資源の Entry は、`releaseRange()` の既定でも `clean(range, { force: true })` でも消しません。** 解放では残る
+  固定つき region が必要としない固定だけ外します。範囲つき clean は共有の Entry と固定に触れず、非タイル資源も消しません。
+- `await source.clean()` はその Source の全 region を解放した後、排他の資源の Entry を消します。共有の Entry は残し、
+  他の固定つき region が必要とする固定だけ保ちます。`remove()` も全 region を解放してから子と登録を外します。
+  資源の削除については上の表の `remove()` の規則が引き続き適用されます。
+- 自分の Source のジョブ中は `clean()`（範囲あり・なし）・`remove()`・`releaseRange()` が `fetch-busy` になります。
+  先に `await source.cancel()` し、その Promise の解決を待ってください。取り消しは始めたバッチの終わりまで待つため、
+  タイルは最大 `concurrency` 枚、スタイルのグリフは 1 fontstack（`glyphRanges: 'all'` なら最大 256 範囲）の取得を
+  待つことがあります。他の Source のジョブ中は、これらの操作を実行できます。
 
 ### `warnings`
 

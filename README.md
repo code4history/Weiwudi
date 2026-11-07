@@ -246,6 +246,21 @@ so a server of another origin that authenticates by cookies only cannot be
 fetched this way. In this version a style fetches the tiles of its tile
 resources ([Range fetching](docs/api/weiwudi.md#range-fetching)).
 
+`await source.releaseRange(regionId)` releases a fetched region; entries not
+needed by another pinned region are deleted for exclusive resources. Use
+`{ keep: true }` to keep their bodies. Shared resource entries stay, and their
+pins stay where any referring source's pinned region needs them (style children
+count as their parent). Non-tile pins stay until the last such region is released.
+`clean(range)` deletes only unpinned tiles of exclusive resources;
+`clean(range, { force: true })` also deletes pinned tiles and marks this source's
+overlapping regions `partial`, leaving shared entries and other sources' regions
+unchanged. `clean()` releases all regions before clearing exclusive resources.
+During this source's job, `clean`, `remove` and `releaseRange` reject with
+`fetch-busy`: first `await source.cancel()`. It waits for the batch already
+started (up to `concurrency` tiles, or glyph work for one fontstack—up to 256
+ranges with `glyphRanges: 'all'`). See
+[Releasing and cleaning ranges](docs/api/weiwudi.md#releasing-and-cleaning-ranges).
+
 Details: [Source API](docs/api/weiwudi.md#source-api).
 
 ### API reference

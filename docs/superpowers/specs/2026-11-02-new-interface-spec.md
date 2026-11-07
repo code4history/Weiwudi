@@ -491,11 +491,20 @@ type RangeSpec =
 
 | 操作 | 効果 |
 |---|---|
-| `source.releaseRange(regionId)` | その region を消し、他の region に入らないタイルの固定を外す。既定で本体も消す。`{ keep: true }` なら固定だけ外す |
-| `source.clean()` | Source の Entry を全部消す（共有 `Resource` は他の Source が参照していれば残す）。regions も消す |
-| `source.clean(range)` | 範囲内の固定されていない Entry を消す。`{ force: true }` で固定も消し、重なる region を `partial` にする |
+| `source.releaseRange(regionId, { keep? }?)` | region を読み、無い・別の Source なら `attribute-invalid`（`regionId`）。残る固定つき region に入らないタイルを解放する（R12）。排他の Resource は既定で本体も消し、`keep: true` なら固定だけ外す。共有の Resource は本体を消さず固定だけ外す。非タイル資源は全参照元の固定つき region がなくなるまで固定を保つ（R11） |
+| `source.clean()` | `releaseAllOf(store, id, owners, { keep: true })` で全 region を解放してから、排他の Resource の `clearEntries`。共有の Entry は残し、他の region が必要としない固定を外す（R47・M12） |
+| `source.clean(range, { force? }?)` | 正規化した範囲内の、排他のタイル Resource の Entry だけ対象。既定では `deleteEntries(keys, { unpinnedOnly: true })` で tx 内でも固定を見直す。`force: true` なら固定も消し、その Source の重なる region を `partial` にする。共有の Entry は force でも触らず、他の Source の region は変えない（R49） |
+| `source.remove()` | 自分のジョブ中なら `fetch-busy` → `releaseAllOf(store, id, owners, { keep: true })` → 子を外す → `applyRemove`。通常の共有と範囲だけの参照の両方を解放する（R47・P1）。`registry` の削除規則は変えない |
+| ジョブ中の `clean`・`remove`・`releaseRange` | 自分の Source のジョブが動いていれば `fetch-busy`（R48）。別の Source のジョブは妨げない。先に `cancel()` し、その Promise の解決を待つ。取り消しは始めたバッチの終わりまで待つため、タイルは最大 `concurrency` 枚、スタイルのグリフは 1 fontstack（`glyphRanges: 'all'` なら最大 256 範囲）を待つことがある |
 
 重なる region の判定は幾何で行う（Entry 側に参照カウントを持たない）。解放のときだけの計算で、配信の経路を太らせないため。
+
+- `holdersOf(store, resource)` は `sourceIds` ∪ `rangeOnlySourceIds` の全 Source を集め、子は `parentId` の親に読み替えて重複を除く（R12）。
+- `remainingRegions(store, resource, exceptId)` は、それらの Source の `pinned: true` かつ `id !== exceptId` の region を返す。
+  `status` は問わず、`partial`・`canceled` も数える。`pin: false` は数えない。
+- タイルの解放は取得と同じ列挙・座標変換で region の範囲を Resource の座標へ直す。残る region も同じ座標で判定し、
+  `entriesAtZoom` の対象キーを 200 件ずつ解放する。非タイル資源は `entriesOf` を使い、グリフは fontstack レコード単位（R11）。
+- `releaseAllOf` はその Source の region を 1 つずつ解放し、各 region の Entry を処理してから `deleteRegion` する（R47）。
 
 イベントは現行の `proceed`・`finish`・`stop`・`canceled` を同じ形で使い、`regionId`・`errors`（§9）を足す。
 
@@ -504,7 +513,7 @@ type RangeSpec =
 - URL は `url_pattern.expandTemplate` で作り、同じテンプレートに `matchUrl` で照合した `MatchResult` を `hook.serveResource` に渡す。キーは `entryKey` 1 つ（捕捉と 1 字もずれない。R2）。ミラーは持ち主の Source が登録したテンプレートから無作為に 1 つ
 - 要求は `new Request(url)`（§4.5 の表）。資格情報は照合表の `credentialSources`（Resource × オリジン）から `hook.credentialsForResource` で選ぶ（照合ルートと同じ相手にだけ送る。R3）。CORS・認証の規則（§4.5-3・§4.6）はジョブが serve の応答の `x-weiwudi-error` と `upstream.probeNoCors`（`mode: 'no-cors'`・`credentials: 'omit'` の 1 回。保存しない）で判定する（R4）
 - region は `{ id, sourceId, range, normalized, options, status, pinned, total, error, errors, code?, createdAt, updatedAt }`。`range` は決めた項目だけの写し、`normalized` は取得のときの XYZ の範囲（`'all'` も固める）、`options` は検査済みの指定（再開で使う）。進捗の位置は持たない。終わりの書き込みは `patchRegion` で「有り・`running`」のときだけ。`regions()` は `running` で `ctx.job` が無いか `ctx.job.regionId` が違うものを `partial` と見せる。ページが閉じた（`gone`）ジョブは `partial`（R5）
-- ジョブは直列の待ち行列の外で動く。各バッチの前に Source の有無を見て、無ければ `stop`（`source-not-found`）。region が無ければ（`clean()` などが消した）固定を付けずに `canceled` で終える。バッチの後の固定の前にも region を見る（R13・R57）
+- ジョブは直列の待ち行列の外で動く。各バッチの前に Source の有無を見て、無ければ `stop`（`source-not-found`）。region が無ければ（保存領域から消えた）固定を付けずに `canceled` で終える。バッチの後の固定の前にも region を見る（R13・R57）
 - `opaque` イベント（`{ type: 'opaque', sourceId, resourceId }`）は、照合ルートが `corslessUntil` を書いたときと、ジョブが `opaque` で止めたときに、`clients.matchAll({ type: 'window' })` の全 client へ 1 回送る。子 Source は親に読み替える（R20）
 - ページ側の `fetchRange` は POST の応答（`running`）の後、その `regionId` の `finish`・`stop`・`canceled` を待つ（`canceled` も解決、`stop` は reject）。30 秒来なければ `job/resume` を送り、応答が終わりの `status` ならそれで解決する（`stopped` は reject）。`cancel()` は取り消したジョブの `canceled`（か終わりのイベント）を受けてから解決する（30 秒来なければ `regions()` を読んで解決。R22・R58）
 - `'all'` は Source の範囲（スタイルは子の tile の範囲の和）。`box` の無い Source の `'all'` は `cannot-fetch-all`（R30）
@@ -518,7 +527,7 @@ type RangeSpec =
 - fontstack は `FetchRangeOptions.fonts` ∪ `StyleSpec.fonts` ∪ `collectFonts(style)` の和（重ねない）。要素は `{fontstack}` に入る値（フォント名を `,` で結んだもの。名前 1 つもそのまま 1 つ。R53）。`collectFonts` は `layers[*].layout['text-font']` の文字列の配列と `["literal", [文字列…]]` を `,` で結ぶ。先頭が式の演算子の配列と関数の object は飛ばす
 - `glyphRanges` の `'common'` は上の 5 つ、`'all'` は `0-255` から `65280-65535` の 256 個、配列はそのまま（重複も残し、後勝ち。R32）
 - `estimate`・`RegionInfo.total`・`percent` はタイルだけ。非タイルの単位は `processed` に入れる（R29）
-- 非タイル資源の固定は、その `Resource` を参照する全 Source（子は親に読み替え）の固定つきの region が 1 つでも残る間は保つ（R11。外すのは m4-t5 の解放）
+- 非タイル資源の固定は、その `Resource` を参照する全 Source（子は親に読み替え）の固定つきの region が 1 つでも残る間は保つ（R11。上の解放の規則に従う）
 
 ## 8. 差し込み口（#36）
 

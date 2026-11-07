@@ -7,7 +7,7 @@
 //   { ok: true, result } か { ok: false, error: { code, message, detail } }。GET は /v2/ping だけ（{ api: 2, version }）
 // - 範囲取得（m4-t3・range.ts）: fetchRange の ctx.job の確保と region の書き込み、job/resume のジョブを作り直す分岐は直列の中。
 //   estimate・regions・cancel と job/resume の今の RegionInfo を返す分岐は直列の外（第 2 回 M3）。ジョブは event.waitUntil に結ぶ
-// - register・update・clean・remove は 1 本の直列の待ち行列に通す（registry の apply は複数の tx に分かれるので、
+// - register・update・clean・remove・releaseRange は 1 本の直列の待ち行列に通す（registry の apply は複数の tx に分かれるので、
 //   同時の register で createResource が 2 回走り得る。m2-t6 の申し送り）。待ち行列は createControl の呼び出しごと
 // - 旧 API の記録（kind: 'legacy'・id が map:）は見せない・触らない（source-not-found。第 1 回 S6）
 // - register・update・remove の後に照合表を作り直す（hook.tableChanged）。作り直しが失敗しても登録は成功させ、
@@ -30,7 +30,7 @@ import { isNormalizedStyle, normalizeSpec, type NormalizedSpec } from './spec';
 import { ownersOf, registerStyle, removeStyleChildren, styleChildIds } from './style';
 import { isChildRecord, isLegacyRecord, storedSpecOf, styleSpecOf, toResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
 import { countTiles } from './tile_math';
-import { cancelRange, estimate, listRegionInfos, resumeRange, resumeState, startFetchRange, type JobClient } from './range';
+import { assertSourceIdle, cancelRange, cleanRange, estimate, listRegionInfos, releaseAllOf, releaseRange, resumeRange, resumeState, startFetchRange, type JobClient } from './range';
 import { WeiwudiError } from './errors';
 import { V2_PREFIX } from './constants';
 import type { SourceInfo, SourceStats, UsageReport } from './weiwudi';
@@ -320,28 +320,42 @@ export function createControl(ctx: Context): Control {
     return finish(store, r.source);
   });
 
-  const clean = (id: string) => serial(async () => {
+  const clean = (body: unknown) => serial(async () => {
+    const id = idOf(body);
     const store = await ctx.store();
-    const owners = await ownerIdsOf(store, await getOwn(store, id));
-    // 範囲なしの clean（m2）。他の Source が参照する共有・範囲だけの Resource の Entry は残す（仕様 §5.6・§7.2）。
-    // スタイルは子の Resource を、親の単位の id の一覧（孤児の子も含む。L1 Minor-1）で判定する
-    // regions も消す（§7.2 の表。固定の解放は m4-t5 の releaseAllOf。R-t3-4）
-    for (const r of await store.listRegions(id)) await store.deleteRegion(r.id);
-    const done: string[] = [];
-    for (const owner of owners) {
-      for (const m of await store.resourcesBySource(owner)) {
-        if (done.indexOf(m.id) >= 0) continue;
-        done.push(m.id);
-        if (isExclusiveTo(m, owners)) await store.clearEntries(m.id);
+    const rec = await getOwn(store, id);
+    assertSourceIdle(ctx, id);
+    const owners = await ownerIdsOf(store, rec);
+    const range = field(body, 'range');
+    if (range !== undefined) {
+      await cleanRange(store, rec, owners, range, { force: field(field(body, 'options'), 'force') === true });
+    } else {
+      await releaseAllOf(store, id, owners, { keep: true });
+      // 共有の Entry は残す（範囲だけの参照を含めて排他を判定。R47・M12）
+      for (const resource of await resourcesOf(store, owners)) {
+        if (isExclusiveTo(resource, owners)) await store.clearEntries(resource.id);
       }
     }
+    return null;
+  });
+
+  const releaseRangeOp = (body: unknown) => serial(async () => {
+    const id = idOf(body);
+    const regionId = regionIdOf(body);
+    const store = await ctx.store();
+    const rec = await getOwn(store, id);
+    await releaseRange(ctx, store, id, await ownerIdsOf(store, rec), regionId,
+      { keep: field(field(body, 'options'), 'keep') === true });
     return null;
   });
 
   const remove = (id: string) => serial(async () => {
     const store = await ctx.store();
     const rec = await getOwn(store, id);
-    const before = (await resourcesOf(store, await ownerIdsOf(store, rec))).map((m) => m.id);
+    assertSourceIdle(ctx, id);
+    const owners = await ownerIdsOf(store, rec);
+    const before = (await resourcesOf(store, owners)).map((m) => m.id);
+    await releaseAllOf(store, id, owners, { keep: true });
     // スタイルは子を全部外してから親を消す（親の記録が残っていれば、途中で止まっても remove() をやり直せる）
     // parentId が親の id の孤児（段の途中で止まった子。R33）も外す（L1 M-1）
     if (styleSpecOf(rec)) await removeStyleChildren(store, id, ownersOf(rec), { strict: true });
@@ -477,7 +491,8 @@ export function createControl(ctx: Context): Control {
       case 'sources': return sources();
       case 'stats': return stats(idOf(body));
       case 'update': return update(idOf(body));
-      case 'clean': return clean(idOf(body));
+      case 'clean': return clean(body);
+      case 'releaseRange': return releaseRangeOp(body);
       case 'remove': return remove(idOf(body));
       case 'removeResource': return removeResource(body);
       case 'usage': return usage();

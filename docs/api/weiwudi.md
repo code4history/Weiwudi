@@ -481,12 +481,13 @@ interface UsageReport {
 | `warnings` | `string[]`, a copy taken at `register()` / `update()` (it does not change afterwards) |
 | `stats()` | `Promise<SourceStats>` |
 | `update()` | Rebuilds merging and policies from the saved spec and resets the CORS detection. Rejects with `resource-conflict` (and changes nothing) when its own resources conflict. A style is fetched again instead and never rejects with `resource-conflict` (conflicts go to `warnings`); it rejects with `invalid-style` when the style cannot be read |
-| `clean()` | Deletes cached entries. Entries of resources shared with another source are kept |
+| `clean(range?, opts?: { force?: boolean })` | Without a range, releases all regions and deletes entries of exclusive resources. With a range, deletes unpinned tile entries there; `force: true` also deletes pinned tiles and marks overlapping regions `partial`. Shared resources are kept. See [Releasing and cleaning ranges](#releasing-and-cleaning-ranges) |
 | `removeResource(resourceId)` | Deletes the cached entries of one resource of this source (for a style, of the resources it registered), **even when the resource is shared with another source or only referred to by range** (`rangeOnly`), because you named it. All glyph records (every fontstack) of a glyph resource are deleted. The resource and its capture stay: the next request fetches and stores it again. Rejects with `resource-not-found` when the source does not refer to that resource id. For a style, the ids it accepts are those of the resources of the children that `remove()` removes (including orphaned children left by an interrupted update) |
 | `remove()` | Deletes the registration and its entries and calls `release()`. Entries of a resource that another source still has in its `sourceIds` are kept; a resource whose `sourceIds` becomes empty is deleted with its entries, even when another source still refers to it only by range (`rangeOnly`) |
 | `release()` | Removes the page-side listener. Other methods then reject with `instance-released` (a pending `fetchRange()` or `cancel()` is rejected the same way) |
 | `estimate(range)` | `Promise<{ tiles: number }>`, the number of tiles `fetchRange(range)` would fetch. See [Range fetching](#range-fetching) |
 | `fetchRange(range, opts?)` | Fetches and pins every tile of the range and resolves with the final `RegionInfo` |
+| `releaseRange(regionId, opts?: { keep?: boolean })` | `Promise<void>`. Releases a region and deletes entries no remaining pinned region needs; `keep: true` keeps their bodies. Shared resources are kept. See [Releasing and cleaning ranges](#releasing-and-cleaning-ranges) |
 | `regions()` | `Promise<RegionInfo[]>`, the regions of this source |
 | `cancel()` | Stops the running `fetchRange()` of this source |
 
@@ -580,9 +581,8 @@ interface RegionInfo {
   continues. If another run is busy, it rejects with `fetch-busy`
 - `regions()` shows a `running` region whose run is no longer active (the
   service worker stopped, or another region is being fetched) as `partial`.
-  A region keeps its status when it is written; a region removed by `clean()`
-  during a run is not written back. `clean()` deletes the regions of the
-  source
+  This does not rewrite its stored status. `clean()` without a range deletes
+  the regions of the source after releasing their pins
 
 Events of a `WeiwudiSource` (`addEventListener(type, e => e.detail)`), sent to
 the page that called `fetchRange()`:
@@ -632,9 +632,48 @@ through the same path as a captured request and pinned the same way:
   `storage`). `cancel()` keeps the ranges already fetched for the current
   fontstack
 - The style, TileJSON, sprite, data and glyph entries are not tied to the
-  geometry of a region. Their pins are meant to stay while any pinned region
-  of any source that refers to the resource remains (releasing pins follows
-  in a later version)
+  geometry of a region. Their pins stay while any pinned region of any source
+  that refers to the resource remains (style children count as their parent).
+  Glyph pins are released per fontstack record, not per glyph range
+
+#### Releasing and cleaning ranges
+
+- `await source.releaseRange(regionId)` deletes that region and releases tiles
+  not covered by any remaining pinned region. By default it also deletes their
+  entries when the resource is exclusive to this source. Pass `{ keep: true }`
+  as the second argument to keep the entries and only remove their pins.
+  An unknown region id or one belonging to another source rejects with
+  `attribute-invalid` (`attribute: 'regionId'`).
+- Overlap is computed geometrically in the resource's tile coordinates, using
+  the pinned regions of **every source referring to that resource**, including
+  range-only references. A style child is counted as its parent, where its
+  regions are stored. `partial` and `canceled` regions still protect entries
+  when pinned; a region fetched with `pin: false` does not.
+- Non-tile resources (style, TileJSON, sprite, data and glyph) are not released
+  by geometry. Their pins are removed only when no referring source has a
+  pinned region left. This includes glyph records shared by different styles;
+  release operates on whole fontstack records.
+- `await source.clean(range)` deletes only unpinned tile entries inside the
+  range, using the same range syntax and coordinates as `fetchRange()`. Pins
+  are checked again in the deletion transaction. With `{ force: true }` as
+  the second argument, pinned tiles are also deleted and this source's
+  overlapping regions become `partial`. Regions of other sources are unchanged.
+- **Shared resource entries are never deleted by `releaseRange()`, even with
+  its default options, or by `clean(range, { force: true })`.** Release only
+  removes pins no remaining pinned region needs; range cleaning leaves shared
+  entries and their pins untouched. Range cleaning does not delete non-tile
+  resources.
+- `await source.clean()` releases all of this source's regions, then clears
+  entries of exclusive resources. Shared entries stay, with pins retained
+  only where other pinned regions need them. `remove()` also releases all
+  regions before removing children and the source registration; its resource
+  removal rules in the table above still apply.
+- `clean()` (with or without a range), `remove()` and `releaseRange()` reject
+  with `fetch-busy` while **this source's** job is running. First call
+  `await source.cancel()` and wait for its Promise to resolve. Cancellation
+  waits for the batch already started: up to `concurrency` tiles, or a style's
+  glyph work for one fontstack (up to 256 ranges with `glyphRanges: 'all'`),
+  may still need to finish. Another source's job does not block these operations.
 
 ### `warnings`
 
