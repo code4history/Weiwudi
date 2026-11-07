@@ -398,6 +398,76 @@ describe('失敗の数え方（第 1 回 M6・第 2 回 L2）', () => {
   });
 });
 
+describe('PR #103 のレビュー（M1・L1・L2）', () => {
+  it('M1: putEntry が 3 回 reject すると failed になり、Weiwudi_a と旧レコードが残る（lastKey は進めない）', async () => {
+    const factory = new IDBFactory();
+    setup(factory);
+    await makeSettings(factory, [setting('a')]);
+    await makeTiles(factory, 'a', [record('2_1_1'), record('2_1_2'), record('2_1_3')]);
+    const ctx = startSw();
+    await step(ctx);
+    const store = await ctx.store();
+    vi.spyOn(store, 'putEntry').mockRejectedValue(new DOMException('quota', 'QuotaExceededError'));
+    await steps(ctx, 3);
+    const a = await mapState(ctx, 'a');
+    expect(a).toMatchObject({ status: 'failed', batchFailures: 3, recordFailures: 0 });
+    expect(a!.lastKey).toBeUndefined();
+    expect(await oldCount(factory, 'a')).toBe(3);
+    await step(ctx);
+    expect((await stateOf(ctx)).stage).toBe('done');
+    expect(await names(factory)).toContain('Weiwudi_a');
+    expect(await oldCount(factory, 'a')).toBe(3);
+  });
+
+  it('L1: 失敗と成功のバッチを交互に繰り返しても failed にならない（連続 3 回で failed）', async () => {
+    const factory = new IDBFactory();
+    setup(factory);
+    await makeSettings(factory, [setting('a')]);
+    await makeTiles(factory, 'a', many(700));
+    const ctx = startSw();
+    await step(ctx);
+    const spy = vi.spyOn(await ctx.store(), 'putEntry');
+    for (let i = 0; i < 3; i++) {
+      spy.mockRejectedValueOnce(new DOMException('quota', 'QuotaExceededError'));
+      await step(ctx);
+      expect(await mapState(ctx, 'a')).toMatchObject({ batchFailures: 1 });
+      await step(ctx);
+      expect(await mapState(ctx, 'a')).toMatchObject({ status: 'copying', batchFailures: 0 });
+    }
+    expect((await resourceOf(ctx, 'a'))!.count).toBe(600);
+    await step(ctx);
+    expect(await mapState(ctx, 'a')).toMatchObject({ status: 'done', batchFailures: 0 });
+    expect((await resourceOf(ctx, 'a'))!.count).toBe(700);
+  });
+
+  it('L2: done の後に Weiwudi_a だけが残る（Weiwudi が無い）とき、sources に地図があれば孤児にせず移す', async () => {
+    const factory = new IDBFactory();
+    setup(factory);
+    await makeSettings(factory, [setting('a')]);
+    await makeTiles(factory, 'a', [record('2_1_1')]);
+    const ctx = startSw();
+    await steps(ctx, 2);
+    expect((await stateOf(ctx)).stage).toBe('done');
+    await makeTiles(factory, 'a', [record('2_2_2')]);
+    expect(await names(factory)).not.toContain('Weiwudi');
+    const next = startSw();
+    await steps(next, 2);
+    expect(await entryOf(next, 'a', '2_2_2')).toBeDefined();
+    expect((await stateOf(next)).stage).toBe('done');
+    expect(await names(factory)).not.toContain('Weiwudi_a');
+  });
+
+  it('L2: sources にも無い Weiwudi_c は従来どおり孤児として消す', async () => {
+    const factory = new IDBFactory();
+    setup(factory);
+    await makeTiles(factory, 'c', [record('2_1_1')]);
+    const ctx = startSw();
+    await step(ctx);
+    expect(await names(factory)).not.toContain('Weiwudi_c');
+    expect(await entryOf(ctx, 'c', '2_1_1')).toBeUndefined();
+  });
+});
+
 describe('旧 API の clean・delete との順（第 1 回 M6・第 2 回 M2）', () => {
   it('第 2 段の途中の clean の後、契機を重ねても消したタイルが新 DB に戻らない', async () => {
     const factory = new IDBFactory();

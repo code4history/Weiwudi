@@ -30,7 +30,7 @@ export interface MigrationMap {
   lastKey?: string;
   /** 飛ばしたレコードの数（数えるだけ） */
   recordFailures: number;
-  /** バッチの開始の失敗の数（MAX_BATCH_FAILURES で failed） */
+  /** 続けて失敗したバッチの数（開始の失敗・Resource の無い停止・書き込みの例外。成功したバッチで 0。MAX_BATCH_FAILURES で failed） */
   batchFailures: number;
 }
 
@@ -370,12 +370,17 @@ const copySettings = async (ctx: Context, deps: MigrateDeps): Promise<void> => {
   });
   for (const f of failed) if (ids.indexOf(f.mapID) < 0) maps.push(f);
 
-  // mapSetting に無い Weiwudi_<mapID>（孤児）は配信できないのでその場で消す
+  // mapSetting に無い Weiwudi_<mapID> のうち、sources に地図があるもの（移行の後に Weiwudi_<mapID> だけが残った・
+  // 作り直された）は移す。sources にも無いもの（孤児）は配信できないのでその場で消す（PR #103 L2）
   const blocked: string[] = [];
   for (const name of names ?? []) {
     if (name === SETTINGS_DB) continue;
     const mapID = name.slice(MAP_DB_PREFIX.length);
     if (maps.some((x) => x.mapID === mapID)) continue;
+    if (mapID.indexOf('\0') < 0 && !isForgotten(ctx, mapID) && (await store.getSource(resourceIdOf(mapID)))) {
+      maps.push({ mapID, status: 'pending', recordFailures: 0, batchFailures: 0 });
+      continue;
+    }
     if ((await deleteLegacyDb(ctx, name)) !== 'deleted') blocked.push(name);
   }
 
@@ -454,7 +459,7 @@ const batchFailed = (ctx: Context, store: Store, mapID: string, recordFailures =
     e.status = e.batchFailures >= MAX_BATCH_FAILURES ? 'failed' : e.status;
   });
 
-/** 地図を done にし、その場で Weiwudi_<mapID> を消す（blocked なら pendingDelete） */
+/** 地図を done にし、その場で Weiwudi_<mapID> を消す（blocked なら pendingDelete）。batchFailures は 0 に戻す */
 const mapDone = async (ctx: Context, store: Store, mapID: string, lastKey: string | undefined, recordFailures: number) => {
   if (isForgotten(ctx, mapID)) return;
   const r = await deleteLegacyDb(ctx, mapDbName(mapID));
@@ -462,6 +467,7 @@ const mapDone = async (ctx: Context, store: Store, mapID: string, lastKey: strin
     e.status = 'done';
     if (lastKey !== undefined) e.lastKey = lastKey;
     e.recordFailures += recordFailures;
+    e.batchFailures = 0;
     if (r !== 'deleted') addPending(s, mapDbName(mapID));
   });
 };
@@ -508,6 +514,7 @@ const copyBatch = async (
     const drop: string[] = [];
     let failures = 0;
     let resourceGone = false;
+    let putFailed = false;
     for (let i = 0; i < records.length; i++) {
       const { key, value } = records[i];
       // 読み通しで先に移したもの: 旧レコードを消すだけ
@@ -526,9 +533,11 @@ const copyBatch = async (
       try {
         ({ saved } = await store.putEntry(entry.meta, entry.body, evict));
       } catch (e) {
+        // 書き込みの例外（QuotaExceededError など）はバッチの失敗: そこで止め、lastKey を進めず旧レコードを残す
+        // （レコードの失敗として飛ばすと、読み尽くしたときに旧 DB ごと消えて移っていないタイルを失う。PR #103 M1）
         console.error(e);
-        failures++;
-        continue;
+        putFailed = true;
+        break;
       }
       if (!saved && !(await store.getResource(resourceId))) {
         resourceGone = true;
@@ -539,8 +548,9 @@ const copyBatch = async (
     }
     if (isForgotten(ctx, mapID)) return { done: false };
     await deleteOld(db!, drop);
-    if (resourceGone) {
-      await batchFailed(ctx, store, mapID, failures);
+    if (resourceGone || putFailed) {
+      // lastKey を進めないので、このバッチの飛ばしたレコードは次のバッチで数える（二重に数えない）
+      await batchFailed(ctx, store, mapID);
       return { done: false };
     }
     const lastKey = records.length > 0 ? records[records.length - 1].key : map.lastKey;
@@ -550,10 +560,12 @@ const copyBatch = async (
       await mapDone(ctx, store, mapID, lastKey, failures);
       return { done: true, read: records.length };
     }
+    // 成功したバッチで batchFailures を 0 に戻す（failed は連続 3 回。PR #103 L1）
     await patchMap(ctx, store, mapID, (e) => {
       e.status = 'copying';
       if (lastKey !== undefined) e.lastKey = lastKey;
       e.recordFailures += failures;
+      e.batchFailures = 0;
     });
     return { done: false };
   } finally {
