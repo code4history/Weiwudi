@@ -7,7 +7,8 @@
 // - 取得は hook.serveResource だけ（core.serve 1 つ。fetch を直接呼ばない）。no-cors の確かめは upstream.probeNoCors（R4）
 // - URL は url_pattern.expandTemplate で作り、同じテンプレートに matchUrl で照合してキーを entryKey で作る（R2）
 // - 資格情報は hook.credentialsForResource（照合ルートと同じ選び方。R3）。要求は new Request(url)（cors・same-origin）
-// - 固定の正本はバッチの後の store.setPinned（成功と数えたキー全部。R46）。ServeInput.pin は近道
+// - 固定はバッチの後の store.setPinned 1 本（成功と数えたキー全部・region が有るときだけ。R46・PR #102 M2）。
+//   保存と同じ tx で固定する近道（ServeInput.pin）は使わない（途中で region が消えたとき、どの region にも属さない固定を残す）
 // - region の終わりの書き込みは patchRegion で「有り・running」のときだけ（R5）。終わりの順は region → ctx.job → postMessage（R45）
 // - ジョブは各バッチの前に Source と region の有無を見る（Source が無ければ stop（source-not-found）・region が無ければ canceled。
 //   R13・R57）。バッチの後の setPinned の前にも region を見る
@@ -443,10 +444,13 @@ const runRangeJob = async (
   const confirmed = new Set<string>();
   let keys: string[] = [];
   const errors = job.failures;
+  /** 失敗と数えたタイルのキーと種類（確かめで取れたら数え直す。PR #102 L2） */
+  const failed = new Map<string, TileFailure>();
 
-  const fail = (kind: TileFailure) => {
+  const fail = (kind: TileFailure, key?: string) => {
     job.error++;
     errors[kind]++;
+    if (key !== undefined) failed.set(key, kind);
   };
 
   const credentialsOf = (resource: ResourceMeta, origin: string) => {
@@ -463,7 +467,6 @@ const runRangeJob = async (
   const fetchUnit = async (unit: Unit, t: { url: URL; m: MatchResult }): Promise<{ error: TileFailure | undefined; status: number }> => {
     const picked = await credentialsOf(unit.resource, t.url.origin);
     const res = await serveResource(ctx, unit.resource, new Request(t.url.href), t.url, t.m, picked.credentials, {
-      ...(options.pin ? { pin: true } : {}),
       ...(picked.credentialSourceId !== undefined ? { credentialSourceId: picked.credentialSourceId } : {}),
     });
     const err = res.headers.get('x-weiwudi-error');
@@ -503,16 +506,16 @@ const runRangeJob = async (
       // §4.5-3: TypeError のタイルは no-cors で確かめる。opaque は upstream に数え、実績が無ければ連続数に足す
       const probe = await probeNoCors(t.url.href);
       if (probe === 'opaque') {
-        fail('upstream');
+        fail('upstream', t.key);
         if (!confirmed.has(unit.resource.id) && !experienced(await store.getResource(unit.resource.id))) {
           opaqueStreak.set(unit.resource.id, (opaqueStreak.get(unit.resource.id) ?? 0) + 1);
         }
         return;
       }
-      fail('network');
+      fail('network', t.key);
       return;
     }
-    fail(error);
+    fail(error, t.key);
     // §4.6: count === 0 の 401・403 が続いたら止める
     if (error === 'upstream' && (status === 401 || status === 403)) {
       const fresh = await store.getResource(unit.resource.id);
@@ -542,7 +545,16 @@ const runRangeJob = async (
       if (error !== 'network') {
         // CORS を通った（状態コードを問わない。markCors が corsOk を立てる）。取れた 200 は保存済みで、列挙で成功に数える
         passed = true;
-        if (!error) keys.push(t.key);
+        if (!error) {
+          keys.push(t.key);
+          // 列挙で既に失敗と数えたタイルなら、その場で成功に数え直す（後で列挙するタイルは hasEntries で成功になる）
+          const kind = failed.get(t.key);
+          if (kind !== undefined) {
+            failed.delete(t.key);
+            job.error--;
+            errors[kind]--;
+          }
+        }
         continue;
       }
       if ((await probeNoCors(t.url.href)) === 'opaque') sawOpaque = true;
@@ -600,12 +612,16 @@ const runRangeJob = async (
           keys = [];
           return;
         }
-        for (const [rid, n] of opaqueStreak) {
-          if (n < STREAK_LIMIT) continue;
-          const resource = plan.resources.find((r) => r.id === rid);
-          if (resource) await confirm(resource);
+        try {
+          for (const [rid, n] of opaqueStreak) {
+            if (n < STREAK_LIMIT) continue;
+            const resource = plan.resources.find((r) => r.id === rid);
+            if (resource) await confirm(resource);
+          }
+        } finally {
+          // 確かめが stop を投げても、このバッチで取れた分は固定する（region は上で確かめた。PR #102 L1）
+          await pinKeys();
         }
-        await pinKeys();
         if (authStreak >= STREAK_LIMIT) throw stopError('upstream', 'The upstream refused the requests (401 / 403)');
         if (quotaStreak >= STREAK_LIMIT) throw stopError('quota', 'The browser storage quota is exceeded');
         if (options.pin && await overPinnedLimit(store, plan.resources)) throw stopError('quota', 'The pinned entries reach cacheMaxBytes');

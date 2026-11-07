@@ -259,8 +259,6 @@ export interface ServeResourceOptions {
    * update() でスタイルの URL が変わって Resource に当たらないときも、新しい正規化の値で除ける）
    */
   parent?: { url: string; provider?: string; policy: Pick<ResourcePolicy, 'credentialParams'> };
-  /** 真なら保存と同じ tx で固定する（ServeInput.pin。範囲取得の近道。固定の正本はジョブの setPinned。m4-t3・R46） */
-  pin?: boolean;
 }
 
 const byOrder = (a: SourceRecord, b: SourceRecord): number => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -366,7 +364,6 @@ export async function serveResource(
     ...(resource.type === 'glyph' && m.range !== undefined ? { part: m.range } : {}),
     ...styleLike,
     ...(opts.revalidate === true ? { revalidate: true } : {}),
-    ...(opts.pin === true ? { pin: true } : {}),
     request,
     storable: isStorable(request, resource.policy),
     upstream: createUpstream(ctx, { resourceId: resource.id, original: request, credentials, provider, now }),

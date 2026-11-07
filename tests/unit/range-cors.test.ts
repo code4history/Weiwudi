@@ -8,6 +8,7 @@ import { installHook, serveResource } from '../../src/hook';
 import { credentialSourceFor } from '../../src/registry';
 import { createNotifier } from '../../src/range';
 import type { Store } from '../../src/store';
+import { normalizeSpec } from '../../src/spec';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -187,5 +188,48 @@ describe('probeNoCors の要求', () => {
       expect(new URL((r as Request).url).searchParams.get('access_token')).toBe('pk.secret');
       expect((r as Request).headers.get('x-key')).toBe('k');
     }
+  });
+});
+
+describe('確かめの数え直しと固定（PR #102 L1・L2）', () => {
+  it('確かめで取れたタイルが列挙で失敗と数えたものなら、その場で成功に数え直して固定する（L2）', async () => {
+    const FIRST = 'https://t.example/2/0/0.png';
+    let firstCalls = 0;
+    const env = await setup({ cors: (u) => (u === FIRST && ++firstCalls >= 2 ? png() : typeError()), noCors: () => opaqueResponse() });
+    await ok(env, 'register', SOURCE);
+    // 無作為の 5 枚は 1〜5 枚目（1 枚目は列挙で失敗と数えた後で通る）
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    await ok(env, 'fetchRange', { id: 's', range: Z2, options: { concurrency: 1 } });
+    await settle(env);
+    expect(messages(env, 'stop')).toEqual([]);
+    expect(messages(env, 'finish')).toMatchObject([{ processed: 16, error: 15, errors: { upstream: 15, network: 0 } }]);
+    expect((await env.store.getEntry(`${TPL}\x002_0_0`))!.meta.pinned).toBe(1);
+  });
+
+  it('確かめが stop を投げても、そのバッチで取れたタイルは固定する（L1）', async () => {
+    // スタイルの 2 つの子: a.example（CORS なし）と b.example（取れる）。1 つ目のバッチに a の 3 枚と b の 1 枚が入る
+    const A = 'https://a.example/{z}/{x}/{y}.png';
+    const B = 'https://b.example/{z}/{x}/{y}.png';
+    const env = await setup({ cors: (u) => (u.startsWith('https://b.example/') ? png() : typeError()), noCors: () => opaqueResponse() });
+    const policy = normalizeSpec({ kind: 'raster', url: A }).spec.policy;
+    const extent = (sourceId: string) => ({ minZoom: 0, maxZoom: 2, box: { minX: 0, maxX: 3, minY: 0, maxY: 3 }, sourceId });
+    await env.store.putSource({
+      id: 'p', kind: 'style', order: 1, warnings: [], createdAt: 1,
+      spec: { kind: 'style', id: 'p', url: 'https://st.example/style.json', templates: ['https://st.example/style.json'], policy,
+        children: [{ id: 'c1', logicalName: 'a', type: 'tile' }, { id: 'c2', logicalName: 'b', type: 'tile' }] },
+    });
+    for (const [id, tpl] of [['c1', A], ['c2', B]]) {
+      await env.store.putSource({
+        id, kind: 'child', parentId: 'p', order: 2, warnings: [], createdAt: 1,
+        spec: { kind: 'child', type: 'tile', id, url: tpl, templates: [tpl], policy, extent: extent(id) },
+      });
+      await env.store.createResource({
+        id: tpl, type: 'tile', templates: [tpl], sourceIds: [id], policy, extents: [extent(id)], scheme: 'xyz', count: 0, bytes: 0, pinnedBytes: 0,
+      });
+    }
+    await ok(env, 'fetchRange', { id: 'p', range: { box: { minX: 0, maxX: 2, minY: 0, maxY: 0 }, minZoom: 2, maxZoom: 2 }, options: { concurrency: 4 } });
+    await settle(env);
+    expect(messages(env, 'stop')).toMatchObject([{ code: 'opaque', processed: 4 }]);
+    expect((await env.store.getEntry(`${B}\x002_0_0`))!.meta.pinned).toBe(1);
   });
 });

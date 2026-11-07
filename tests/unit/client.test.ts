@@ -521,10 +521,32 @@ describe('範囲取得（m4-t3・§7.2・R22・R45・R58・R-ratio・I5b）', ()
     const e = await a.then(() => undefined, (err: unknown) => err);
     expect(e).toBeInstanceOf(m.WeiwudiError);
     expect(e).toMatchObject({ code: 'opaque', message: 'no CORS' });
+    answer({ fetchRange: () => region({ id: 'g2' }), regions: () => [region({ id: 'g2', status: 'canceled' })] });
     const b = src.fetchRange(RANGE);
     await flush();
-    fromSw({ type: 'canceled' });
-    expect(await b).toMatchObject({ status: 'canceled' });
+    fromSw({ type: 'canceled', regionId: 'g2' });
+    expect(await b).toMatchObject({ id: 'g2', status: 'canceled' });
+  });
+
+  it('fetchRange が待っている最中に、cancel の応答より先に canceled が届いても cancel() がすぐ解決する（PR #102 M1）', async () => {
+    const m = await setup();
+    answer({
+      fetchRange: () => region(),
+      regions: () => [region({ status: 'canceled' })],
+      cancel: () => { fromSw({ type: 'canceled' }); return { regionId: 'g1' }; },
+    });
+    const src = await m.default.register({ kind: 'raster', url: TPL });
+    const running = src.fetchRange(RANGE);
+    await flush();
+    let done = false;
+    const c = src.cancel().then(() => { done = true; });
+    await flush();
+    await flush();
+    expect(done).toBe(true);
+    await c;
+    expect(await running).toMatchObject({ status: 'canceled' });
+    // 30 秒の regions() を待たずに解決した（regions() は fetchRange の解決の 1 回だけ）
+    expect(bodies('regions')).toHaveLength(1);
   });
 
   it('30 秒イベントが来なければ job/resume。running ならまた待ち、complete で resolve（偽のタイマ）', async () => {

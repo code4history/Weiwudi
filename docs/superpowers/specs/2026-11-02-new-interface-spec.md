@@ -509,7 +509,7 @@ type RangeSpec =
 - ページ側の `fetchRange` は POST の応答（`running`）の後、その `regionId` の `finish`・`stop`・`canceled` を待つ（`canceled` も解決、`stop` は reject）。30 秒来なければ `job/resume` を送り、応答が終わりの `status` ならそれで解決する（`stopped` は reject）。`cancel()` は取り消したジョブの `canceled`（か終わりのイベント）を受けてから解決する（30 秒来なければ `regions()` を読んで解決。R22・R58）
 - `'all'` は Source の範囲（スタイルは子の tile の範囲の和）。`box` の無い Source の `'all'` は `cannot-fetch-all`（R30）
 - 終わりの順は「region を書く → `ctx.job` を外す → `postMessage`」。`job/resume` は、同じ region のジョブ中なら今の `RegionInfo`、別の region のジョブ中なら `fetch-busy`、region が終わっていればその `RegionInfo`。ジョブを作り直す分岐だけは直列の中で行う（R45・R57）
-- 固定の正本は、成功と数えたキー全部へのバッチの後の `setPinned(keys, 1)`（200 件ずつ）。`ServeInput.pin` は保存と同じ tx で付ける近道（同時要求のまとめと hit は保存を通らない。R46）
+- 固定は、成功と数えたキー全部へのバッチの後の `setPinned(keys, 1)`（200 件ずつ）の 1 本で、region が有るときだけ付ける。保存と同じ tx で付ける近道（`ServeInput.pin`）は使わない（同時要求のまとめと hit は保存を通らず、近道は途中で region が消えたときにどの region にも属さない固定を残す。R46・PR #102 M2）。確かめが止めたバッチでも、取れた分は固定する。確かめで取れたタイルが列挙で失敗と数えたものなら、その場で成功に数え直す
 - 固定した Entry の和が Source の `cacheMaxBytes` に達したら `stop`（`quota`）。開始のときと各バッチの後に見る（R55）
 
 ## 8. 差し込み口（#36）

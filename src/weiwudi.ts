@@ -193,6 +193,11 @@ const absolutizeSpec = (spec: SourceSpec): SourceSpec => {
 
 /** 範囲取得の待ちで、イベントが来ないときに job/resume を送るまでの時間（§7.2。U3） */
 const RESUME_AFTER_MS = 30_000;
+/**
+ * 覚えておく終わりのメッセージの数。fetchRange の待ちと cancel() の待ちが同じメッセージを読むので、使っても消さず、
+ * 古いものから上限を超えた分と release() で捨てる（PR #102 M1・L5）
+ */
+const ENDED_LIMIT = 64;
 
 /** SW から届く範囲取得のメッセージ（{ type, sourceId, regionId, … }。I5c） */
 interface JobMessage {
@@ -304,7 +309,14 @@ export class WeiwudiSource extends WeiwudiEventTarget {
             const data = e.data as { sourceId?: unknown; type?: unknown } | null;
             if (!data || data.sourceId !== this.id || typeof data.type !== 'string') return;
             const job = data as JobMessage;
-            if (typeof job.regionId === 'string' && isTerminal(job.type)) this.ended.set(job.regionId, job);
+            if (typeof job.regionId === 'string' && isTerminal(job.type)) {
+                this.ended.set(job.regionId, job);
+                // 古いものから上限を超えた分を捨てる（region の id は毎回新しいので、同じ id の待ちは後から来ない）
+                for (const k of this.ended.keys()) {
+                    if (this.ended.size <= ENDED_LIMIT) break;
+                    this.ended.delete(k);
+                }
+            }
             for (const w of [...this.waiters]) w(job);
             this.dispatchEvent(new CustomEvent(data.type, { detail: data }));
         };
@@ -438,7 +450,6 @@ export class WeiwudiSource extends WeiwudiEventTarget {
                 }, reject);
             });
             const terminal = (data: JobMessage) => {
-                this.ended.delete(info.id);
                 if (data.type === 'stop') end(() => reject(stopErrorOf(data.code, data.message)));
                 else if (data.type === 'canceled') resolveFrom('canceled');
                 else resolveFrom(typeof data.error === 'number' && data.error > 0 ? 'partial' : 'complete');
@@ -475,6 +486,7 @@ export class WeiwudiSource extends WeiwudiEventTarget {
         this.released = true;
         navigator.serviceWorker?.removeEventListener('message', this.listener);
         for (const f of [...this.releasers]) f();
+        this.ended.clear();
     }
 }
 

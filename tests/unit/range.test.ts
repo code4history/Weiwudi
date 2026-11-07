@@ -370,22 +370,26 @@ describe('regions() と終わりの書き込み（R5・第 1 回 M7）', () => {
     expect(env.ctx.job).toBeUndefined();
   });
 
-  it('ジョブの途中で region を消す → 書き戻さず canceled で終え、次のバッチから取らない・固定しない（R57・第 2 回 M3）', async () => {
+  it('ジョブの途中で region を消す → 書き戻さず canceled で終え、次のバッチから取らない。どの region にも属さない固定を残さない（R57・第 2 回 M3・PR #102 M2）', async () => {
     const env = await setup();
     await ok(env, 'register', SOURCE);
     let id = '';
     let n = 0;
     env.h.fetch.mockImplementation(async () => {
-      if (++n === 2) await env.store.deleteRegion(id);
+      // clean() と同じく、取得の途中で region を消す
+      if (++n === 1) await env.store.deleteRegion(id);
       return png();
     });
     id = (await ok(env, 'fetchRange', { id: 's', range: RANGE, options: { concurrency: 1 } })).id;
     await settle(env);
-    expect(env.h.fetch).toHaveBeenCalledTimes(2);
+    expect(env.h.fetch).toHaveBeenCalledTimes(1);
     expect(await env.store.getRegion(id)).toBeUndefined();
     expect(messages(env, 'canceled')).toEqual([{ type: 'canceled', sourceId: 's', regionId: id }]);
-    // 固定は消す前のバッチの分と、消したバッチの保存と同じ tx の近道（ServeInput.pin）の分だけ
-    expect((await allEntries(env, TPL)).filter((e) => e.pinned === 1)).toHaveLength(2);
+    // 消したバッチで保存した Entry は固定しない（保存と同じ tx の近道を使わない）
+    const entries = await allEntries(env, TPL);
+    expect(entries).toHaveLength(1);
+    expect(entries.filter((e) => e.pinned === 1)).toHaveLength(0);
+    expect((await env.store.getResource(TPL))!.pinnedBytes).toBe(0);
   });
 
   it('ジョブの途中で partial に書き換える → 終わりに complete で上書きしない', async () => {
