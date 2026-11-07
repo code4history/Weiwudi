@@ -1133,3 +1133,23 @@ describe('容量超過の再試行（m4-t6・R16）', () => {
     expect(await store.hasEntries([k('Noto')])).toEqual([true]);
   });
 });
+
+// ---- m4-t6 PR #107 レビュー L1・L2（追記のみ） ----
+describe('容量超過の再試行の境界（PR #107 L1・L2）', () => {
+  it('固定でない分が 5 byte のとき、退避の量は ceil(0.5) = 1（切り上げ）', async () => {
+    await seed('a', { accessedAt: T - 1, size: 5 });
+    await seed('p', { accessedAt: T - 2, size: 5, pinned: 1 });
+    const evict = vi.spyOn(store, 'evictGlobal');
+    vi.spyOn(store, 'putEntry').mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
+    expect((await run()).headers.get('x-weiwudi-error')).toBeNull();
+    expect(evict.mock.calls).toEqual([[1]]);
+  });
+
+  it('1 回目が QuotaExceededError、再試行が UnknownError なら storage', async () => {
+    const put = vi.spyOn(store, 'putEntry')
+      .mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'))
+      .mockRejectedValueOnce(new DOMException('bad', 'UnknownError'));
+    expect((await run()).headers.get('x-weiwudi-error')).toBe('storage');
+    expect(put).toHaveBeenCalledTimes(2);
+  });
+});

@@ -652,3 +652,19 @@ describe('enumerate・tileAt（R-tms・第 1 回 L）', () => {
     }
   });
 });
+
+// ---- m4-t6 PR #107 レビュー L3（追記のみ） ----
+describe('固定分の上限: 全体上限（m4-t6・PR #107 L3）', () => {
+  it('setLimits の maxBytes が 3 枚分のとき、固定が上限に届いた後の fetchRange は stop（quota）', async () => {
+    const env = await setup();
+    await ok(env, 'register', SOURCE);
+    await ok(env, 'setLimits', { maxBytes: 9 });
+    await ok(env, 'fetchRange', { id: 's', range: { box: SOURCE.box, minZoom: 1, maxZoom: 2 }, options: { concurrency: 1 } });
+    await settle(env);
+    const [stop] = messages(env, 'stop');
+    expect(stop).toMatchObject({ code: 'quota', processed: 3, total: 20 });
+    expect(env.h.fetch).toHaveBeenCalledTimes(3);
+    const [region] = await env.store.listRegions('s');
+    expect(region).toMatchObject({ status: 'stopped', code: 'quota' });
+  });
+});
