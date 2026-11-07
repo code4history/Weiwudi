@@ -321,7 +321,7 @@ interface TileBox { minX: number; maxX: number; minY: number; maxY: number }
 - スタイルの資格情報を足す相手は、スタイルの URL がリダイレクトしても、登録した URL のオリジンと提供元だけです。
   リダイレクト先が返した本体の中の、登録した URL のオリジンの URL にも足すので、信頼できない上流へリダイレクトする
   スタイルの URL を登録しないでください
-- 名前か値が `sk.` で始まるクエリ項目は、キャッシュのキーに入れません
+- 名前か値が `sk.` で始まるクエリ項目は、キャッシュのキーに入れません（値は、先頭の `Bearer `・`Token `・`Basic ` と空白を剥がした値も見ます）
 - **Resource の id は書き換えない**。`credentialParams` を宣言しない Source が先に作った Resource の id には、その項目が残る。資格情報のクエリ項目は先に登録する Source で宣言する
 - 明示の `credentials.query` を持つ Source を、Entry のある Resource へ後から登録すると `resource-conflict` になる（キーの形が変わるため）
 

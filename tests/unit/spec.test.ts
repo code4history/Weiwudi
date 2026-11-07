@@ -566,3 +566,11 @@ describe('m4-t8 L8（R36）: 宣言の無い資格情報らしい値は warnings
     expect(codeOf({ kind: 'raster', url: U, credentials: { query: { q: 'Token  sk.x' } } })).toBe('credential-rejected');
   });
 });
+
+describe('m4-t8 PR #106 L1: 名前そのものがトークンの形なら warnings に書かない', () => {
+  it('?pk.SECRETNAME=pk.x は名前を warnings に出さない', () => {
+    const n = normalizeSpec({ kind: 'raster', url: 'https://a.example/{z}/{x}/{y}.png?pk.SECRETNAME=pk.x&tk.N=1' }) as NormalizedSpec & { warnings?: string[] };
+    expect(JSON.stringify(n.warnings ?? [])).not.toContain('SECRETNAME');
+    expect(n.warnings).toBeUndefined();
+  });
+});

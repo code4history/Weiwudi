@@ -892,3 +892,24 @@ describe('m4-t8 I4b（R40）: 直列の op の途中の失敗の後も表を作�
     expect(ctx.table.generation).toBe(before + 1);
   });
 });
+
+describe('m4-t8 PR #106 M1: 範囲だけの Resource の scheme が Source と違うときも Resource の座標で数える', () => {
+  const putAt = async (store: Store, resourceId: string, z: number, x: number, y: number) => {
+    const key = `${resourceId}\0${z}_${x}_${y}`;
+    await store.putEntry({ key, resourceId, z, x, y, size: 3, fetchedAt: 1, accessedAt: 1, pinned: 0 },
+      { key, blob: new Blob([new Uint8Array([1, 2, 3])]), headers: {} }, []);
+  };
+
+  it('tms の Source b が xyz の Resource を範囲だけで参照: xyz の (2,0,3) は数え、(2,0,0) は数えない', async () => {
+    const { ctx, post } = direct();
+    expect((await post('register', { kind: 'raster', id: 'a', url: TPL })).ok).toBe(true);
+    const b = (await post('register', { kind: 'raster', id: 'b', url: TPL, scheme: 'tms', minZoom: 2, maxZoom: 2, box: { minX: 0, maxX: 0, minY: 0, maxY: 0 } })).result;
+    expect(b.resources[0].rangeOnly).toBe(true);
+    const store = await ctx.store();
+    // tms の (2,0,0) は xyz の (2,0,3)
+    await putAt(store, TPL, 2, 0, 3);
+    expect((await post('stats', { id: 'b' })).result).toMatchObject({ count: 1, total: 1, percent: 100 });
+    await putAt(store, TPL, 2, 0, 0);
+    expect((await post('stats', { id: 'b' })).result).toMatchObject({ count: 1, total: 1, percent: 100 });
+  });
+});

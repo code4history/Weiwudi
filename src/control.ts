@@ -138,16 +138,32 @@ const infoOf = async (store: Store, rec: SourceRecord): Promise<SourceInfo> => {
   };
 };
 
-/** Resource の Entry のうち、範囲（box）の中のものの数。z ごとに entriesAtZoom を読む（共有・範囲だけの Resource だけ。m4-t8・I3） */
-const countInBox = async (store: Store, resourceId: string, box: TileBox, minZoom: number, maxZoom: number): Promise<number> => {
+/** 範囲（box と zoom）。Resource の座標（Resource の scheme）で持つ */
+type BoxRange = { box: TileBox; minZoom: number; maxZoom: number };
+
+/**
+ * Resource の Entry のうち、範囲のどれかの中にあるものの数。z ごとに entriesAtZoom を読む（共有・範囲だけの Resource だけ。m4-t8・I3）。
+ * 範囲は Resource の座標のもの（ResourceMeta.extents。registry.extentOf が scheme の違いを直した値。PR #106 M1）
+ */
+const countInBox = async (store: Store, resourceId: string, ranges: readonly BoxRange[]): Promise<number> => {
   let n = 0;
+  const minZoom = Math.min(...ranges.map((r) => r.minZoom));
+  const maxZoom = Math.max(...ranges.map((r) => r.maxZoom));
   for (let z = minZoom; z <= maxZoom; z++) {
-    const b = scaleTileBox(box, maxZoom, z);
+    const boxes = ranges.filter((r) => z >= r.minZoom && z <= r.maxZoom).map((r) => scaleTileBox(r.box, r.maxZoom, z));
+    if (boxes.length === 0) continue;
     for (const e of await store.entriesAtZoom(resourceId, z)) {
-      if (e.x !== undefined && e.y !== undefined && isInTileBox(b, e.x, e.y)) n++;
+      if (e.x !== undefined && e.y !== undefined && boxes.some((b) => isInTileBox(b, e.x!, e.y!))) n++;
     }
   }
   return n;
+};
+
+/** Resource の extents のうち、持ち主の Source のもの（box のあるもの）。無ければ Source の範囲（同じ座標とみなす） */
+const rangesOf = (m: ResourceMeta, owners: readonly string[], fallback: BoxRange): BoxRange[] => {
+  const own = (m.extents ?? []).filter((e) => owners.indexOf(e.sourceId) >= 0 && e.box !== undefined)
+    .map((e) => ({ box: e.box!, minZoom: e.minZoom, maxZoom: e.maxZoom }));
+  return own.length > 0 ? own : [fallback];
 };
 
 /** SourceStats（仕様 §12）。byResource は null プロトタイプ（id が __proto__ などでも壊れない。第 3 回 推奨） */
@@ -172,7 +188,8 @@ const statsOf = async (store: Store, rec: SourceRecord): Promise<SourceStats> =>
     // 全 Entry のメタを読まない。第 1 回 M14）。byResource と size は Resource の数のまま
     let inBox = 0;
     for (const m of resources) {
-      inBox += isExclusiveTo(m, owners) && !isRangeOnlyFor(m, owners) ? m.count : await countInBox(store, m.id, box, extent.minZoom, extent.maxZoom);
+      inBox += isExclusiveTo(m, owners) && !isRangeOnlyFor(m, owners)
+        ? m.count : await countInBox(store, m.id, rangesOf(m, owners, { box, minZoom: extent.minZoom, maxZoom: extent.maxZoom }));
     }
     stats.count = inBox;
     stats.total = countTiles(box, extent.minZoom, extent.maxZoom);

@@ -346,7 +346,9 @@ It pauses while a job is running. Neither ping endpoint nor `fetchAll` dispatch 
   URLs of the registered URL's origin inside the body returned by the redirect
   target too, so do not register a style URL that redirects to an untrusted
   upstream.
-- Query items whose name or value starts with `sk.` are not put in cache keys.
+- Query items whose name or value starts with `sk.` are not put in cache keys
+  (also a value that starts with `sk.` after a leading `Bearer `, `Token ` or
+  `Basic ` and spaces are removed).
 - **A resource id is never rewritten.** The id of a resource first created by a
   source that does not declare a `credentialParams` item keeps that item. Declare
   credential query items in the source you register first.

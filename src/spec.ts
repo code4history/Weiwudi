@@ -447,6 +447,8 @@ export function undeclaredCredentialWarnings(urls: readonly string[], credential
   for (const t of urls) {
     for (const p of templateQueryPairs(t)) {
       if (declared.has(p.name.toLowerCase())) continue;
+      // 名前そのものがトークンの形（?pk.…=…）なら名前を書かない（warnings に資格情報を出さない。PR #106 L1）
+      if (isSecretValue(p.name) || isSecretValue(p.rawName) || CREDENTIAL_LIKE.test(p.name) || CREDENTIAL_LIKE.test(p.rawName)) continue;
       if (!CREDENTIAL_LIKE.test(p.raw) && !CREDENTIAL_LIKE.test(p.decoded)) continue;
       const w = `credential-undeclared: ${p.name}`;
       if (out.indexOf(w) < 0) out.push(w);
