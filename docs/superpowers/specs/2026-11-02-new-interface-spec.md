@@ -556,6 +556,7 @@ export class WeiwudiError extends Error {
   - 保存した応答を返すとき、`content-encoding`・`content-length`・`transfer-encoding`・`set-cookie` を返さなくなる（§6。保存時に落とす。現行は上流のヘッダをすべて保存して返していた）
   - 合成した応答に `x-weiwudi-status` と `access-control-expose-headers` が付く（§6 の公開の契約）
   - 上流の HTTP 失敗で Entry が無いときの合成応答（§6 の 5）から `content-encoding`・`content-length`・`transfer-encoding`・`set-cookie` が落ちる。本体は復号済みなので、写すと矛盾する
+  - `add` は `mapID` に NUL 文字（`\0`）を含むと `Error: MapID must not contain a NUL character` で拒否する（m4-t7・R19。Entry のキーの区切りなので、これまでは黙って他の地図の範囲にかぶっていた）
   - `blocked` の文面の DB 名は `Weiwudi` から `WeiwudiStore` に変わる。旧 DB が `blocked` でも `delete` は失敗せず成功する（§14.2。旧 DB の削除は次の起動へ回す）
   - `fetchAll` の `proceed`・`finish` の `error`・`errors` は、そのジョブの要求の失敗だけを数える（現行は動いている間の他のタイルの要求の失敗も数えていた。m2-t5 の Ruling）
   - `Range` ヘッダつきの `/api/cache` の要求は、保存も範囲外の判定もせず上流のタイルの URL へ素通しし、206 をそのまま返す（§11）。素通しのネットワーク失敗は §6 の 7 の形（404・`x-weiwudi-status: offline-miss`・`x-weiwudi-error: network`・`access-control-expose-headers`）で返す
@@ -784,13 +785,24 @@ await style.fetchRange({ bounds: [139.7, 35.6, 139.8, 35.7], minZoom: 10, maxZoo
 
 - 移行の単位は地図で、`kv` に地図ごとの状態（`pending`・`copying`・`done`・`failed`）を持つ
 - 旧 DB は `indexedDB.databases()` で有無を確かめてから開く。`open` は無い DB を新しく作ってしまう
-- **第 1 段**: `Weiwudi` の `mapSetting` を全件 `sources` へ写す（`kv.settingsCopied`）。旧 `Weiwudi` が無い、または store が無い（#47 の壊れた DB）なら空で完了する。第 1 段が終わるまで、旧 API の地図の参照は `sources` に無ければ `mapSetting` も見る
+- **第 1 段**: `Weiwudi` の `mapSetting` を全件 `sources` へ写す（`kv` の `migration.stage`）。旧 `Weiwudi` が無い、または store が無い（#47 の壊れた DB）なら空で完了する。第 1 段が終わるまで、旧 API の地図の参照は `sources` に無ければ `mapSetting` も見る
 - **第 2 段**: 地図ごとに `tileCache` を 200 件ずつ読み、新 DB へ書いてから旧レコードを消す。`tileCache` の無い DB はそのまま `done` にする。DB をまたぐトランザクションは無いので、途中で止まると両方に残るが、キーが同じなので再実行は冪等である。容量は 2 倍にならない
 - SW の起動そのものには `waitUntil` を呼べるイベントが無い。**`fetch`（制御・旧 API・照合のルート）を受けたときに、移行が動いていなければ 1 バッチを `event.waitUntil` に結び付けて進める**。`activate` は待たせない（数 GB あるとブラウザに打ち切られる）。止まれば次のイベントで続く
 - **移行中の配信は読み通しにする**: 旧 API の地図で新 DB に無ければ、`Weiwudi_<mapID>` を見て、あれば配信して新 DB へ移す。移行の途中でオフラインになっても地図が欠けない
 - `epoch`→`fetchedAt`・`accessedAt`（無ければ `epoch`）・`z_x_y`→`z,x,y`・`blob.size`→`size`。`pinned` は 0
-- 全地図が `done` になったら `Weiwudi_<mapID>` と `Weiwudi` を消す。`onblocked` は次の起動へ回す
+- 地図が `done` になったらその地図の `Weiwudi_<mapID>` を、全地図が `done` か `failed` になったら `Weiwudi` を消す（R51）。`onblocked` は次の起動へ回す
 - 1 レコードの失敗は飛ばして続ける。地図単位で 3 回失敗したら `failed` にして読み通しのまま残す
+
+**m4-t7 で決めたこと**（計画 docs/superpowers/plans/2026-11-07-m4-range-release-migration.md の m4-t7）:
+
+- 状態は `kv` の `migration` 1 つ: `{ stage: 'pending' | 'settings' | 'tiles' | 'done', maps: [{ mapID, status, lastKey?, recordFailures, batchFailures }], pendingDelete, startedAt, updatedAt }`。`maps` は配列（`mapID` を項目名にしない。`__proto__` で壊れない）。`stage` が `done` になったらメモリにも覚え、以後の契機で IndexedDB を読まない
+- R17: 旧 DB の有無は `indexedDB.databases()` で見る（名前が `Weiwudi` か `Weiwudi_` で始まるもの）。無い環境（古い Firefox）では版なしで開き、自分で作ってしまった空の DB は閉じてから消す。旧 DB は使うたびに開いて閉じ、`onversionchange` でも閉じる。`deleteDatabase` の前に必ず自分の接続を閉じる
+- R18: 移行中の読み通しは `legacy.getImage` が `serveTile` の前に `migrate.pullTile` を呼ぶ形（旧にあれば新へ移してから `serve`）。配信の経路は `core.serve` 1 つのまま
+- R19: `mapID` に `\0` があれば `add` で `Error: MapID must not contain a NUL character` の文字列で拒否する（§9 の既知の変化）。移行では `failed` にして旧 DB に残す
+- R50: `migrate.ts` は §3 のとおり `store`・`constants`・`errors` だけを import し、地図の登録（`legacy.registerMap`）と退避の範囲（`core.evictScopesFor`）は `MigrateDeps` として受ける（`legacy.migrationDeps`。配線と `legacy` の中の呼び出しが同じものを渡す）。旧レコードを消すのは `putEntry` が `saved: true` のときだけ。`saved: false` のときは Resource の有無を見て、無ければ残す（バッチを止めて `batchFailures` に数える）・有れば落とす（単体で上限を超える・上限が 0 で、新しい規則でも保存されない）
+- R51: 第 1 段（`mapSetting` の `getAll` 1 回。既に `sources` にある地図は上書きしない。`mapSetting` に無い `Weiwudi_<mapID>` はその場で消す）は共有の Promise にして、旧 API のハンドラ（`ping` を除く）が待つ。第 1 段が失敗したら待ちは捨てて進み、地図の参照は `mapSetting` も見る。第 2 段は地図ごとの `lastKey` の次から読み（`IDBKeyRange.lowerBound(lastKey, true)`）、失敗はレコードの数（`recordFailures`。数えるだけ）とバッチの開始の数（`batchFailures`。Resource の無いバッチの停止も数える。3 で `failed`）に分ける。地図が `done` になったらその場で `Weiwudi_<mapID>` を消し、`Weiwudi` は全地図が `done` か `failed` になってから消す（`blocked` なら `pendingDelete` に足し、SW の起動後の最初の契機で消し直す）。旧 API の `clean`・`delete` は、その地図を「忘れた地図」に入れて状態を `done` にし（`delete` は `maps` から外す）、進行中の `migrateStep`・その地図の `pullTile` を待ってから新 DB を消し、`Weiwudi_<mapID>` を消す
+- R59: `stage` が `done` でも、SW の起動後の最初の契機で 1 回だけ `databases()` を見て、旧 DB（`pendingDelete` と `failed` の地図のものを除く）があれば移行をやり直す（1.1.x に戻している間に作り直された旧 DB）。**既知の制約**: `databases()` の無い環境ではやり直さない
+- R60: 移行の途中の旧 API の `fetchAll`・`stats` は新 DB だけを見る（`fetchAll` に読み通しを通さない）。`fetchAll` はまだ移していないタイルをオンラインなら取り直し、`stats` の `percent` は一時的に低く出る
 
 **戻した場合**（1.1.x へ）: 旧版は空の DB から動く。キャッシュは取り直しになるが壊れない。
 

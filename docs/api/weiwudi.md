@@ -47,6 +47,7 @@ Register a map configuration and create a Weiwudi instance.
 **Throws:**
 - `"Weiwudi service worker is not implemented."`: When service worker is not active
 - `"Error: {message}"`: When map registration fails
+- `"Error: MapID must not contain a NUL character"`: When `mapID` contains a NUL character (`\0`). Added in the release with the cache migration; it is a catch-all `Error: …` message, so `WeiwudiError.from` gives `internal`
 
 **Example:**
 ```js
@@ -57,6 +58,11 @@ const map = await Weiwudi.registerMap('my_map', {
     url: 'https://example.com/{z}/{x}/{y}.jpg'
 });
 ```
+
+**Cache from 1.1.x:**
+- The tile cache of 1.1.x is carried over gradually, starting with the first request after the update (it does not stall even with several GB, and the cached tiles stay readable offline during the migration).
+- Going back to 1.1.x does not break anything (its cache starts empty, so the tiles are fetched again). Where `indexedDB.databases()` is not available (older Firefox), a cache that 1.1.x recreated while you were back on it is not migrated again.
+- During the migration, `fetchAll` and `stats` count only the tiles migrated so far (`fetchAll` fetches the tiles not migrated yet again when online, and the `percent` of `stats` is temporarily low).
 
 ---
 

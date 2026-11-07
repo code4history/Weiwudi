@@ -68,6 +68,24 @@ export interface Context {
     swept: boolean;
     running?: Promise<void>;
     migrated?: boolean;
+    /** 旧 DB の移行（m4-t7・仕様 §14.2）: 第 1 段（mapSetting の写し）の進行中の Promise。旧 API のハンドラが待つ */
+    settings?: Promise<void>;
+    /** 第 1 段が済んだ（kv の stage が tiles か done） */
+    settingsDone?: boolean;
+    /** 進行中の migrateStep（同時の契機で 2 バッチ走らせない。clean・delete が待つ） */
+    migrating?: Promise<void>;
+    /** 起動後の最初の契機の点検（pendingDelete の消し直し・やり直しの判定。R59）が済んだ */
+    migrationBooted?: boolean;
+    /** mapID → 進行中の pullTile（clean・delete が待つ） */
+    pulls?: Map<string, Set<Promise<void>>>;
+    /** 旧 API の clean・delete で忘れた地図（以後の migrateStep・pullTile が書かない） */
+    forgotten?: Set<string>;
+    /** stage が done のときの failed の地図（読み通しを続ける地図） */
+    failedMaps?: Set<string>;
+    /** 削除が blocked で待ちになっている旧 DB の名前（開くと削除の後ろに並んで止まるので開かない） */
+    blockedDeletes?: Set<string>;
+    /** kv の migration の読み直しと書き込みの直列化 */
+    migrationLock?: Promise<void>;
     /** ジョブ完了時の直接呼び出しとも掃除を共有する */
     sweeping?: Promise<void>;
     /** 2,000 件で区切った走査の続き。時刻と Resource の方針は走査中に変えない */

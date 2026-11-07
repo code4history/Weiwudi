@@ -113,6 +113,12 @@ importScripts("https://cdn.jsdelivr.net/npm/workbox-routing@7.4.0/build/workbox-
 importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.1.1/dist/weiwudi-sw.umd.js");
 ```
 
+### 1.1.x からの更新
+
+- 1.1.x のキャッシュは、更新後の最初の要求から順に引き継ぎます（数 GB でも止まりません。移行中もオフラインで読めます）。
+- 1.1.x へ戻しても壊れません（キャッシュは取り直しになります）。`indexedDB.databases()` の無い環境（古い Firefox）では、1.1.x に戻している間に作り直されたキャッシュは、もう一度は移しません。
+- 移行の途中の `fetchAll` と `stats` は、移し終えたタイルだけを数えます（`fetchAll` はまだ移していないタイルをオンラインなら取り直し、`stats` の `percent` は一時的に低く出ます）。
+
 ### サービスワーカーの差し込み口
 
 `@c4h/weiwudi/sw` は、タイルの取得と保存に処理を差し込む `addPlugin` を export します。
