@@ -162,3 +162,11 @@ const useRelease = async (src: WeiwudiSource): Promise<void> => {
   void [release, keep, clean, force, all];
 };
 void useRelease;
+
+// m4-t6: the global cache limit.
+const useLimits = async (): Promise<void> => {
+  const set: void = await Weiwudi.setLimits({ maxBytes: 500 * 1024 * 1024 });
+  const off: void = await Weiwudi.setLimits({});
+  void [set, off];
+};
+void useLimits;

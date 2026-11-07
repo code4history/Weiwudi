@@ -257,7 +257,8 @@ describe('グリフ（§11・L4・R32）', () => {
   it('flush が QuotaExceededError で失敗すると errors.quota が 1 増える（範囲の数ではない）', async () => {
     const env = await setup({ [STYLE]: { ...FULL, layers: [layers[1]] }, [TJ]: TILEJSON });
     await register(env);
-    vi.spyOn(env.store, 'putGlyphParts').mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
+    // m4-t6: 容量超過は 1 回だけ再試行するので、再試行も失敗させる（R16）
+    vi.spyOn(env.store, 'putGlyphParts').mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError')).mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
     await ok(env, 'fetchRange', { id: 'st', range: RANGE });
     await settle(env);
     const finish = messages(env, 'finish')[0];

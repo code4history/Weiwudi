@@ -577,7 +577,9 @@ const overPinnedLimit = async (store: Store, resources: readonly ResourceMeta[])
     if (!fresh) continue;
     for (const scope of await evictScopesFor(store, fresh)) {
       let pinned = 0;
-      for (const id of scope.resourceIds) pinned += (await store.getResource(id))?.pinnedBytes ?? 0;
+      // 全体上限の要素（resourceIds が無い。m4-t6）は全体の固定分（totals.pinnedBytes）で見る
+      if (scope.resourceIds === undefined) pinned = (await store.getTotals()).pinnedBytes;
+      for (const id of scope.resourceIds ?? []) pinned += (await store.getResource(id))?.pinnedBytes ?? 0;
       if (pinned >= scope.maxBytes) return true;
     }
   }

@@ -1413,3 +1413,46 @@ describe('store の新しい操作（m4-t1）', () => {
     expect(get.mock.contexts.filter((c) => (c as IDBObjectStore).name === 'bodies')).toHaveLength(0);
   });
 });
+
+// ---- m4-t6: 全体の数と全体 LRU の退避（R15・R16）（追記のみ） ----
+describe('getTotals・evictGlobal（m4-t6）', () => {
+  it('evictGlobal は固定でない Entry を Resource をまたいで [accessedAt, key] の古い順に、bytes 以上になるまで消す', async () => {
+    const s = await open();
+    await s.createResource(resource('r1'));
+    await s.createResource(resource('r2'));
+    await put(s, entry('r1', 'a', 4, 1, { pinned: 1 }));
+    await put(s, entry('r2', 'b', 4, 2));
+    await put(s, entry('r1', 'c', 4, 2));
+    await put(s, entry('r2', 'd', 4, 3));
+    expect(await s.getTotals()).toEqual({ bytes: 16, pinnedBytes: 4, count: 4 });
+    // 5 byte 以上: 同じ accessedAt はキー昇順（r1\0c が r2\0b より先）で 2 件
+    expect(await s.evictGlobal(5)).toBe(2);
+    expect(await s.hasEntries([key('r1', 'a'), key('r1', 'c'), key('r2', 'b'), key('r2', 'd')])).toEqual([true, false, false, true]);
+    expect(await s.getTotals()).toEqual({ bytes: 8, pinnedBytes: 4, count: 2 });
+    await expectCountsConsistent(s);
+    // 足りなくても固定は消さない
+    expect(await s.evictGlobal(100)).toBe(1);
+    expect(await s.hasEntries([key('r1', 'a')])).toEqual([true]);
+    expect(await s.getTotals()).toEqual({ bytes: 4, pinnedBytes: 4, count: 1 });
+  });
+
+  it('evictGlobal(0) は tx を作らず 0', async () => {
+    const s = await open();
+    await s.createResource(resource('r'));
+    await put(s, entry('r', 'a', 4, 1));
+    const txSpy = vi.spyOn(IDBDatabase.prototype, 'transaction');
+    expect(await s.evictGlobal(0)).toBe(0);
+    expect(txSpy).not.toHaveBeenCalled();
+    expect(await s.hasEntries([key('r', 'a')])).toEqual([true]);
+  });
+
+  it('保存の abort（QuotaExceededError）では totals も戻る', async () => {
+    const s = await open();
+    await s.createResource(resource('r'));
+    await put(s, entry('r', 'a', 4, 1));
+    const spy = abortPutAfterSuccess('QuotaExceededError');
+    await expect(put(s, entry('r', 'b', 3, 2))).rejects.toMatchObject({ name: 'QuotaExceededError' });
+    spy.mockRestore();
+    expect(await s.getTotals()).toEqual({ bytes: 4, pinnedBytes: 0, count: 1 });
+  });
+});

@@ -277,11 +277,31 @@ export interface RegionRecord extends RegionInfo {
   options: NormalizedFetchOptions;
 }
 
-/** putEntry の退避の 1 要素。cacheMaxBytes を持つ Source 1 つ分（§7.1） */
+/**
+ * putEntry の退避の 1 要素。cacheMaxBytes を持つ Source 1 つ分（§7.1）。resourceIds の無い要素は全体上限
+ * （setLimits。m4-t6）で、全 Resource の固定でない Entry を [pinned, accessedAt] の索引で古い順に消す
+ */
 export interface EvictionScope {
-  resourceIds: string[];
+  resourceIds?: string[];
   maxBytes: number;
 }
+
+/** kv の totals（全 Resource の count・bytes・pinnedBytes の和。Entry の増減と同じ tx で直す。m4-t6・R15） */
+export interface Totals {
+  bytes: number;
+  pinnedBytes: number;
+  count: number;
+}
+
+/** kv の鍵: 全体の数（Totals） */
+export const KV_TOTALS = 'totals';
+/** kv の鍵: 全体上限（{ maxBytes?: number }。setLimits が書き、core の evictScopesFor が読む。m4-t6） */
+export const KV_LIMITS = 'limits';
+
+const isTotals = (x: unknown): x is Totals => {
+  const t = x as Partial<Totals> | null | undefined;
+  return !!t && typeof t === 'object' && typeof t.bytes === 'number' && typeof t.pinnedBytes === 'number' && typeof t.count === 'number';
+};
 
 export interface Store {
   getSource(id: string): Promise<SourceRecord | undefined>;
@@ -368,6 +388,14 @@ export interface Store {
 
   kvGet(key: string): Promise<unknown>;
   kvPut(key: string, value: unknown): Promise<void>;
+
+  /** 全体の数（kv の totals）。無ければ resources の和を返す（読むだけ。書かない。m4-t6） */
+  getTotals(): Promise<Totals>;
+  /**
+   * 固定でない Entry を全体 LRU（[pinned, accessedAt] の索引。同値はキー昇順）で古い順に、消した大きさが bytes 以上になるまで
+   * 消す（1 つの tx。Resource の数と totals も直す）。bytes が 0 以下なら何もしない。消した数を返す（m4-t6・R16）
+   */
+  evictGlobal(bytes: number): Promise<number>;
 
   /** 接続を閉じる（以後の呼び出しは開き直す） */
   close(): void;
@@ -621,6 +649,9 @@ export const openStore = async (): Promise<Store> => {
   const tx = <T>(names: string[], mode: IDBTransactionMode, fn: (t: IDBTransaction) => T | Promise<T>): Promise<T> =>
     queued === 0 ? txNow(names, mode, fn) : txAfter(Promise.resolve(undefined), names, mode, (t) => fn(t));
 
+  /** [pinned, accessedAt] の索引の固定でない範囲（[0, *]）。IDBKeyRange は試験が差し替えるので openStore の中で作る */
+  const GLOBAL_UNPINNED = IDBKeyRange.bound([0], [0, []]);
+
   const getOne = <T>(name: string, key: IDBValidKey): Promise<T | undefined> =>
     tx([name], 'readonly', (t) => req2p(t.objectStore(name).get(key)) as Promise<T | undefined>);
 
@@ -634,12 +665,51 @@ export const openStore = async (): Promise<Store> => {
     deltas.set(id, d);
   };
 
+  const ZERO: Delta = { count: 0, bytes: 0, pinnedBytes: 0 };
+
   /**
-   * Entry の増減と同じ tx で各 Resource の count・bytes・pinnedBytes を直す（commitEntry・deleteEntries・setPinned・
-   * pruneGlyphParts が共有する。C-O7）。known は同じ tx で読んだ Resource（読み直さない）。無い Resource は飛ばす
+   * kv の totals を同じ tx で読む（m4-t6・R15）。無い（既存の開発用 DB）・形が違うときは、この tx の resources の和から作る
+   * （tx の外で作ると同時の書き込みとずれる。resources は Entry を増減する全操作の tx に入っている）。
+   * 和は Resource を書く前に読むこと（呼び出し側は tx の始めに呼ぶ）。getAll ではなく cursor で数える（照合表の読み込みの
+   * getAll を数える試験と混ざらない）
    */
-  const applyDeltas = async (t: IDBTransaction, deltas: Map<string, Delta>, known: readonly ResourceMeta[] = []): Promise<void> => {
+  const loadTotals = async (t: IDBTransaction): Promise<Totals> => {
+    const rec = (await req2p(t.objectStore(S_KV).get(KV_TOTALS))) as { key: string; value: unknown } | undefined;
+    if (rec && isTotals(rec.value)) return { bytes: rec.value.bytes, pinnedBytes: rec.value.pinnedBytes, count: rec.value.count };
+    const sum: Totals = { bytes: 0, pinnedBytes: 0, count: 0 };
+    const req = t.objectStore(S_RESOURCES).openCursor();
+    let cursor = await cursorStep(req);
+    while (cursor) {
+      const r = cursor.value as ResourceMeta;
+      sum.bytes += r.bytes;
+      sum.pinnedBytes += r.pinnedBytes;
+      sum.count += r.count;
+      const next = cursorStep(req);
+      cursor.continue();
+      cursor = await next;
+    }
+    return sum;
+  };
+
+  /** totals に d を足して書く（同じ tx。loadTotals の値に） */
+  const saveTotals = (t: IDBTransaction, base: Totals, d: Delta): void => {
+    t.objectStore(S_KV).put({
+      key: KV_TOTALS,
+      value: { bytes: base.bytes + d.bytes, pinnedBytes: base.pinnedBytes + d.pinnedBytes, count: base.count + d.count },
+    });
+  };
+
+  /**
+   * Entry の増減と同じ tx で各 Resource の count・bytes・pinnedBytes と kv の totals を直す（commitEntry・deleteEntries・
+   * setPinned・pruneGlyphParts・evictGlobal が共有する。C-O7・m4-t6）。known は同じ tx で読んだ Resource（読み直さない）。
+   * 無い Resource は飛ばす（totals にも足さない）。totals は同じ tx で先に読んだ値（無ければここで読む。Resource を書く前）
+   */
+  const applyDeltas = async (
+    t: IDBTransaction, deltas: Map<string, Delta>, known: readonly ResourceMeta[] = [], totals?: Totals,
+  ): Promise<void> => {
+    const base = totals ?? await loadTotals(t);
     const resources = t.objectStore(S_RESOURCES);
+    const applied: Delta = { count: 0, bytes: 0, pinnedBytes: 0 };
     for (const [id, d] of deltas) {
       const saved = known.find((r) => r.id === id) ?? ((await req2p(resources.get(id))) as ResourceMeta | undefined);
       if (!saved) continue;
@@ -649,23 +719,27 @@ export const openStore = async (): Promise<Store> => {
         bytes: saved.bytes + d.bytes,
         pinnedBytes: saved.pinnedBytes + d.pinnedBytes,
       });
+      applied.count += d.count;
+      applied.bytes += d.bytes;
+      applied.pinnedBytes += d.pinnedBytes;
     }
+    saveTotals(t, base, applied);
   };
 
   /**
-   * 要素の resourceIds の固定でない Entry を、Resource ごとに IX_LRU の cursor で開いて併合し（accessedAt 昇順・同値はキー昇順）、
-   * total が budget に収まるまで 1 件ずつ消す（m4-t1・P7・R7'）。skipKey は候補から外す（保存する同じキー）。
-   * 前の要素が消した Entry は同じ tx の後の cursor に現れない。消した分は deltas に数え、残りの total を返す
+   * 固定でない Entry を、cursors（索引と範囲。Source の要素は Resource ごとの IX_LRU、全体の要素は IX_GLOBAL_LRU の 1 つ）で
+   * 開いて併合し（accessedAt 昇順・同値はキー昇順）、total が budget に収まるまで 1 件ずつ消す（m4-t1・P7・R7'・m4-t6）。
+   * skipKey は候補から外す（保存する同じキー）。前の要素が消した Entry は同じ tx の後の cursor に現れない。
+   * 消した分は deltas に数え、残りの total を返す
    */
   const evictByCursor = async (
-    t: IDBTransaction, ids: readonly string[], total: number, budget: number,
+    t: IDBTransaction, cursors: readonly { index: string; range: IDBKeyRange }[], total: number, budget: number,
     skipKey: string | undefined, deltas: Map<string, Delta>,
   ): Promise<number> => {
     const entries = t.objectStore(S_ENTRIES);
     const bodies = t.objectStore(S_BODIES);
-    const index = entries.index(IX_LRU);
-    const heads = await Promise.all(ids.map(async (id) => {
-      const req = index.openCursor(IDBKeyRange.bound([id, 0], [id, 0, []]));
+    const heads = await Promise.all(cursors.map(async (c) => {
+      const req = entries.index(c.index).openCursor(c.range);
       return { req, cursor: await cursorStep(req) };
     }));
     const advance = async (h: (typeof heads)[number]) => {
@@ -717,11 +791,25 @@ export const openStore = async (): Promise<Store> => {
     const willSave = evict.every((e) => e.maxBytes > 0 && newSize <= e.maxBytes);
     const deltas = new Map<string, Delta>();
     const known: ResourceMeta[] = [target];
+    // totals は Resource を書く前（applyDeltas の前）に読む。全体の要素の見積もりにも使う（m4-t6）
+    const totals = await loadTotals(t);
 
     // 退避は要素ごと（第 1 回 S4）。まず予算の見積もり（R42）: 保存済みの固定でない大きさの和 ＋ この tx で前の要素が消した分
     // － 置き換える同じキーの固定でない古い Entry（候補から外す分）。予算内なら走査しない（P7・R7'）。
     // 超えるときだけ cursor を併合して古い順に消す（今の getAll の実装と同じ集合を消す）
     for (const scope of evict) {
+      if (scope.resourceIds === undefined) {
+        // 全体の要素（m4-t6・第 2 回 M1）: totals.bytes − totals.pinnedBytes ＋ この tx の全 Resource の deltas.bytes の和
+        // −（保存し、old が固定でないなら old.size）。cursor でも同じキーを飛ばす
+        let total = totals.bytes - totals.pinnedBytes;
+        for (const d of deltas.values()) total += d.bytes;
+        if (willSave && old && old.pinned === 0) total -= old.size;
+        const budget = willSave ? scope.maxBytes - newSize : scope.maxBytes;
+        if (total <= budget) continue;
+        await evictByCursor(t, [{ index: IX_GLOBAL_LRU, range: GLOBAL_UNPINNED }], total, budget,
+          willSave ? meta.key : undefined, deltas);
+        continue;
+      }
       const ids = scope.resourceIds.filter((id, i, xs) => xs.indexOf(id) === i);
       let total = 0;
       for (const id of ids) {
@@ -736,7 +824,8 @@ export const openStore = async (): Promise<Store> => {
       if (willSave && old && old.pinned === 0 && ids.indexOf(old.resourceId) >= 0) total -= old.size;
       const budget = willSave ? scope.maxBytes - newSize : scope.maxBytes;
       if (total <= budget) continue;
-      await evictByCursor(t, ids, total, budget, willSave ? meta.key : undefined, deltas);
+      await evictByCursor(t, ids.map((id) => ({ index: IX_LRU, range: IDBKeyRange.bound([id, 0], [id, 0, []]) })), total, budget,
+        willSave ? meta.key : undefined, deltas);
     }
 
     if (willSave) {
@@ -751,7 +840,7 @@ export const openStore = async (): Promise<Store> => {
       bodies.put(body);
     }
 
-    await applyDeltas(t, deltas, known);
+    await applyDeltas(t, deltas, known, totals);
     return { saved: willSave };
   };
 
@@ -798,17 +887,24 @@ export const openStore = async (): Promise<Store> => {
       s.put(out);
       return out;
     }),
-    deleteResource: (id) => tx([S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', (t) => {
+    // 消す前に同じ tx で Resource を読み、その数を totals から引く（F30・m4-t6）
+    deleteResource: (id) => tx([S_RESOURCES, S_ENTRIES, S_BODIES, S_KV], 'readwrite', async (t) => {
+      const totals = await loadTotals(t);
+      const saved = (await req2p(t.objectStore(S_RESOURCES).get(id))) as ResourceMeta | undefined;
       t.objectStore(S_RESOURCES).delete(id);
       t.objectStore(S_ENTRIES).delete(entryRange(id));
       t.objectStore(S_BODIES).delete(entryRange(id));
+      saveTotals(t, totals, saved ? { count: -saved.count, bytes: -saved.bytes, pinnedBytes: -saved.pinnedBytes } : ZERO);
     }),
-    clearEntries: (resourceId) => tx([S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t) => {
+    clearEntries: (resourceId) => tx([S_RESOURCES, S_ENTRIES, S_BODIES, S_KV], 'readwrite', async (t) => {
+      // totals は Resource を書く前に読む（無いときの resources の和を、この tx の書き込みの前の値で作る）
+      const totals = await loadTotals(t);
       t.objectStore(S_ENTRIES).delete(entryRange(resourceId));
       t.objectStore(S_BODIES).delete(entryRange(resourceId));
       const s = t.objectStore(S_RESOURCES);
       const saved = (await req2p(s.get(resourceId))) as ResourceMeta | undefined;
       if (saved) s.put({ ...saved, count: 0, bytes: 0, pinnedBytes: 0 });
+      saveTotals(t, totals, saved ? { count: -saved.count, bytes: -saved.bytes, pinnedBytes: -saved.pinnedBytes } : ZERO);
     }),
 
     getEntry: (key) => tx([S_ENTRIES, S_BODIES], 'readonly', async (t) => {
@@ -831,7 +927,7 @@ export const openStore = async (): Promise<Store> => {
       if (meta) s.put({ ...meta, accessedAt });
     }),
     putEntry: (meta, body, evict) => entryKeyError(meta, body.key)
-    ?? txAfter(toStoredBody(body), [S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t, stored) => {
+    ?? txAfter(toStoredBody(body), [S_RESOURCES, S_ENTRIES, S_BODIES, S_KV], 'readwrite', async (t, stored) => {
       const target = (await req2p(t.objectStore(S_RESOURCES).get(meta.resourceId))) as ResourceMeta | undefined;
       // 消された Resource へ書き込みを残さない（第 1 回 O-7）
       if (!target) return { saved: false };
@@ -848,7 +944,7 @@ export const openStore = async (): Promise<Store> => {
       if (keyError) return keyError;
       // 新しい部分は tx の前に ArrayBuffer にする（同じ範囲は後のものが勝つ並びのまま）
       const prep = Promise.all(fresh.map(async (p) => ({ ...p, ...(await readBlob(p.blob)) })));
-      return txAfter(prep, [S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t, freshData) => {
+      return txAfter(prep, [S_RESOURCES, S_ENTRIES, S_BODIES, S_KV], 'readwrite', async (t, freshData) => {
         const target = (await req2p(t.objectStore(S_RESOURCES).get(meta.resourceId))) as ResourceMeta | undefined;
         if (!target) return { saved: false };
         const [old, oldRaw] = await Promise.all([
@@ -886,7 +982,7 @@ export const openStore = async (): Promise<Store> => {
       });
     },
 
-    deleteEntries: (keys, opts = {}) => tx([S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t) => {
+    deleteEntries: (keys, opts = {}) => tx([S_RESOURCES, S_ENTRIES, S_BODIES, S_KV], 'readwrite', async (t) => {
       const entries = t.objectStore(S_ENTRIES);
       const bodies = t.objectStore(S_BODIES);
       const deltas = new Map<string, Delta>();
@@ -906,7 +1002,7 @@ export const openStore = async (): Promise<Store> => {
       await applyDeltas(t, deltas);
       return n;
     }),
-    setPinned: (keys, pinned) => tx([S_RESOURCES, S_ENTRIES], 'readwrite', async (t) => {
+    setPinned: (keys, pinned) => tx([S_RESOURCES, S_ENTRIES, S_KV], 'readwrite', async (t) => {
       const entries = t.objectStore(S_ENTRIES);
       const deltas = new Map<string, Delta>();
       let n = 0;
@@ -955,7 +1051,7 @@ export const openStore = async (): Promise<Store> => {
     }),
     entriesAtZoom: (resourceId, z) => tx([S_ENTRIES], 'readonly', (t) =>
       req2p(t.objectStore(S_ENTRIES).index(IX_ZOOM).getAll([resourceId, z])) as Promise<EntryMeta[]>),
-    pruneGlyphParts: (key, before) => tx([S_RESOURCES, S_ENTRIES, S_BODIES], 'readwrite', async (t) => {
+    pruneGlyphParts: (key, before) => tx([S_RESOURCES, S_ENTRIES, S_BODIES, S_KV], 'readwrite', async (t) => {
       const entries = t.objectStore(S_ENTRIES);
       const bodies = t.objectStore(S_BODIES);
       const [meta, raw] = await Promise.all([
@@ -1025,6 +1121,32 @@ export const openStore = async (): Promise<Store> => {
     kvPut: (key, value) => tx([S_KV], 'readwrite', (t) => {
       t.objectStore(S_KV).put({ key, value });
     }),
+
+    getTotals: () => tx([S_RESOURCES, S_KV], 'readonly', (t) => loadTotals(t)),
+    evictGlobal: (bytes) => {
+      if (!(bytes > 0)) return Promise.resolve(0);
+      return tx([S_RESOURCES, S_ENTRIES, S_BODIES, S_KV], 'readwrite', async (t) => {
+        const totals = await loadTotals(t);
+        const deltas = new Map<string, Delta>();
+        const req = t.objectStore(S_ENTRIES).index(IX_GLOBAL_LRU).openCursor(GLOBAL_UNPINNED);
+        let cursor = await cursorStep(req);
+        let freed = 0;
+        let n = 0;
+        while (cursor && freed < bytes) {
+          const victim = cursor.value as EntryMeta;
+          t.objectStore(S_ENTRIES).delete(victim.key);
+          t.objectStore(S_BODIES).delete(victim.key);
+          addDelta(deltas, victim.resourceId, -1, -victim.size, 0);
+          freed += victim.size;
+          n++;
+          const next = cursorStep(req);
+          cursor.continue();
+          cursor = await next;
+        }
+        await applyDeltas(t, deltas, [], totals);
+        return n;
+      });
+    },
 
     close: () => {
       if (db) db.close();

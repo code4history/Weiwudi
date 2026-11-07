@@ -29,6 +29,7 @@ import { applyRegister, applyRemove, applyUpdate, isExclusiveTo } from './regist
 import { isNormalizedStyle, normalizeSpec, undeclaredCredentialWarnings, type NormalizedSpec } from './spec';
 import { ownersOf, registerStyle, removeStyleChildren, styleChildIds } from './style';
 import { isChildRecord, isLegacyRecord, storedSpecOf, styleSpecOf, toResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
+import { KV_LIMITS } from './store';
 import { countTiles, isInTileBox, scaleTileBox, type TileBox } from './tile_math';
 import { assertSourceIdle, cancelRange, cleanRange, estimate, listRegionInfos, releaseAllOf, releaseRange, resumeRange, resumeState, startFetchRange, type JobClient } from './range';
 import { WeiwudiError } from './errors';
@@ -526,6 +527,19 @@ export function createControl(ctx: Context): Control {
 
   const usage = async () => usageOf(await ctx.store());
 
+  // 全体上限（m4-t6・仕様 §7.1）。kv の limits に保存し、maxBytes が無ければ外す。次の保存から効く（今あるものはすぐには消さない）
+  const setLimits = async (body: unknown) => {
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+      throw new WeiwudiError('attribute-invalid', 'Request body must be an object', { attribute: 'limits' });
+    }
+    const maxBytes = (body as { maxBytes?: unknown }).maxBytes;
+    if (maxBytes !== undefined && !(typeof maxBytes === 'number' && Number.isInteger(maxBytes) && maxBytes >= 0)) {
+      throw new WeiwudiError('attribute-invalid', 'Attribute "maxBytes" must be a non-negative integer', { attribute: 'maxBytes' });
+    }
+    await (await ctx.store()).kvPut(KV_LIMITS, maxBytes === undefined ? {} : { maxBytes });
+    return null;
+  };
+
   const source = async (id: string) => {
     const store = await ctx.store();
     return infoOf(store, await getOwn(store, id));
@@ -560,6 +574,7 @@ export function createControl(ctx: Context): Control {
       case 'remove': return remove(idOf(body));
       case 'removeResource': return removeResource(body);
       case 'usage': return usage();
+      case 'setLimits': return setLimits(body);
       default:
         throw new WeiwudiError('api-not-found', `Operation "${op}" not found`, { op });
     }

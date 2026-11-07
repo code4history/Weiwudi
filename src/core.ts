@@ -13,7 +13,7 @@
 // - 保存に失敗しても配信は続け、x-weiwudi-error に quota か storage を付ける（#22）。退避の範囲の読み出しの失敗も storage（m4-t1・I1）
 // - store の読み出しの失敗（接続・Resource・Entry）は reject で返す（呼び出し側が旧 API の文面などへ直す）
 import type { Context } from './context';
-import { isChildRecord, storedSpecOf, styleSpecOf, toResourceInfo, type EntryBody, type EntryMeta, type EvictionScope, type ResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
+import { KV_LIMITS, isChildRecord, storedSpecOf, styleSpecOf, toResourceInfo, type EntryBody, type EntryMeta, type EvictionScope, type ResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
 import { getPlugins, type WeiwudiPlugin } from './plugins';
 import { isInTileBox, scaleTileBox } from './tile_math';
 import { WeiwudiError, type TileFailure } from './errors';
@@ -85,7 +85,8 @@ export interface GlyphCollector {
   add(p: GlyphCollectedPart): void;
   /**
    * 集めた部分を書く（evictScopesFor を 1 回・putGlyphParts を 1 回）。集めた部分は渡した時点で手放す（2 回目は何もしない）。
-   * 投げない: 失敗は 'quota'・'storage'、書いた（部分が無い・Resource が消えたも含む）ときは undefined
+   * 投げない: 失敗は 'quota'・'storage'、書いた（部分が無い・Resource が消えたも含む）ときは undefined。
+   * 容量超過のときは全体の 10% を退避して putGlyphParts を 1 回だけ再試行する（m4-t6・R16）
    */
   flush(): Promise<'quota' | 'storage' | undefined>;
 }
@@ -321,8 +322,47 @@ export async function evictScopesFor(store: Store, resource: ResourceMeta): Prom
     if (resourceIds.indexOf(resource.id) < 0) resourceIds.push(resource.id);
     scopes.push({ resourceIds, maxBytes });
   }
+  // 全体上限（setLimits。m4-t6）: resourceIds を持たない要素を最後に 1 つ（Source の要素が先に消した分を数えてから見積もる）
+  const maxBytes = limitsMaxBytes(await store.kvGet(KV_LIMITS));
+  if (maxBytes !== undefined) scopes.push({ maxBytes });
   return scopes;
 }
+
+/** kv の limits の maxBytes（0 以上の有限の整数のときだけ。それ以外は上限なし） */
+const limitsMaxBytes = (v: unknown): number | undefined => {
+  const m = v !== null && typeof v === 'object' ? (v as { maxBytes?: unknown }).maxBytes : undefined;
+  return typeof m === 'number' && Number.isInteger(m) && m >= 0 ? m : undefined;
+};
+
+/** 容量超過の再試行で退避する割合（固定以外の全体の 10%。m4-t6・R16） */
+const QUOTA_RETRY_RATIO = 0.1;
+
+/**
+ * 保存の書き込み write を行い、quota（QuotaExceededError）で失敗したら、固定以外を全体 LRU で
+ * ceil((totals.bytes − totals.pinnedBytes) × 0.1) だけ退避して 1 回だけ再試行する（m4-t6・R16・仕様 §7.1）。
+ * 投げない: 失敗は 'quota'・'storage'。退避（totals の読み出しを含む）が失敗したときは再試行せず 'quota'
+ */
+const writeWithQuotaRetry = async (store: Store, write: () => Promise<unknown>): Promise<'quota' | 'storage' | undefined> => {
+  const classify = (err: unknown): 'quota' | 'storage' => (WeiwudiError.from(err).code === 'quota' ? 'quota' : 'storage');
+  try {
+    await write();
+    return undefined;
+  } catch (err) {
+    if (classify(err) !== 'quota') return 'storage';
+  }
+  try {
+    const totals = await store.getTotals();
+    await store.evictGlobal(Math.ceil(Math.max(0, totals.bytes - totals.pinnedBytes) * QUOTA_RETRY_RATIO));
+  } catch (_e) {
+    return 'quota';
+  }
+  try {
+    await write();
+    return undefined;
+  } catch (err) {
+    return classify(err);
+  }
+};
 
 // ---- serve ----
 
@@ -542,13 +582,10 @@ const save = async (
   } catch (_e) {
     return 'storage';
   }
-  try {
-    if (input.part === undefined) await store.putEntry(meta, { key: input.key, blob, headers }, evict);
-    else await store.putGlyphPart(meta, input.part, blob, headers, evict);
-    return undefined;
-  } catch (err) {
-    return WeiwudiError.from(err).code === 'quota' ? 'quota' : 'storage';
-  }
+  // 容量超過は全体の 10% を退避して 1 回だけ再試行する（m4-t6・R16。旧 API も serve を通るので同じ）
+  return writeWithQuotaRetry(store, () => (input.part === undefined
+    ? store.putEntry(meta, { key: input.key, blob, headers }, evict)
+    : store.putGlyphPart(meta, input.part, blob, headers, evict)));
 };
 
 /**
@@ -575,8 +612,9 @@ export function createGlyphCollector(ctx: Context, resource: ResourceMeta, key: 
           key, resourceId: resource.id, size: batch.reduce((n, p) => n + p.body.size, 0), fetchedAt: t, accessedAt: t, pinned: 0,
         };
         if (last.headers['content-type'] !== undefined) meta.contentType = last.headers['content-type'];
-        await store.putGlyphParts(meta, batch.map((p) => ({ part: p.part, blob: p.body, fetchedAt: p.fetchedAt })), last.headers, evict);
-        return undefined;
+        // 容量超過の再試行（m4-t6・R16）は save と同じ
+        return await writeWithQuotaRetry(store, () =>
+          store.putGlyphParts(meta, batch.map((p) => ({ part: p.part, blob: p.body, fetchedAt: p.fetchedAt })), last.headers, evict));
       } catch (err) {
         return WeiwudiError.from(err).code === 'quota' ? 'quota' : 'storage';
       }
