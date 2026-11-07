@@ -11,7 +11,7 @@
 //   部分の変換が使う。読み戻しは fromStoredBody）。Store の呼び出し側は Blob のまま使う。
 //   Blob を持つ古いレコード（開発の途中の形）は読めないものとして miss にする（t4 の parts の無いレコードと同じ考え方）
 import type { TileBox } from './tile_math';
-import type { StoredSpec, StyleSpec } from './spec';
+import type { NormalizedFetchOptions, NormalizedRange, RegionInfo, StoredSpec, StyleSpec } from './spec';
 import { LEGACY_PREFIX } from './constants';
 
 export const STORE_DB_NAME = 'WeiwudiStore';
@@ -268,13 +268,13 @@ export const toResourceInfo = (meta: ResourceMeta, now: number, sourceId?: strin
 // ---- Store ----
 
 /**
- * 範囲取得の region（regions ストア。keyPath id・索引 sourceId）。形は m4-t3 で決める。ここでは store が読み書きに使う項目だけ
- * （m4-t1）。deleteSource が同じ tx で sourceId の region を消す
+ * 範囲取得の region（regions ストア。keyPath id・索引 sourceId）。deleteSource が同じ tx で sourceId の region を消す（m4-t1）。
+ * 項目は RegionInfo（公開の形）に、取得のときの範囲（normalized。'all' も固める）と検査済みの指定（options。再開で使う）を
+ * 足したもの（m4-t3・R5・R-t3-3）。進捗の位置は持たない
  */
-export interface RegionRecord {
-  id: string;
-  sourceId: string;
-  status: string;
+export interface RegionRecord extends RegionInfo {
+  normalized: NormalizedRange;
+  options: NormalizedFetchOptions;
 }
 
 /** putEntry の退避の 1 要素。cacheMaxBytes を持つ Source 1 つ分（§7.1） */

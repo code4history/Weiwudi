@@ -3,7 +3,7 @@ import { WeiwudiError, isCodeFormat, legacyMessage, type WeiwudiErrorCode } from
 import { absolutizeTemplate } from './url_pattern';
 import { PSEUDO_HOST, V2_PREFIX } from './constants';
 import type { Credentials, OutOfRange, ResourceInfo, ResourceType } from './store';
-import type { CommonPolicy, SourceSpec } from './spec';
+import type { CommonPolicy, FetchRangeOptions, RangeSpec, RegionInfo, SourceSpec } from './spec';
 import type { TileBox } from './tile_math';
 
 // 旧 API は文字列で reject し続ける（仕様 §9）。WeiwudiError.from(e) で code を得られる（#33）
@@ -11,6 +11,8 @@ export { WeiwudiError, type WeiwudiErrorCode, type TileFailure } from './errors'
 
 // 新 API の公開の型（仕様 §12。名前つきで export する。第 1 回 C4・第 2 回 D3）。ResourceMeta は公開しない（第 1 回 C5）
 export type { CommonPolicy, Credentials, OutOfRange, ResourceInfo, ResourceType, SourceSpec, TileBox };
+// 範囲取得の型（m4-t3・§7.2・§12）
+export type { FetchRangeOptions, RangeSpec, RegionInfo };
 
 /** 登録した Source の公開の形（仕様 §12） */
 export interface SourceInfo {
@@ -189,6 +191,24 @@ const absolutizeSpec = (spec: SourceSpec): SourceSpec => {
     return { ...spec, url: Array.isArray(url) ? url.map(abs) : abs(url) } as SourceSpec;
 };
 
+/** 範囲取得の待ちで、イベントが来ないときに job/resume を送るまでの時間（§7.2。U3） */
+const RESUME_AFTER_MS = 30_000;
+
+/** SW から届く範囲取得のメッセージ（{ type, sourceId, regionId, … }。I5c） */
+interface JobMessage {
+    type: string;
+    regionId?: unknown;
+    code?: unknown;
+    message?: unknown;
+    error?: unknown;
+}
+
+const isTerminal = (type: string): boolean => type === 'finish' || type === 'stop' || type === 'canceled';
+
+const stopErrorOf = (code: unknown, message: unknown): WeiwudiError =>
+    new WeiwudiError((isCodeFormat(code) ? code : 'internal') as WeiwudiErrorCode,
+        typeof message === 'string' ? message : 'The range fetching stopped');
+
 // Polyfill removed as target is ES2020
 
 export class WeiwudiEventTarget {
@@ -267,6 +287,12 @@ export class WeiwudiSource extends WeiwudiEventTarget {
     readonly warnings: string[];
     private released = false;
     private readonly listener: (e: MessageEvent) => void;
+    /** 範囲取得の待ち（メッセージを受ける関数） */
+    private readonly waiters = new Set<(data: JobMessage) => void>();
+    /** release() で待ちを止める関数 */
+    private readonly releasers = new Set<() => void>();
+    /** 届いた終わりのメッセージ（regionId → メッセージ。POST の応答より先に届いたものを取りこぼさない） */
+    private readonly ended = new Map<string, JobMessage>();
 
     constructor(info: SourceInfo) {
         super();
@@ -277,6 +303,9 @@ export class WeiwudiSource extends WeiwudiEventTarget {
         this.listener = (e: MessageEvent) => {
             const data = e.data as { sourceId?: unknown; type?: unknown } | null;
             if (!data || data.sourceId !== this.id || typeof data.type !== 'string') return;
+            const job = data as JobMessage;
+            if (typeof job.regionId === 'string' && isTerminal(job.type)) this.ended.set(job.regionId, job);
+            for (const w of [...this.waiters]) w(job);
             this.dispatchEvent(new CustomEvent(data.type, { detail: data }));
         };
         navigator.serviceWorker?.addEventListener('message', this.listener);
@@ -321,11 +350,131 @@ export class WeiwudiSource extends WeiwudiEventTarget {
         this.release();
     }
 
-    /** ページ側のリスナを外す（以後のメソッドは instance-released で reject） */
+    /** タイルの枚数（§7.2。非タイルの資源は数えない。R29） */
+    async estimate(range: RangeSpec): Promise<{ tiles: number }> {
+        this.alive();
+        return postV2<{ tiles: number }>('estimate', { id: this.id, range });
+    }
+
+    /**
+     * 範囲を取得して固定する（§7.2）。持続的な保存領域を求め（失敗は無視。I5b）、ratio の既定は devicePixelRatio > 1 なら
+     * '@2x'（R-ratio）。終わり（finish・canceled は resolve、stop は WeiwudiError で reject）まで待つ。30 秒イベントが来なければ
+     * job/resume を送る（R22・R45）
+     */
+    async fetchRange(range: RangeSpec, opts: FetchRangeOptions = {}): Promise<RegionInfo> {
+        this.alive();
+        try {
+            await navigator.storage?.persist?.();
+        } catch (_e) {
+            // 持続化を断られても取得は続ける
+        }
+        const ratio = opts.ratio ?? (typeof devicePixelRatio === 'number' && devicePixelRatio > 1 ? '@2x' : '');
+        const info = await postV2<RegionInfo>('fetchRange', { id: this.id, range, options: { ...opts, ratio } });
+        if (info.status === 'stopped') throw stopErrorOf(info.code, undefined);
+        if (info.status !== 'running') return info;
+        return this.waitRegion(info);
+    }
+
+    /** この Source の region の一覧（§12）。SW が止まって running のままのものは partial（R5） */
+    async regions(): Promise<RegionInfo[]> {
+        this.alive();
+        return postV2<RegionInfo[]>('regions', { id: this.id });
+    }
+
+    /**
+     * この Source の取得を止める。取り消したジョブの canceled（か終わりのイベント）を受けてから解決する（30 秒来なければ
+     * regions() を読んで解決する。R58・第 2 回 M4）。旧 API のジョブなど regionId が無ければすぐ解決。無ければ no-fetch-process
+     */
+    async cancel(): Promise<void> {
+        this.alive();
+        const r = await postV2<{ regionId: string | null } | null>('cancel', { id: this.id });
+        const regionId = r && typeof r.regionId === 'string' ? r.regionId : undefined;
+        if (regionId === undefined) return;
+        await new Promise<void>((resolve, reject) => {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            let done = false;
+            const end = (fn: () => void) => {
+                if (done) return;
+                done = true;
+                if (timer !== undefined) clearTimeout(timer);
+                this.waiters.delete(onMessage);
+                this.releasers.delete(onRelease);
+                fn();
+            };
+            const onMessage = (data: JobMessage) => {
+                if (data.regionId === regionId && isTerminal(data.type)) end(resolve);
+            };
+            const onRelease = () => end(() => reject(new WeiwudiError('instance-released', legacyMessage('instance-released'))));
+            this.waiters.add(onMessage);
+            this.releasers.add(onRelease);
+            if (this.ended.has(regionId)) {
+                end(resolve);
+                return;
+            }
+            timer = setTimeout(() => {
+                // SW が止まっていれば ctx.job も無い。regions() を読めたら解決する
+                this.regions().then(() => end(resolve), (e: unknown) => end(() => reject(e)));
+            }, RESUME_AFTER_MS);
+        });
+    }
+
+    /** fetchRange の待ち（R22・R45）。終わりのメッセージ・job/resume の終わりの status・release() のどれかで決まる */
+    private waitRegion(info: RegionInfo): Promise<RegionInfo> {
+        return new Promise<RegionInfo>((resolve, reject) => {
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            let done = false;
+            const end = (fn: () => void) => {
+                if (done) return;
+                done = true;
+                if (timer !== undefined) clearTimeout(timer);
+                this.waiters.delete(onMessage);
+                this.releasers.delete(onRelease);
+                fn();
+            };
+            /** finish・canceled の後は regions() の記録で解決する（無ければ受けたメッセージから作る） */
+            const resolveFrom = (status: RegionInfo['status']) => end(() => {
+                this.regions().then((list) => {
+                    resolve(list.find((r) => r.id === info.id) ?? { ...info, status });
+                }, reject);
+            });
+            const terminal = (data: JobMessage) => {
+                this.ended.delete(info.id);
+                if (data.type === 'stop') end(() => reject(stopErrorOf(data.code, data.message)));
+                else if (data.type === 'canceled') resolveFrom('canceled');
+                else resolveFrom(typeof data.error === 'number' && data.error > 0 ? 'partial' : 'complete');
+            };
+            const resume = () => {
+                postV2<RegionInfo>('job/resume', { id: this.id, regionId: info.id }).then((r) => {
+                    if (done) return;
+                    if (r.status === 'running') arm();
+                    else if (r.status === 'stopped') end(() => reject(stopErrorOf(r.code, undefined)));
+                    else end(() => resolve(r));
+                }, (e: unknown) => end(() => reject(e)));
+            };
+            const arm = () => {
+                if (timer !== undefined) clearTimeout(timer);
+                timer = setTimeout(resume, RESUME_AFTER_MS);
+            };
+            const onMessage = (data: JobMessage) => {
+                if (data.regionId !== info.id) return;
+                if (isTerminal(data.type)) terminal(data);
+                else arm();
+            };
+            const onRelease = () => end(() => reject(new WeiwudiError('instance-released', legacyMessage('instance-released'))));
+            this.waiters.add(onMessage);
+            this.releasers.add(onRelease);
+            const early = this.ended.get(info.id);
+            if (early) terminal(early);
+            else arm();
+        });
+    }
+
+    /** ページ側のリスナを外す（以後のメソッドは instance-released で reject。範囲取得の待ちも reject する） */
     release(): void {
         if (this.released) return;
         this.released = true;
         navigator.serviceWorker?.removeEventListener('message', this.listener);
+        for (const f of [...this.releasers]) f();
     }
 }
 

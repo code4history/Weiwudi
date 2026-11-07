@@ -1,6 +1,6 @@
 // src/spec.ts の試験（m2-t3・第 1 回 S6・C3・C6、第 2 回 D1・D5、第 3 回 M5）。仕様 §5.1・§10・§12、計画の m2-t3。
 import { describe, expect, it } from 'vitest';
-import { normalizeMember, normalizeSpec, type NormalizedSpec } from '../../src/spec';
+import { copyRange, normalizeFetchOptions, normalizeMember, normalizeRange, normalizeSpec, type NormalizedSpec } from '../../src/spec';
 import { WeiwudiError } from '../../src/errors';
 import { lngLatBoundsToTileBox } from '../../src/tile_math';
 import { DEFAULT_CREDENTIAL_PARAMS } from '../../src/url_pattern';
@@ -435,5 +435,101 @@ describe('normalizeMember: 型ごとの字句の許可（m3-t2）', () => {
     expect((normalizeSpec({ kind: 'raster', url: T }).spec as NormalizedSpec['spec']).encoding).toBeUndefined();
     expect(normalizeSpec({ kind: 'style', url: 'https://s.example/style.json' }).spec.kind).toBe('style');
     expect(normalizeSpec({ kind: 'asset', url: 'https://d.example/a.json' }).spec).toMatchObject({ kind: 'asset', type: 'data' });
+  });
+});
+
+describe('normalizeRange・copyRange・normalizeFetchOptions（m4-t3・§7.2・R28・R30・R-tms）', () => {
+  const rangeError = (fn: () => unknown): WeiwudiError => {
+    try {
+      fn();
+    } catch (e) {
+      if (e instanceof WeiwudiError) return e;
+      throw e;
+    }
+    throw new Error('not rejected');
+  };
+  const XYZ = { scheme: 'xyz' as const };
+
+  it('bounds は maxZoom の XYZ の box。緯度は ±85.0511 に丸める（R28）', () => {
+    const n = normalizeRange({ bounds: [139.7, 35.6, 139.8, 35.7], minZoom: 10, maxZoom: 14 }, XYZ);
+    expect(n).toEqual({
+      kind: 'boxes', minZoom: 10, maxZoom: 14,
+      boxes: [lngLatBoundsToTileBox({ minLng: 139.7, maxLng: 139.8, minLat: 35.6, maxLat: 35.7 }, 14)],
+    });
+    const pole = normalizeRange({ bounds: [-180, -90, 180, 90], minZoom: 0, maxZoom: 2 }, XYZ);
+    expect(pole.boxes).toEqual([{ minX: 0, maxX: 3, minY: 0, maxY: 3 }]);
+  });
+
+  it('west > east は日付変更線をまたぐ 2 つの box', () => {
+    const n = normalizeRange({ bounds: [170, -10, -170, 10], minZoom: 0, maxZoom: 3 }, XYZ);
+    expect(n.boxes).toHaveLength(2);
+    expect(n.boxes[0].maxX).toBe(7);
+    expect(n.boxes[1].minX).toBe(0);
+    expect(n.boxes[0].minX).toBeGreaterThan(n.boxes[1].maxX);
+  });
+
+  it('{ box } は Source の scheme の座標として読み、tms なら XYZ に直す（第 1 回 M9）', () => {
+    const box = { minX: 1, maxX: 2, minY: 0, maxY: 1 };
+    expect(normalizeRange({ box, minZoom: 0, maxZoom: 2 }, XYZ).boxes).toEqual([box]);
+    expect(normalizeRange({ box, minZoom: 0, maxZoom: 2 }, { scheme: 'tms' }).boxes).toEqual([{ minX: 1, maxX: 2, minY: 2, maxY: 3 }]);
+  });
+
+  it("'all' は取得のときの Source の範囲（tms は XYZ へ）。範囲（box）が無ければ cannot-fetch-all（R30）", () => {
+    const extent = { minZoom: 1, maxZoom: 3, box: { minX: 0, maxX: 2, minY: 0, maxY: 1 }, sourceId: 's' };
+    expect(normalizeRange('all', { extent, scheme: 'xyz' })).toEqual({ kind: 'boxes', minZoom: 1, maxZoom: 3, boxes: [extent.box] });
+    expect(normalizeRange('all', { extent, scheme: 'tms' }).boxes).toEqual([{ minX: 0, maxX: 2, minY: 6, maxY: 7 }]);
+    expect(rangeError(() => normalizeRange('all', XYZ)).code).toBe('cannot-fetch-all');
+    expect(rangeError(() => normalizeRange('all', { extent: { minZoom: 0, maxZoom: 3, sourceId: 's' } })).code).toBe('cannot-fetch-all');
+  });
+
+  it("'all' に複数の範囲（スタイルの子）を渡すと、最大の maxZoom で和にする（R-t3-2）", () => {
+    const a = { extent: { minZoom: 0, maxZoom: 1, box: { minX: 0, maxX: 0, minY: 0, maxY: 0 }, sourceId: 'a' } };
+    const b = { extent: { minZoom: 2, maxZoom: 2, box: { minX: 3, maxX: 3, minY: 3, maxY: 3 }, sourceId: 'b' }, scheme: 'tms' as const };
+    expect(normalizeRange('all', { all: [a, b] })).toEqual({
+      kind: 'boxes', minZoom: 0, maxZoom: 2,
+      boxes: [{ minX: 0, maxX: 1, minY: 0, maxY: 1 }, { minX: 3, maxX: 3, minY: 0, maxY: 0 }],
+    });
+    expect(rangeError(() => normalizeRange('all', { all: [] })).code).toBe('cannot-fetch-all');
+    expect(rangeError(() => normalizeRange('all', { all: [a, { extent: undefined }] })).code).toBe('cannot-fetch-all');
+  });
+
+  it('ズームは 0〜30 の整数で minZoom <= maxZoom。不正な形は attribute-invalid', () => {
+    const bad: unknown[] = [
+      undefined, null, 'some', 3, [],
+      { bounds: [0, 0, 1, 1], minZoom: 3, maxZoom: 2 },
+      { bounds: [0, 0, 1, 1], minZoom: -1, maxZoom: 2 },
+      { bounds: [0, 0, 1, 1], minZoom: 0, maxZoom: 31 },
+      { bounds: [0, 0, 1, 1], minZoom: 0.5, maxZoom: 2 },
+      { bounds: [0, 0, 1, 1], maxZoom: 2 },
+      { bounds: [0, 0, 1], minZoom: 0, maxZoom: 2 },
+      { bounds: [0, 0, 1, Number.NaN], minZoom: 0, maxZoom: 2 },
+      { bounds: [0, 1, 1, 0], minZoom: 0, maxZoom: 2 },
+      { bounds: [-181, 0, 1, 1], minZoom: 0, maxZoom: 2 },
+      { box: { minX: 0, maxX: 4, minY: 0, maxY: 0 }, minZoom: 0, maxZoom: 2 },
+      { box: { minX: 1, maxX: 0, minY: 0, maxY: 0 }, minZoom: 0, maxZoom: 2 },
+      { box: { minX: 0, maxX: 0, minY: 0 }, minZoom: 0, maxZoom: 2 },
+      { bounds: [0, 0, 1, 1], box: { minX: 0, maxX: 0, minY: 0, maxY: 0 }, minZoom: 0, maxZoom: 2 },
+    ];
+    for (const r of bad) expect(rangeError(() => normalizeRange(r, XYZ)).code).toBe('attribute-invalid');
+  });
+
+  it('copyRange は決めた項目だけを写す（余分な項目・関数を写さない。第 1 回 L）', () => {
+    const input = { bounds: [1, 2, 3, 4], minZoom: 1, maxZoom: 2, extra: 'x', fn: () => 1 };
+    expect(copyRange(input)).toEqual({ bounds: [1, 2, 3, 4], minZoom: 1, maxZoom: 2 });
+    const boxIn = { box: { minX: 0, maxX: 1, minY: 0, maxY: 1, z: 9 }, minZoom: 0, maxZoom: 1, y: 3 };
+    expect(copyRange(boxIn)).toEqual({ box: { minX: 0, maxX: 1, minY: 0, maxY: 1 }, minZoom: 0, maxZoom: 1 });
+    expect(copyRange('all')).toBe('all');
+  });
+
+  it('normalizeFetchOptions: 既定は pin true・concurrency 5・ratio ""・glyphRanges common。範囲外は attribute-invalid', () => {
+    expect(normalizeFetchOptions(undefined)).toEqual({ pin: true, concurrency: 5, ratio: '', glyphRanges: 'common', fonts: [] });
+    expect(normalizeFetchOptions({ pin: false, concurrency: 20, ratio: '@2x', glyphRanges: ['0-255'], fonts: ['A,B'], other: 1 }))
+      .toEqual({ pin: false, concurrency: 20, ratio: '@2x', glyphRanges: ['0-255'], fonts: ['A,B'] });
+    for (const o of [
+      { pin: 1 }, { concurrency: 0 }, { concurrency: 21 }, { concurrency: 1.5 }, { ratio: '@3x' },
+      { glyphRanges: 'some' }, { glyphRanges: ['0_255'] }, { fonts: 'A' }, { fonts: [1] }, 'x',
+    ]) {
+      expect(rangeError(() => normalizeFetchOptions(o)).code).toBe('attribute-invalid');
+    }
   });
 });

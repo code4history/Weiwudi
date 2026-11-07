@@ -13,7 +13,8 @@
 //   Resource の id → テンプレートの順（Ruling）。同じ要求に当たる別の照合の形は warnings に出す
 // - 資格情報は、要求のオリジンをテンプレートに持つ Source だけから credentialSourceFor で選ぶ（別ホストへ送らない。I2）
 // - Resource の provider の提供元を ctx.providers() から引いて upstream へ渡す（m3-t5）
-// - ServeInput を作るのは serveResource 1 つ（照合ルート・門番・t7 の登録時の取得が共有する。C-O12）。
+// - 資格情報の選び方は credentialsForResource 1 つ（照合ルートと範囲取得が共有する。m4-t3・R3）
+// - ServeInput を作るのは serveResource 1 つ（照合ルート・門番・t7 の登録時の取得・範囲取得が共有する。C-O12）。
 //   style・tilejson は isStyleLike と transform（style_body の rewrite*）を付け、sprite のキーは {spriteSuffix} で作る（m3-t6・I3）
 import type { RouteHandlerCallback, RouteHandlerCallbackOptions, RouteMatchCallback } from 'workbox-core';
 import type { Context, CredentialSourcePicker, LoadedTable, TableState } from './context';
@@ -215,12 +216,29 @@ const channelOf = (ctx: Context): BroadcastChannel | undefined => {
 
 // ---- 配信 ----
 
-const credentialsFor = async (ctx: Context, loaded: LoadedTable | undefined, resourceId: string, origin: string): Promise<Credentials | undefined> => {
-  const sourceId = loaded?.credentialSources.get(resourceId)?.get(origin);
-  if (sourceId === undefined) return undefined;
-  const c = await (await ctx.store()).getCredentials(sourceId);
-  return hasCredentials(c) ? c : undefined;
-};
+/**
+ * 資格情報の選び方の唯一の関数（照合ルートと範囲取得が共有する。m4-t3・R3・第 1 回 M4）。照合表の credentialSources の
+ * Resource × オリジンから Source を選び、その資格情報と id を返す。loaded が無ければ ctx.table.current、それも無ければ
+ * 門番と同じ ensureLoad の読み込みを待つ（やり直しの間隔の中・読めなければ {}）。資格情報が空なら credentials を入れない
+ */
+export async function credentialsForResource(
+  ctx: Context, resource: ResourceMeta, origin: string, loaded?: LoadedTable,
+): Promise<{ credentials?: Credentials; credentialSourceId?: string }> {
+  let table = loaded ?? ctx.table.current;
+  if (!table) {
+    const p = ensureLoad(ctx, Date.now());
+    if (!p) return {};
+    try {
+      table = await p;
+    } catch (_e) {
+      return {};
+    }
+  }
+  const credentialSourceId = table.credentialSources.get(resource.id)?.get(origin);
+  if (credentialSourceId === undefined) return {};
+  const c = await (await ctx.store()).getCredentials(credentialSourceId);
+  return hasCredentials(c) ? { credentials: c, credentialSourceId } : { credentialSourceId };
+}
 
 /** Resource の provider の提供元（評価の順で最初に id が同じもの）。登録表に無ければ undefined（汎用の足し方。m3-t5） */
 const providerOf = (ctx: Context, resource: ResourceMeta): WeiwudiProvider | undefined =>
@@ -241,6 +259,8 @@ export interface ServeResourceOptions {
    * update() でスタイルの URL が変わって Resource に当たらないときも、新しい正規化の値で除ける）
    */
   parent?: { url: string; provider?: string; policy: Pick<ResourcePolicy, 'credentialParams'> };
+  /** 真なら保存と同じ tx で固定する（ServeInput.pin。範囲取得の近道。固定の正本はジョブの setPinned。m4-t3・R46） */
+  pin?: boolean;
 }
 
 const byOrder = (a: SourceRecord, b: SourceRecord): number => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
@@ -346,6 +366,7 @@ export async function serveResource(
     ...(resource.type === 'glyph' && m.range !== undefined ? { part: m.range } : {}),
     ...styleLike,
     ...(opts.revalidate === true ? { revalidate: true } : {}),
+    ...(opts.pin === true ? { pin: true } : {}),
     request,
     storable: isStorable(request, resource.policy),
     upstream: createUpstream(ctx, { resourceId: resource.id, original: request, credentials, provider, now }),
@@ -359,16 +380,21 @@ const serveHit = async (ctx: Context, request: Request, url: URL, hit: TableHit,
   if (request.headers.has('range')) return passThrough(() => fetch(request));
   let resource: ResourceMeta | undefined;
   let credentials: Credentials | undefined;
+  let credentialSourceId: string | undefined;
   try {
     const store = await ctx.store();
     resource = await store.getResource(hit.resourceId);
-    if (resource && !isAuthenticated(request)) credentials = await credentialsFor(ctx, loaded, resource.id, url.origin);
+    if (resource) {
+      const picked = await credentialsForResource(ctx, resource, url.origin, loaded);
+      credentialSourceId = picked.credentialSourceId;
+      // 認証付きの要求には足さない（§4.6）
+      if (!isAuthenticated(request)) credentials = picked.credentials;
+    }
   } catch (_e) {
     return fetch(request);
   }
   // 表が古い（消された Resource）
   if (!resource) return fetch(request);
-  const credentialSourceId = loaded?.credentialSources.get(resource.id)?.get(url.origin);
   try {
     return await serveResource(ctx, resource, request, url, hit.m, credentials, credentialSourceId === undefined ? {} : { credentialSourceId });
   } catch (_e) {

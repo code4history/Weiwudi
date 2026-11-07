@@ -20,6 +20,15 @@ export interface JobState {
   /** 失敗の種類ごとの数（#33） */
   failures: Record<TileFailure, number>;
   cancel: boolean;
+  /** 範囲取得のジョブの region（m4-t3・R23。旧 API の fetchAll は持たない） */
+  regionId?: string;
+}
+
+/** opaque イベントの知らせ（m4-t3・R20。upstream と範囲取得が呼び、配線が range.createNotifier を入れる） */
+export interface OpaqueNotice {
+  type: 'opaque';
+  resourceId: string;
+  sourceIds: string[];
 }
 
 /**
@@ -98,6 +107,11 @@ export interface Context {
       glyphAfter?: string;
     };
   };
+  /**
+   * opaque イベントを送る（m4-t3・R20）。配線（weiwudi_gw_logic）が range.createNotifier(ctx) を入れる。
+   * 子 Source は親に読み替えて、全 window の client へ { type: 'opaque', sourceId, resourceId } を送る。無ければ送らない
+   */
+  notify?: (m: OpaqueNotice) => void;
   /** 動いているジョブ。無ければ undefined */
   job?: JobState;
   /** 照合表（t7） */

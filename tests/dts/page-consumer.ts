@@ -5,6 +5,7 @@ import Weiwudi, {
   WeiwudiError, WeiwudiSource,
   type CommonPolicy, type Credentials, type OutOfRange, type ResourceInfo, type ResourceType,
   type SourceInfo, type SourceSpec, type SourceStats, type TileBox, type UsageReport, type WeiwudiErrorCode,
+  type FetchRangeOptions, type RangeSpec, type RegionInfo, type TileFailure,
 } from '../../dist/weiwudi';
 
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
@@ -115,3 +116,38 @@ const use = async (): Promise<void> => {
   }
 };
 void use;
+
+// 範囲取得（m4-t3・§7.2・§12）: RangeSpec・FetchRangeOptions・RegionInfo の全項目と 4 メソッド
+assertType<Equals<RangeSpec,
+  | { bounds: [west: number, south: number, east: number, north: number]; minZoom: number; maxZoom: number }
+  | { box: TileBox; minZoom: number; maxZoom: number }
+  | 'all'>>();
+assertType<Equals<FetchRangeOptions, {
+  pin?: boolean; concurrency?: number; glyphRanges?: 'common' | 'all' | string[]; fonts?: string[]; ratio?: '' | '@2x';
+}>>();
+assertType<Equals<RegionInfo, {
+  id: string; sourceId: string; range: RangeSpec;
+  status: 'running' | 'complete' | 'partial' | 'canceled' | 'stopped';
+  pinned: boolean; total: number;
+  error: number; errors: Record<TileFailure, number>;
+  code?: WeiwudiErrorCode;
+  createdAt: number; updatedAt: number;
+}>>();
+const rangeBounds: RangeSpec = { bounds: [139.7, 35.6, 139.8, 35.7], minZoom: 10, maxZoom: 14 };
+const rangeBox: RangeSpec = { box, minZoom: 0, maxZoom: 1 };
+const rangeAll: RangeSpec = 'all';
+const fetchOpts: FetchRangeOptions = { pin: true, concurrency: 5, glyphRanges: ['0-255'], fonts: ['Noto Sans Regular'], ratio: '@2x' };
+const regionInfo: RegionInfo = {
+  id: 'g', sourceId: 's', range: rangeAll, status: 'stopped', pinned: true, total: 1, error: 1,
+  errors: { network: 1, upstream: 0, quota: 0, storage: 0 }, code: 'opaque', createdAt: 1, updatedAt: 2,
+};
+void [rangeBounds, rangeBox, regionInfo];
+const useRange = async (src: WeiwudiSource): Promise<void> => {
+  const est: { tiles: number } = await src.estimate(rangeBounds);
+  const done: RegionInfo = await src.fetchRange(rangeBox, fetchOpts);
+  const plain: RegionInfo = await src.fetchRange('all');
+  const list: RegionInfo[] = await src.regions();
+  const canceled: void = await src.cancel();
+  void [est, done, plain, list, canceled];
+};
+void useRange;

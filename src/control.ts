@@ -5,6 +5,8 @@
 // 決まり:
 // - POST の本文は text/plain;charset=UTF-8 の JSON 文字列（第 1 回 C1）。応答は HTTP 200 の
 //   { ok: true, result } か { ok: false, error: { code, message, detail } }。GET は /v2/ping だけ（{ api: 2, version }）
+// - 範囲取得（m4-t3・range.ts）: fetchRange の ctx.job の確保と region の書き込み、job/resume のジョブを作り直す分岐は直列の中。
+//   estimate・regions・cancel と job/resume の今の RegionInfo を返す分岐は直列の外（第 2 回 M3）。ジョブは event.waitUntil に結ぶ
 // - register・update・clean・remove は 1 本の直列の待ち行列に通す（registry の apply は複数の tx に分かれるので、
 //   同時の register で createResource が 2 回走り得る。m2-t6 の申し送り）。待ち行列は createControl の呼び出しごと
 // - 旧 API の記録（kind: 'legacy'・id が map:）は見せない・触らない（source-not-found。第 1 回 S6）
@@ -28,6 +30,7 @@ import { isNormalizedStyle, normalizeSpec, type NormalizedSpec } from './spec';
 import { ownersOf, registerStyle, removeStyleChildren, styleChildIds } from './style';
 import { isChildRecord, isLegacyRecord, storedSpecOf, styleSpecOf, toResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
 import { countTiles } from './tile_math';
+import { cancelRange, estimate, listRegionInfos, resumeRange, resumeState, startFetchRange, type JobClient } from './range';
 import { WeiwudiError } from './errors';
 import { V2_PREFIX } from './constants';
 import type { SourceInfo, SourceStats, UsageReport } from './weiwudi';
@@ -322,6 +325,8 @@ export function createControl(ctx: Context): Control {
     const owners = await ownerIdsOf(store, await getOwn(store, id));
     // 範囲なしの clean（m2）。他の Source が参照する共有・範囲だけの Resource の Entry は残す（仕様 §5.6・§7.2）。
     // スタイルは子の Resource を、親の単位の id の一覧（孤児の子も含む。L1 Minor-1）で判定する
+    // regions も消す（§7.2 の表。固定の解放は m4-t5 の releaseAllOf。R-t3-4）
+    for (const r of await store.listRegions(id)) await store.deleteRegion(r.id);
     const done: string[] = [];
     for (const owner of owners) {
       for (const m of await store.resourcesBySource(owner)) {
@@ -366,6 +371,81 @@ export function createControl(ctx: Context): Control {
     return null;
   });
 
+  /** 範囲取得の本文の regionId（job/resume）。文字列でなければ attribute-invalid */
+  const regionIdOf = (body: unknown): string => {
+    const v = body !== null && typeof body === 'object' ? (body as { regionId?: unknown }).regionId : undefined;
+    if (typeof v !== 'string' || v === '') {
+      throw new WeiwudiError('attribute-invalid', 'Attribute "regionId" must be a non-empty string', { attribute: 'regionId' });
+    }
+    return v;
+  };
+
+  const field = (body: unknown, name: string): unknown =>
+    body !== null && typeof body === 'object' ? (body as Record<string, unknown>)[name] : undefined;
+
+  /** ジョブの client（開始の POST の event.clientId。I5c・R21）。無ければ sw-not-controlling */
+  const jobClientOf = async (event: unknown): Promise<{ client: JobClient; waitUntil: (p: Promise<void>) => void }> => {
+    const e = event as { clientId?: unknown; waitUntil?: unknown } | null | undefined;
+    const clientId = e?.clientId;
+    const client = typeof clientId === 'string' && clientId !== '' ? await self.clients.get(clientId) : undefined;
+    if (!client || typeof e?.waitUntil !== 'function') {
+      throw new WeiwudiError('sw-not-controlling', 'The request did not come from a client of the service worker');
+    }
+    const id = clientId as string;
+    return {
+      client: { id, postMessage: (m: unknown) => client.postMessage(m) },
+      waitUntil: (p) => (e.waitUntil as (p: Promise<void>) => void).call(e, p),
+    };
+  };
+
+  const estimateOp = async (body: unknown) => {
+    const id = idOf(body);
+    const store = await ctx.store();
+    const rec = await getOwn(store, id);
+    return estimate(store, rec, field(body, 'range'), await ownerIdsOf(store, rec));
+  };
+
+  const fetchRange = (body: unknown, event: unknown) => serial(async () => {
+    const id = idOf(body);
+    const store = await ctx.store();
+    const rec = await getOwn(store, id);
+    const { client, waitUntil } = await jobClientOf(event);
+    const started = await startFetchRange(ctx, store, rec, await ownerIdsOf(store, rec), client, field(body, 'range'), field(body, 'options'));
+    // 応答を先に返し、ジョブは開始の FetchEvent に結び付ける（SW が止まっても黙って消えない。F7・§7.2）
+    waitUntil(started.job);
+    return started.info;
+  });
+
+  const regions = async (body: unknown) => {
+    const id = idOf(body);
+    const store = await ctx.store();
+    await getOwn(store, id);
+    return listRegionInfos(ctx, store, id);
+  };
+
+  const cancel = async (body: unknown) => {
+    const id = idOf(body);
+    await getOwn(await ctx.store(), id);
+    return cancelRange(ctx, id);
+  };
+
+  const resume = async (body: unknown, event: unknown) => {
+    const id = idOf(body);
+    const regionId = regionIdOf(body);
+    const store = await ctx.store();
+    await getOwn(store, id);
+    const now = await resumeState(ctx, store, id, regionId);
+    if (now) return now;
+    // ジョブを作り直す分岐だけは直列の中（clean()・remove() と並ばない。R57・第 2 回 M3）
+    return serial(async () => {
+      const rec = await getOwn(store, id);
+      const { client, waitUntil } = await jobClientOf(event);
+      const r = await resumeRange(ctx, store, rec, await ownerIdsOf(store, rec), client, regionId);
+      if (r.job) waitUntil(r.job);
+      return r.info;
+    });
+  };
+
   const usage = async () => usageOf(await ctx.store());
 
   const source = async (id: string) => {
@@ -384,8 +464,14 @@ export function createControl(ctx: Context): Control {
     return statsOf(store, await getOwn(store, id));
   };
 
-  const run = async (op: string, body: unknown): Promise<unknown> => {
+  const run = async (op: string, body: unknown, event: unknown): Promise<unknown> => {
     switch (op) {
+      case 'estimate': return estimateOp(body);
+      case 'fetchRange': return fetchRange(body, event);
+      case 'regions': return regions(body);
+      case 'cancel': return cancel(body);
+      // /v2/job/resume は url.pathname.slice(V2_PREFIX.length) で 'job/resume'（計画の申し送り）
+      case 'job/resume': return resume(body, event);
       case 'register': return register(body);
       case 'source': return source(idOf(body));
       case 'sources': return sources();
@@ -420,7 +506,7 @@ export function createControl(ctx: Context): Control {
         } catch (_e) {
           throw new WeiwudiError('attribute-invalid', 'Request body must be a JSON text', { attribute: 'body' });
         }
-        return success(await run(op, body));
+        return success(await run(op, body, event));
       } catch (e) {
         return failure(e);
       }
