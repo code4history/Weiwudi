@@ -299,6 +299,7 @@ describe('イベントと終わりの順（I5c・R21・R45）', () => {
     const info = await ok(env, 'fetchRange', { id: 's', range: RANGE, options: { concurrency: 1 } });
     await vi.waitFor(() => expect(env.h.fetch).toHaveBeenCalledTimes(1));
     expect(await ok(env, 'cancel', { id: 's' })).toEqual({ regionId: info.id });
+    await fails(env, 'clean', { id: 's' }, 'fetch-busy');
     release();
     await settle(env);
     expect(messages(env, 'canceled')).toEqual([{ type: 'canceled', sourceId: 's', regionId: info.id }]);

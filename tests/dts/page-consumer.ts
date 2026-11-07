@@ -151,3 +151,14 @@ const useRange = async (src: WeiwudiSource): Promise<void> => {
   void [est, done, plain, list, canceled];
 };
 void useRange;
+
+// m4-t5: these signatures must also survive declaration bundling.
+const useRelease = async (src: WeiwudiSource): Promise<void> => {
+  const release: void = await src.releaseRange('region-id');
+  const keep: void = await src.releaseRange('region-id', { keep: true });
+  const clean: void = await src.clean(rangeBounds);
+  const force: void = await src.clean(rangeBox, { force: true });
+  const all: void = await src.clean(undefined, { force: false });
+  void [release, keep, clean, force, all];
+};
+void useRelease;

@@ -340,10 +340,16 @@ export class WeiwudiSource extends WeiwudiEventTarget {
         (this as { warnings: string[] }).warnings = info.warnings;
     }
 
-    /** Entry を消す（範囲なし）。他の Source が参照する Resource の Entry は残す */
-    async clean(): Promise<void> {
+    /** 排他の Entry を消す。範囲ありはタイルだけで固定を残し、force で固定も消して重なる自分の region を partial にする */
+    async clean(range?: RangeSpec, opts?: { force?: boolean }): Promise<void> {
         this.alive();
-        await postV2<null>('clean', { id: this.id });
+        await postV2<null>('clean', { id: this.id, range, options: opts });
+    }
+
+    /** region を解放する。keep または共有の Resource なら本体は残す。他の固定つき region の分は保つ */
+    async releaseRange(regionId: string, opts: { keep?: boolean } = {}): Promise<void> {
+        this.alive();
+        await postV2<null>('releaseRange', { id: this.id, regionId, options: opts });
     }
 
     /**

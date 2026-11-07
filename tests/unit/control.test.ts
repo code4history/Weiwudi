@@ -707,3 +707,35 @@ describe('制御の POST の送り手（I6・R25）', () => {
     expect(await res!.json()).toEqual({ api: 2, version: PKG_VERSION });
   });
 });
+
+describe('m4-t5 releaseRange control', () => {
+  it('validates regionId and serializes releaseRange with clean', async () => {
+    const { ctx, post } = direct();
+    expect(await post('register', { kind: 'raster', id: 's', url: TPL })).toMatchObject({ ok: true });
+    for (const regionId of [undefined, '', 3, 'missing']) {
+      expect(await post('releaseRange', { id: 's', regionId })).toMatchObject({ ok: false,
+        error: { code: 'attribute-invalid', detail: { attribute: 'regionId' } } });
+    }
+    const store = await ctx.store();
+    const { normalizeRange, normalizeFetchOptions } = await import('../../src/spec');
+    const range = { box: { minX: 1, maxX: 1, minY: 2, maxY: 2 }, minZoom: 3, maxZoom: 3 };
+    await store.putRegion({ id: 'g', sourceId: 's', range, normalized: normalizeRange(range, {}), options: normalizeFetchOptions({}),
+      pinned: true, status: 'complete', total: 1, error: 0, errors: { network: 0, upstream: 0, quota: 0, storage: 0 }, createdAt: 1, updatedAt: 1 });
+    await putTile(store, TPL);
+    await store.setPinned([`${TPL}\0` + '3_1_2'], 1);
+    let unblock!: () => void;
+    const gate = new Promise<void>((resolve) => { unblock = resolve; });
+    const original = store.deleteRegion;
+    vi.spyOn(store, 'deleteRegion').mockImplementationOnce(async (id) => { await gate; return original(id); });
+    const releasing = post('releaseRange', { id: 's', regionId: 'g', options: { keep: true } });
+    await vi.waitFor(() => expect(store.deleteRegion).toHaveBeenCalledTimes(1));
+    const clear = vi.spyOn(store, 'clearEntries');
+    const cleaning = post('clean', { id: 's' });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(clear).not.toHaveBeenCalled();
+    unblock();
+    expect(await releasing).toEqual({ ok: true, result: null });
+    expect(await cleaning).toEqual({ ok: true, result: null });
+    expect(clear).toHaveBeenCalledTimes(1);
+  });
+});

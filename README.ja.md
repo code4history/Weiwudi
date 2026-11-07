@@ -222,6 +222,16 @@ await style.fetchRange({ bounds: [139.7, 35.6, 139.8, 35.7], minZoom: 10, maxZoo
 `credentials: 'same-origin'` で出すので、別オリジンで Cookie だけで認証するサーバはこの方法では取れません。
 この版のスタイルはタイルの資源のタイルを取ります（[範囲取得](docs/api/weiwudi.ja.md#範囲取得)）。
 
+`await source.releaseRange(regionId)` は取得済みの region を解放し、残る固定つき region が必要としない Entry を排他の資源から
+消します。`{ keep: true }` なら本体は残します。共有資源の本体は残し、参照する全 Source（スタイルの子は親に読み替え）の
+固定つき region が必要とする固定を保ちます。非タイル資源の固定は最後の固定つき region を解放するまで保ちます。
+`clean(range)` は排他の資源の固定されていないタイルだけ消し、`clean(range, { force: true })` は固定も消して自分の重なる
+region を `partial` にします。共有の Entry と他の Source の region は変更しません。`clean()` は全 region を解放してから
+排他の資源を空にします。自分のジョブ中の `clean`・`remove`・`releaseRange` は `fetch-busy` なので、先に
+`await source.cancel()` してください。始めたバッチ（最大 `concurrency` 枚、またはグリフの 1 fontstack。
+`glyphRanges: 'all'` なら最大 256 範囲）の終わりを待ちます。
+[範囲の解放と掃除](docs/api/weiwudi.ja.md#範囲の解放と掃除) を参照してください。
+
 詳しくは [Source の API](docs/api/weiwudi.ja.md#source-の-api) を参照してください。
 
 ### API リファレンス

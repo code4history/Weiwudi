@@ -20,6 +20,7 @@ import type { Context, JobState, OpaqueNotice } from './context';
 import { createGlyphCollector, evictScopesFor, runJob, sweepOnce, type GlyphCollector } from './core';
 import { credentialsForResource, serveResource } from './hook';
 import { probeNoCors } from './upstream';
+import { isExclusiveTo } from './registry';
 import {
   isChildRecord, storedSpecOf, styleSpecOf, templatesOf, type Credentials, type RegionRecord, type ResourceMeta, type ResourceType,
   type SourceRecord, type Store,
@@ -346,6 +347,130 @@ export function cancelRange(ctx: Context, sourceId: string): { regionId: string 
   }
   job.cancel = true;
   return { regionId: job.regionId ?? null };
+}
+
+// ---- 解放と範囲つき clean（m4-t5・R11・R12・R47〜R49） ----
+
+/** Resource を参照する Source（範囲だけの参照も含む）。子は region を持つ親に読み替える（S1） */
+export async function holdersOf(store: Store, resource: ResourceMeta): Promise<string[]> {
+  const holders = new Set<string>();
+  for (const id of [...resource.sourceIds, ...resource.rangeOnlySourceIds ?? []]) {
+    const rec = await store.getSource(id);
+    if (!rec) continue;
+    const holder = isChildRecord(rec) ? rec.parentId : rec.id;
+    if (holder !== undefined) holders.add(holder);
+  }
+  return [...holders];
+}
+
+/** partial・canceled も固定を持つ。pin:false の region は保護に数えない（R11・R12） */
+export async function remainingRegions(store: Store, resource: ResourceMeta, exceptId: string): Promise<RegionRecord[]> {
+  const remaining: RegionRecord[] = [];
+  for (const id of await holdersOf(store, resource)) {
+    remaining.push(...(await store.listRegions(id)).filter((r) => r.id !== exceptId && r.pinned));
+  }
+  return remaining;
+}
+
+/** 自分のジョブだけが解放・削除を妨げる（R48）。cancel の要求だけでは足りず、終了を待つ */
+export function assertSourceIdle(ctx: Context, sourceId: string): void {
+  if (ctx.job?.sourceId === sourceId) throw busy(ctx.job);
+}
+
+const contains = (rects: readonly Rect[], x: number | undefined, y: number | undefined): boolean =>
+  x !== undefined && y !== undefined && rects.some((r) => x >= r.minX && x <= r.maxX && y >= r.minY && y <= r.maxY);
+
+/**
+ * enumerate と同じ rectsAt（scheme の変換と Resource の extents の交差）で保存済みのキーを選ぶ。
+ * 理論上の全タイルを配列にせず、entriesAtZoom のメタを走査する。書き込みは 200 件ずつ（R46）
+ */
+async function* keysInRange(
+  store: Store, resource: ResourceMeta, range: NormalizedRange, remaining: readonly NormalizedRange[] = [],
+): AsyncGenerator<string[]> {
+  let keys: string[] = [];
+  for (let z = range.minZoom; z <= range.maxZoom; z++) {
+    const rects = rectsAt(resource, range, z);
+    if (rects.length === 0) continue;
+    const protectedRects = remaining.filter((r) => z >= r.minZoom && z <= r.maxZoom).flatMap((r) => rectsAt(resource, r, z));
+    for (const meta of await store.entriesAtZoom(resource.id, z)) {
+      if (!contains(rects, meta.x, meta.y) || contains(protectedRects, meta.x, meta.y)) continue;
+      keys.push(meta.key);
+      if (keys.length === PIN_CHUNK) { yield keys; keys = []; }
+    }
+  }
+  if (keys.length > 0) yield keys;
+}
+
+/** 直列の中で呼ぶ解放の本体（手順 2〜5）。一覧を保ったまま解放し、最後に region を消す */
+const releaseRegion = async (
+  store: Store, region: RegionRecord, owners: readonly string[], opts: { keep?: boolean },
+): Promise<void> => {
+  for (const resource of await resourcesOf(store, owners)) {
+    const remaining = await remainingRegions(store, resource, region.id);
+    const release = async (keys: string[]) => {
+      if (opts.keep || !isExclusiveTo(resource, owners)) await store.setPinned(keys, 0);
+      else await store.deleteEntries(keys);
+    };
+    if (resource.type === 'tile') {
+      for await (const keys of keysInRange(store, resource, region.normalized, remaining.map((r) => r.normalized))) await release(keys);
+    } else if (remaining.length === 0) {
+      // グリフも fontstack のレコードごと（R11）。削除後も末尾キーを使って次ページへ進む
+      let after: string | undefined;
+      do {
+        const page = await store.entriesOf(resource.id, PIN_CHUNK, after);
+        if (page.metas.length > 0) await release(page.metas.map((m) => m.key));
+        after = page.next;
+      } while (after !== undefined);
+    }
+  }
+  await store.deleteRegion(region.id);
+};
+
+/** releaseRange の region の検査は fetch-busy より先（手順 1）。control の直列待ち行列から呼ぶ */
+export async function releaseRange(
+  ctx: Context, store: Store, sourceId: string, owners: readonly string[], regionId: string, opts: { keep?: boolean } = {},
+): Promise<void> {
+  const region = await store.getRegion(regionId);
+  if (!region || region.sourceId !== sourceId) throw invalidRegion();
+  assertSourceIdle(ctx, sourceId);
+  await releaseRegion(store, region, owners, opts);
+}
+
+/** remove・範囲なし clean 共通の解放（P1・R47）。参照元を外す前に呼ぶ */
+export async function releaseAllOf(store: Store, sourceId: string, owners: readonly string[], opts: { keep?: boolean }): Promise<void> {
+  for (const region of await store.listRegions(sourceId)) await releaseRegion(store, region, owners, opts);
+}
+
+/** 同じズームに属するタイルの重なり。normalized は XYZ（異なる maxZoom の box も同じ z に直す） */
+const rangesOverlap = (a: NormalizedRange, b: NormalizedRange): boolean => {
+  for (let z = Math.max(a.minZoom, b.minZoom); z <= Math.min(a.maxZoom, b.maxZoom); z++) {
+    for (const aa of a.boxes) for (const bb of b.boxes) {
+      const x = scaleTileBox(aa, a.maxZoom, z);
+      const y = scaleTileBox(bb, b.maxZoom, z);
+      if (x.minX <= y.maxX && y.minX <= x.maxX && x.minY <= y.maxY && y.minY <= x.maxY) return true;
+    }
+  }
+  return false;
+};
+
+/** 排他のタイルだけ掃除する。固定の再検査は deleteEntries の tx に委ねる（M11・R49） */
+export async function cleanRange(
+  store: Store, rec: SourceRecord, owners: readonly string[], range: unknown, opts: { force?: boolean } = {},
+): Promise<void> {
+  const plan = await planOf(store, rec, owners, range);
+  for (const resource of plan.resources) {
+    if (resource.type !== 'tile' || !isExclusiveTo(resource, owners)) continue;
+    for await (const keys of keysInRange(store, resource, plan.normalized)) {
+      if (opts.force) await store.deleteEntries(keys);
+      else await store.deleteEntries(keys, { unpinnedOnly: true });
+    }
+  }
+  if (opts.force) {
+    for (const region of await store.listRegions(rec.id)) {
+      await store.patchRegion(region.id, (current) => rangesOverlap(plan.normalized, current.normalized)
+        ? { ...current, status: 'partial', updatedAt: Date.now() } : undefined);
+    }
+  }
 }
 
 // ---- opaque イベント（P2・I5d・R20） ----
