@@ -99,7 +99,7 @@
     "docs/superpowers/reports/2026-11-02-onboard-summary.md",
     "docs/superpowers/specs/2026-11-02-new-interface-spec.md"
   ],
-  "next_action": "vector-cache を master へ合流した（PR #113 → 964fd3a。#32〜#34・#36〜#42 を閉じた）。1.2.0 の npm 公開は次の月次トレインで行う。次は #78（設計 PR #96 のレビューと実装）。vector-cache は残す",
+  "next_action": "vector-cache を master へ合流した（PR #113 → 964fd3a）。1.2.0 は 12 月トレインの RC の波 1 で公開する（版の上げ・タグはトレイン側。Weiwudi は 1.1.1・[Unreleased] のまま）。トレインの依頼で公開のリハーサル（run 42453128988。verify 成功）・cache.spec.js を外へ出さない直し（#114）・Core の呼び方の旧 API の e2e（#115 → 499e5a8）を済ませた。次は #78（設計 PR #96 のレビューと実装）",
   "delegation_environment": {
     "order": "Codex（gpt-6-astra）→ Kimi（dsh・kimi-coding/k3）→ Claude。並行は 2 まで（2026-11-07 人間の指示）",
     "codex": "5 時間の枠を 2026-11-07 08:45Z ごろと 14:08Z ごろに使い切った（戻ってから約 9 分で再び切れた）",
