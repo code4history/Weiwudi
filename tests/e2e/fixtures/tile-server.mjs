@@ -22,6 +22,8 @@
 // - GET /style/mapbox-tiles.json: mapbox:// のソースの TileJSON（tiles は api.mapbox.com。同上）
 // 範囲取得の e2e（m4-t10・range.spec.js）の端点:
 // - GET /slow/{z}/{x}/{y}.png: SLOW_MS 待ってから 200・CORS あり・本体は `slow:{z}/{x}/{y}`（取得の途中で止める・取り消すため）
+// 旧 API を Core の呼び方で確かめる e2e（legacy.spec.js）の端点:
+// - GET /tms/{z}/{x}/{y}.png: 200・CORS あり・本体は `tms:{z}/{x}/{y}`（受けた y をそのまま返す。{-y} の向きを見る）。/__log に積む
 //
 // 一時ディレクトリの片付け（m2-t1・第 1 回 S14・第 2 回 O19）:
 // - SIGTERM・SIGINT で一時ディレクトリを消してから process.exit(0)。exit の処理でも消す
@@ -250,6 +252,13 @@ const server = createServer((req, res) => {
             res.writeHead(200, { ...CORS, 'content-type': 'image/png' });
             res.end(`slow:${slow[1]}/${slow[2]}/${slow[3]}`);
         }, SLOW_MS);
+        return;
+    }
+    const tms = pathname.match(/^\/tms\/(\d+)\/(\d+)\/(\d+)\.png$/);
+    if (tms) {
+        log.push({ path: pathname, mode: req.headers['sec-fetch-mode'] ?? null, cookie: false });
+        res.writeHead(200, { ...CORS, 'content-type': 'image/png' });
+        res.end(`tms:${tms[1]}/${tms[2]}/${tms[3]}`);
         return;
     }
     if (serveHookTile(req, pathname, res)) return;
