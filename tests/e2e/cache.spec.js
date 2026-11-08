@@ -1,9 +1,26 @@
 import { test, expect } from '@playwright/test';
 
+// 地図の上流と workbox は手元のタイルサーバ（localhost:5174）。外のサーバへ出ないことを各試験の後で確かめる。
+// weiwudi.example.com は旧 API の制御の擬似オリジンで、SW が応答する（外へは出ない）
+const ALLOWED_HOSTS = ['localhost:5173', 'localhost:5174', 'weiwudi.example.com'];
+
 test.describe.serial('Weiwudi Cache Operations', () => {
 
+    let external = [];
+
+    test.afterEach(() => {
+        expect(external).toEqual([]);
+    });
+
     // Simple cleanup: just unregister SWs
-    test.beforeEach(async ({ page }) => {
+    test.beforeEach(async ({ page, context }) => {
+        external = [];
+        context.on('request', (req) => {
+            const url = new URL(req.url());
+            if (/^https?:$/.test(url.protocol) && !ALLOWED_HOSTS.includes(url.host)) {
+                external.push(`${req.method()} ${url.origin}${url.pathname}`);
+            }
+        });
         await page.goto('/tests/e2e/fixtures/blank.html');
         await page.evaluate(async () => {
             if ('serviceWorker' in navigator) {
