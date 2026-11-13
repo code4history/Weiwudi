@@ -195,6 +195,32 @@ describe('ctx.upstreamFetch（上流への取得の 1 つの関数）', () => {
     expect(f).toHaveBeenCalledTimes(1);
   });
 
+  it('取り消された要求（AbortError・signal が abort 済み）は取り直さずに投げる', async () => {
+    const f = setup();
+    const ctx = createContext();
+    f.mockImplementationOnce(async () => { throw new DOMException('aborted', 'AbortError'); });
+    await expect(ctx.upstreamFetch(`${SW_SELF_ORIGIN}/a.png`)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(f).toHaveBeenCalledTimes(1);
+    f.mockClear();
+    const c = new AbortController();
+    f.mockImplementationOnce(async () => { c.abort(); throw new TypeError('failed'); });
+    await expect(ctx.upstreamFetch(new Request(`${SW_SELF_ORIGIN}/a.png`, { signal: c.signal }))).rejects.toThrow('failed');
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it('取り直すのは GET・HEAD だけ。本文のある要求（POST など）は取り直さずに投げる', async () => {
+    const f = setup();
+    const ctx = createContext();
+    f.mockImplementationOnce(async () => { throw new TypeError('failed'); });
+    await expect(ctx.upstreamFetch(new Request(`${SW_SELF_ORIGIN}/a`, { method: 'POST', body: 'x' }))).rejects.toThrow('failed');
+    expect(f).toHaveBeenCalledTimes(1);
+    f.mockClear();
+    f.mockImplementationOnce(async () => { throw new TypeError('failed'); });
+    const head = await ctx.upstreamFetch(`${SW_SELF_ORIGIN}/a.png`, { method: 'HEAD' });
+    expect(head.status).toBe(200);
+    expect(f).toHaveBeenCalledTimes(2);
+  });
+
   it('kv の読み込みが上限を一度越えたら、以後は待たずに送り、読み終えたら次の取得から使う', async () => {
     const f = setup();
     vi.useFakeTimers();

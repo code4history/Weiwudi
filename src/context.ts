@@ -249,9 +249,13 @@ export function createContext(options: ContextOptions | (() => Promise<Store>) =
     if (!request) return plain(input, init);
     try {
       return await fetch(request);
-    } catch (_e) {
+    } catch (error) {
       // 同じオリジンの上流が別オリジンへ redirect すると、redirect 先で User-Agent のための preflight が要り、
-      // 答えない相手では TypeError になる（WebKit・Firefox）。元の引数のまま 1 回だけ取り直す（オフラインなら同じく失敗する）
+      // 答えない相手では TypeError になる（WebKit・Firefox）。元の引数のまま 1 回だけ取り直す（オフラインなら同じく失敗する）。
+      // 取り消された要求（AbortError・signal が abort 済み）と、本文を持ちうる要求（GET・HEAD 以外。本文は使い終わっている）は
+      // 取り直さずにそのまま投げる
+      const aborted = (error as { name?: unknown } | null)?.name === 'AbortError' || request.signal?.aborted === true;
+      if (aborted || (request.method !== 'GET' && request.method !== 'HEAD')) throw error;
       return plain(input, init);
     }
   };

@@ -93,6 +93,8 @@ test.describe('Weiwudi upstream User-Agent', () => {
         const sameLog = await sameOriginLog(request, url);
         const crossLog = await crossOriginLog(request, crossAt(2, 1, 3));
         console.log(`[user-agent] ${browserName} redirect: same-origin ${sameLog.length} request(s), cross-origin ${crossLog.length} GET(s)`);
+        // Chromium は User-Agent を捨てるので preflight が要らず 1 回。ほかは付けた 1 回が失敗し、付けずに取り直した 1 回
+        expect(sameLog.length).toBe(browserName === 'chromium' ? 1 : 2);
         expect(crossLog.length).toBeGreaterThanOrEqual(1);
         expect(crossLog.every((e) => !String(e.ua).includes('Weiwudi/'))).toBe(true);
     });

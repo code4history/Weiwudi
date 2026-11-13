@@ -238,7 +238,7 @@ export function createUpstream(ctx: Context, o: UpstreamOptions): ServeInput['up
     try {
       first = await ctx.upstreamFetch(rebuild(request, credentials, o.provider, 'cors', 'same-origin'));
     } catch (error) {
-      // 4 元の要求が cors なら取り直さない
+      // 4 元の要求が cors なら取り直さない（User-Agent を外して 1 回取り直すのは、ctx.upstreamFetch の中の別の扱い）
       if (!noCors) return { kind: 'network', error };
       // 2 元の要求（no-cors）で 1 回取り直す。両方失敗（オフライン）は数えない
       const second = await retry();
