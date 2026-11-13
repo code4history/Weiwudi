@@ -11,7 +11,8 @@ export default defineConfig({
         rollupOptions: {
             input: {
                 main: './index.html',
-                raster: './demo/raster.html'
+                raster: './demo/raster.html',
+                vector: './demo/vector.html'
             }
         }
     },

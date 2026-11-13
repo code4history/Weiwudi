@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weiwudi - Vector Style Cache Demo</title>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.1/dist/maplibre-gl.css"
+        integrity="sha384-uTttxo/aOKbdE5RlD/SPzSDoDmNvGlUYPjONi2MN/b7c9HPSvW07OIuyP7uL6jxK" crossorigin="anonymous" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .portal-link {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+            padding: 8px 12px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.95);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            font-size: 13px;
+            font-weight: 600;
+            color: #3b82f6;
+            text-decoration: none;
+        }
+
+        .portal-link:hover {
+            background: #fff;
+            color: #2563eb;
+        }
+
+        .stats-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            min-width: 300px;
+            max-width: 340px;
+            max-height: calc(100vh - 20px);
+            overflow-y: auto;
+            z-index: 1000;
+            font-size: 14px;
+        }
+
+        .stats-panel h2 {
+            margin-bottom: 15px;
+            font-size: 18px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        .stats-panel h3 {
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: #444;
+            font-weight: 600;
+        }
+
+        .stat-item {
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .stat-label {
+            color: #666;
+            font-weight: 500;
+        }
+
+        .stat-value {
+            color: #333;
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        .button {
+            width: 100%;
+            padding: 10px 16px;
+            margin-top: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .button-primary {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .button-primary:hover {
+            background: #2563eb;
+            transform: translateY(-1px);
+        }
+
+        .button-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .button-danger:hover {
+            background: #dc2626;
+            transform: translateY(-1px);
+        }
+
+        .button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .region-list {
+            list-style: none;
+            font-size: 13px;
+        }
+
+        .region-list li {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .region-list li:last-child {
+            border-bottom: none;
+        }
+
+        .region-label {
+            color: #333;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .region-release {
+            flex: none;
+            padding: 4px 10px;
+            border: none;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            background: #f59e0b;
+            color: white;
+        }
+
+        .region-release:hover {
+            background: #d97706;
+        }
+
+        .limit-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .limit-row input {
+            flex: 1;
+            min-width: 0;
+            padding: 8px 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 13px;
+        }
+
+        .limit-row button {
+            flex: none;
+            padding: 8px 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            background: #3b82f6;
+            color: white;
+        }
+
+        .limit-row button:hover {
+            background: #2563eb;
+        }
+
+        .verify-note {
+            margin-top: 12px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            background: #f8f9fb;
+            border: 1px solid #e5e7eb;
+            font-size: 12px;
+            line-height: 1.6;
+            color: #444;
+        }
+
+        .verify-note ol {
+            padding-left: 18px;
+            margin-top: 6px;
+        }
+
+        .verify-note li {
+            margin-bottom: 2px;
+        }
+
+        .policy-note {
+            margin-top: 12px;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #666;
+        }
+
+        .warnings {
+            margin-top: 12px;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #991b1b;
+        }
+
+        .status-message {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            text-align: center;
+        }
+
+        .status-success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status-error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .status-info {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .divider {
+            margin: 15px 0;
+            border-top: 1px solid #e5e7eb;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+
+    <a class="portal-link" href="../index.html">← Demo Portal</a>
+
+    <div class="stats-panel">
+        <h2>🧭 Vector Style Cache</h2>
+
+        <div class="stat-item">
+            <span class="stat-label">Cached Entries:</span>
+            <span class="stat-value" id="tile-count">-</span>
+        </div>
+
+        <div class="stat-item">
+            <span class="stat-label">Cache Size:</span>
+            <span class="stat-value" id="cache-size">-</span>
+        </div>
+
+        <div class="stat-item">
+            <span class="stat-label">Status:</span>
+            <span class="stat-value" id="sw-status">Initializing...</span>
+        </div>
+
+        <div class="divider"></div>
+
+        <h3>Usage by Resource Type</h3>
+        <div id="type-list">-</div>
+
+        <div class="divider"></div>
+
+        <h3>Usage by Provider</h3>
+        <div id="usage-list">-</div>
+
+        <div class="divider"></div>
+
+        <h3>Regions</h3>
+        <ul class="region-list" id="region-list">
+            <li class="region-label">-</li>
+        </ul>
+
+        <div class="divider"></div>
+
+        <button class="button button-primary" id="fetch-range-btn" disabled>Fetch Visible Range</button>
+        <button class="button button-danger" id="clear-cache-btn" disabled>Clear Cache</button>
+
+        <div class="limit-row">
+            <input type="number" id="limit-input" min="0" step="1"
+                placeholder="Global limit (bytes, empty = none)" disabled>
+            <button id="limit-btn" disabled>Apply</button>
+        </div>
+
+        <div class="verify-note">
+            <strong>How to verify the cache</strong>
+            <ol>
+                <li>Move and zoom the map</li>
+                <li>Watch the statistics grow (tiles, glyphs, sprites)</li>
+                <li>Open DevTools → Network, check "Offline", then reload this page</li>
+                <li>The map you moved over still draws (no blank canvas)</li>
+                <li>Uncheck "Offline" to continue</li>
+            </ol>
+        </div>
+
+        <p class="policy-note">
+            Map data:
+            <a href="https://openfreemap.org/" target="_blank" rel="noopener">OpenFreeMap</a> ©
+            <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">OpenMapTiles</a>
+            Data from
+            <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>
+            (attribution is required; MapLibre shows it on the map).
+            The style is Liberty from OpenFreeMap. Their
+            <a href="https://openfreemap.org/" target="_blank" rel="noopener">terms</a> allow offline downloads of at most
+            3,000 tiles / 50 MB with at most 4 parallel requests, so this demo refuses more than 300 tiles at once
+            and fetches with 4 parallel requests. To load this page offline, reload it once online first
+            (so that the service worker controls it).
+        </p>
+
+        <div class="warnings" id="warnings"></div>
+
+        <div id="status-message"></div>
+    </div>
+
+    <script src="https://unpkg.com/maplibre-gl@5.24.1/dist/maplibre-gl.js"
+        integrity="sha384-nXMl9YiLoSG5KBPTFgvxVuIqQQcqIvo0bFrvoEaGJC6r7IibIzF1S36Zbf/sKBtL" crossorigin="anonymous"></script>
+    <script type="module">
+        import Weiwudi from '../dist/weiwudi.es.js';
+
+        const SOURCE_ID = 'openfreemap_liberty';
+        // OpenFreeMap の Liberty スタイル。鍵は不要。スタイルは参照する資源（TileJSON・タイル・グリフ・スプライト・
+        // 画像）もまとめて Weiwudi に登録される
+        const STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
+        // OpenFreeMap の planet タイルのズームの範囲（TileJSON の minzoom / maxzoom）
+        const MIN_ZOOM = 0;
+        const MAX_ZOOM = 14;
+        // OpenFreeMap の利用規約は 1 回の取得を 3,000 タイル・50 MB まで、並行 4 要求までとする。
+        // 開発用ページでは見積もりがこの枚数を超えたら取得しない
+        const MAX_FETCH_TILES = 300;
+        const FETCH_CONCURRENCY = 4;
+
+        let map = null;
+        let source = null;
+        let statsInterval = null;
+
+        let messageTimer = null;
+
+        function showMessage(message, type = 'info') {
+            const statusEl = document.getElementById('status-message');
+            statusEl.textContent = message;
+            statusEl.className = `status-message status-${type}`;
+
+            if (messageTimer !== null) clearTimeout(messageTimer);
+            messageTimer = setTimeout(() => {
+                messageTimer = null;
+                statusEl.textContent = '';
+                statusEl.className = '';
+            }, 5000);
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            if (!bytes) return '-';
+
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+            return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        function statRow(parent, label, value) {
+            const row = document.createElement('div');
+            row.className = 'stat-item';
+            const l = document.createElement('span');
+            l.className = 'stat-label';
+            l.textContent = label;
+            const v = document.createElement('span');
+            v.className = 'stat-value';
+            v.textContent = value;
+            row.append(l, v);
+            parent.appendChild(row);
+        }
+
+        // 範囲が決まる Source の stats().count は範囲の中の Entry の数（byResource の和とは一致しないことがある）
+        async function updateStats() {
+            if (!source) return;
+
+            try {
+                const stats = await source.stats();
+                const count = stats.count ?? 0;
+                document.getElementById('tile-count').textContent =
+                    typeof stats.total === 'number' && typeof stats.percent === 'number'
+                        ? `${count} / ${stats.total} (${Math.round(stats.percent)}%)`
+                        : `${count}`;
+                document.getElementById('cache-size').textContent = formatBytes(stats.size);
+
+                // 資源の種類別（byResource の鍵は資源の id。resources の写しから種類を引く）
+                const typeOf = new Map(source.resources.map((r) => [r.id, r.type]));
+                const byType = new Map();
+                for (const [rid, v] of Object.entries(stats.byResource ?? {})) {
+                    const type = typeOf.get(rid) ?? 'other';
+                    const cur = byType.get(type) ?? { count: 0, bytes: 0 };
+                    cur.count += v.count ?? 0;
+                    cur.bytes += v.bytes ?? 0;
+                    byType.set(type, cur);
+                }
+                const el = document.getElementById('type-list');
+                el.textContent = '';
+                if (byType.size === 0) {
+                    el.textContent = '-';
+                    return;
+                }
+                for (const [type, v] of [...byType.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+                    statRow(el, type, `${v.count} / ${formatBytes(v.bytes)}`);
+                }
+            } catch (e) {
+                console.error('Failed to update stats:', e);
+            }
+        }
+
+        async function updateUsage() {
+            try {
+                const usage = await Weiwudi.usage();
+                const el = document.getElementById('usage-list');
+                const providers = Object.entries(usage.byProvider);
+                if (providers.length === 0) {
+                    el.textContent = '-';
+                    return;
+                }
+                el.textContent = '';
+                for (const [provider, v] of providers) {
+                    statRow(el, provider, `${v.count} / ${formatBytes(v.bytes)}`);
+                }
+            } catch (e) {
+                console.error('Failed to update usage:', e);
+            }
+        }
+
+        async function updateRegions() {
+            if (!source) return;
+
+            try {
+                const regions = await source.regions();
+                const list = document.getElementById('region-list');
+                list.innerHTML = '';
+                if (regions.length === 0) {
+                    const li = document.createElement('li');
+                    li.className = 'region-label';
+                    li.textContent = '-';
+                    list.appendChild(li);
+                    return;
+                }
+                for (const region of regions) {
+                    const li = document.createElement('li');
+                    const label = document.createElement('span');
+                    label.className = 'region-label';
+                    label.textContent = `${region.id} (${region.status})`;
+                    li.appendChild(label);
+                    const btn = document.createElement('button');
+                    btn.className = 'region-release';
+                    btn.textContent = 'Release';
+                    btn.addEventListener('click', async () => {
+                        btn.disabled = true;
+                        try {
+                            await source.releaseRange(region.id);
+                            showMessage(`Region ${region.id} released`, 'success');
+                            await updateRegions();
+                            await updateStats();
+                            await updateUsage();
+                        } catch (e) {
+                            showMessage('Release failed: ' + (e && e.message ? e.message : e), 'error');
+                            btn.disabled = false;
+                        }
+                    });
+                    li.appendChild(btn);
+                    list.appendChild(li);
+                }
+            } catch (e) {
+                console.error('Failed to update regions:', e);
+            }
+        }
+
+        async function init() {
+            try {
+                document.getElementById('sw-status').textContent = 'Registering SW...';
+
+                // Register Service Worker
+                await Weiwudi.registerSW('../demo-sw.js', { scope: '../' });
+
+                document.getElementById('sw-status').textContent = 'Registering style...';
+
+                // スタイルと、それが参照する資源（TileJSON・タイル・グリフ・スプライト）をまとめて登録する。
+                // 完了を待ってから地図を作る（先に出た要求はキャッシュされない）
+                source = await Weiwudi.register({
+                    kind: 'style',
+                    id: SOURCE_ID,
+                    url: STYLE_URL
+                });
+
+                if (source.warnings.length > 0) {
+                    document.getElementById('warnings').textContent =
+                        'Warnings: ' + source.warnings.join(', ');
+                }
+
+                document.getElementById('sw-status').textContent = 'Active';
+
+                // Initialize MapLibre GL JS. style.url は捕捉される実 URL（register() の完了後）
+                map = new maplibregl.Map({
+                    container: 'map',
+                    style: source.url,
+                    center: [139.76, 35.68], // Tokyo
+                    zoom: 14,
+                    // オフライン確認で canvas の中身を読めるようにする（描画済みの内容を保持）
+                    canvasContextAttributes: { preserveDrawingBuffer: true }
+                });
+
+                // Enable controls
+                document.getElementById('fetch-range-btn').disabled = false;
+                document.getElementById('clear-cache-btn').disabled = false;
+                document.getElementById('limit-input').disabled = false;
+                document.getElementById('limit-btn').disabled = false;
+
+                // Start stats polling
+                statsInterval = setInterval(() => {
+                    updateStats();
+                    updateUsage();
+                }, 2000);
+                updateStats();
+                updateUsage();
+                updateRegions();
+
+                showMessage('Weiwudi initialized successfully!', 'success');
+
+                // Listen to range fetching events
+                source.addEventListener('proceed', (e) => {
+                    const d = e.detail || {};
+                    if (typeof d.percent === 'number') {
+                        showMessage(`Fetching resources: ${d.processed}/${d.total} (${Math.round(d.percent)}%)`, 'info');
+                    }
+                });
+
+                source.addEventListener('finish', () => {
+                    showMessage('Range fetched successfully!', 'success');
+                    updateRegions();
+                    updateStats();
+                    updateUsage();
+                });
+
+                source.addEventListener('stop', (e) => {
+                    const d = e.detail || {};
+                    showMessage('Fetch stopped: ' + (d.message || d.code || 'Unknown error'), 'error');
+                });
+
+                source.addEventListener('canceled', () => {
+                    showMessage('Fetch canceled', 'info');
+                    updateRegions();
+                });
+
+                source.addEventListener('opaque', (e) => {
+                    const d = e.detail || {};
+                    showMessage(`Resource ${d.resourceId} does not support CORS (opaque)`, 'error');
+                });
+
+            } catch (e) {
+                document.getElementById('sw-status').textContent = 'Error';
+                showMessage('Initialization error: ' + e.toString(), 'error');
+                console.error(e);
+            }
+        }
+
+        // Event handlers
+        document.getElementById('fetch-range-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('fetch-range-btn');
+            btn.disabled = true;
+
+            try {
+                const b = map.getBounds();
+                const minZoom = Math.max(MIN_ZOOM, Math.round(map.getZoom()));
+                const range = {
+                    bounds: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()],
+                    minZoom,
+                    maxZoom: MAX_ZOOM
+                };
+
+                // 見積もりが上限を超えたら取得しない（OpenFreeMap の利用規約に収める）
+                const estimate = await source.estimate(range);
+                if (estimate.tiles === 0) {
+                    showMessage('Refused: no tiles to fetch in the visible range.', 'error');
+                    return;
+                }
+                if (estimate.tiles > MAX_FETCH_TILES) {
+                    showMessage(
+                        `Refused: ${estimate.tiles} tiles exceeds the ${MAX_FETCH_TILES}-tile limit of this demo. ` +
+                        'Zoom in, or fetch a smaller range.',
+                        'error');
+                    return;
+                }
+                if (!confirm(`Fetch ${estimate.tiles} tiles plus styles, glyphs and sprites (zoom ${minZoom}-${MAX_ZOOM})?`)) {
+                    return;
+                }
+
+                showMessage(`Fetching ${estimate.tiles} tiles...`, 'info');
+                const region = await source.fetchRange(range, { concurrency: FETCH_CONCURRENCY });
+                showMessage(`Region ${region.id}: ${region.status}`, region.status === 'complete' ? 'success' : 'error');
+                await updateRegions();
+                await updateStats();
+                await updateUsage();
+            } catch (e) {
+                showMessage('Fetch failed: ' + (e && e.message ? e.message : e), 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        document.getElementById('clear-cache-btn').addEventListener('click', async () => {
+            if (!confirm('Are you sure you want to clear all cached resources?')) {
+                return;
+            }
+
+            const btn = document.getElementById('clear-cache-btn');
+            btn.disabled = true;
+
+            try {
+                await source.clean();
+                await updateStats();
+                await updateUsage();
+                await updateRegions();
+                showMessage('Cache cleared successfully!', 'success');
+            } catch (e) {
+                showMessage('Clear failed: ' + (e && e.message ? e.message : e), 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        document.getElementById('limit-btn').addEventListener('click', async () => {
+            const input = document.getElementById('limit-input');
+            const btn = document.getElementById('limit-btn');
+            btn.disabled = true;
+
+            try {
+                const raw = input.value.trim();
+                if (raw === '') {
+                    await Weiwudi.setLimits({});
+                    showMessage('Global cache limit removed', 'success');
+                } else {
+                    const maxBytes = Number(raw);
+                    await Weiwudi.setLimits({ maxBytes });
+                    showMessage(`Global cache limit set to ${formatBytes(maxBytes)}`, 'success');
+                }
+            } catch (e) {
+                showMessage('Set limits failed: ' + (e && e.message ? e.message : e), 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        // Initialize on load
+        init();
+
+        // Cleanup on unload
+        window.addEventListener('beforeunload', () => {
+            if (statsInterval) clearInterval(statsInterval);
+        });
+    </script>
+</body>
+
+</html>
