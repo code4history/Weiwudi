@@ -91,7 +91,7 @@ export interface Context {
     migrationBooted?: boolean;
     /** 進行中の起動後の点検（第 1 段と契機が共有する。どちらが先でも点検は 1 回） */
     migrationBooting?: Promise<void>;
-    /** 起動後の最初の契機で pendingDelete を消し直した（R51。契機だけが行い、旧 API の要求には待たせない） */
+    /** 起動後の最初の契機で pendingDelete を消し直した（R51。契機だけが行い、旧 API の要求には待たせない。返らない削除は DELETE_WAIT_MS で切る） */
     pendingDeletesRetried?: boolean;
     /** mapID → 進行中の pullTile（clean・delete が待つ） */
     pulls?: Map<string, Set<Promise<void>>>;
@@ -99,7 +99,7 @@ export interface Context {
     forgotten?: Set<string>;
     /** stage が done のときの failed の地図（読み通しを続ける地図） */
     failedMaps?: Set<string>;
-    /** 削除が blocked で待ちになっている旧 DB の名前（開くと削除の後ろに並んで止まるので開かない） */
+    /** 削除が blocked か DELETE_WAIT_MS で切って待ちになっている旧 DB の名前（開く・消すと削除の後ろに並んで止まるので触らない） */
     blockedDeletes?: Set<string>;
     /** kv の migration の読み直しと書き込みの直列化 */
     migrationLock?: Promise<void>;
