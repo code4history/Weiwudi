@@ -289,6 +289,8 @@
             Writes a 1.1.x-shaped cache into IndexedDB
             (<code>Weiwudi.mapSetting</code> + <code>Weiwudi_&lt;mapID&gt;.tileCache</code>),
             341 tiles (zoom 0-4, one PNG per tile labelled with its z / x / y).
+            If a service worker from a previous run is still registered, this step drops it
+            and reloads the page, so that the migration starts from a clean service worker.
         </p>
 
         <button class="button button-primary" id="start-btn" disabled>2. Register SW and migrate</button>
@@ -434,6 +436,11 @@ const stats = await source.stats();
             req.onblocked = () => resolve();
         });
 
+        const listDbNames = async () =>
+            (indexedDB.databases ? (await indexedDB.databases()).map((d) => d.name).filter(Boolean) : []);
+        const isLegacyDb = (name) => name === 'Weiwudi' || name.startsWith('Weiwudi_');
+        const hasLegacyDb = (names) => names.some(isLegacyDb);
+
         // 1 枚のタイルの PNG（色と z / x / y の文字を入れる）。旧キャッシュの本体は Blob
         const makeTileBlob = (z, x, y) => new Promise((resolve) => {
             const c = document.createElement('canvas');
@@ -498,9 +505,7 @@ const stats = await source.stats();
             settings.close();
 
             document.getElementById('migrate-status').textContent = 'Legacy cache created';
-            document.getElementById('start-btn').disabled = false;
             await updateDbs();
-            showMessage(`Created ${records.length} legacy tiles in Weiwudi / Weiwudi_${MAP_ID}`, 'success');
         }
 
         async function updateDbs() {
@@ -560,7 +565,7 @@ const stats = await source.stats();
             }
         }
 
-        async function startMigration() {
+        async function startMigration(opts = {}) {
             const seedBtn = document.getElementById('seed-btn');
             const startBtn = document.getElementById('start-btn');
             seedBtn.disabled = true;
@@ -586,12 +591,24 @@ const stats = await source.stats();
                 }).addTo(leafletMap);
 
                 showMessage('Old API calls work: migration is running in the background', 'success');
+                if (opts.restore) seedBtn.disabled = false;
                 await poll();
+                if (pollTimer) clearInterval(pollTimer);
                 pollTimer = setInterval(poll, 700);
             } catch (e) {
-                document.getElementById('migrate-status').textContent = 'Error';
-                showMessage('Start failed: ' + (e && e.message ? e.message : e), 'error');
                 console.error(e);
+                seedBtn.disabled = false;
+                startBtn.disabled = false;
+                if (opts.restore) {
+                    // 自動の復元で読めないだけ（まだ移行の対象が無い）。手順どおり 1 → 2 で進める
+                    document.getElementById('migrate-status').textContent = 'Not started';
+                    return;
+                }
+                document.getElementById('migrate-status').textContent = 'Error';
+                showMessage(
+                    'Start failed: ' + (e && e.message ? e.message : e) +
+                    ' — press "1. Create a 1.1.x cache" again (or Reset) if a previous run is still active.',
+                    'error');
             }
         }
 
@@ -618,7 +635,18 @@ const stats = await source.stats();
             const btn = document.getElementById('seed-btn');
             btn.disabled = true;
             try {
+                // 前回の実行のサービスワーカーが残っていると「移行は済んだ」状態のまま動き、
+                // 新しく作った旧 DB が移されない。先に登録を外し、外せたら再読み込みして新しい SW で始める
+                const regs = await navigator.serviceWorker.getRegistrations();
+                for (const reg of regs) await reg.unregister();
                 await seedLegacy();
+                if (regs.length > 0) {
+                    showMessage('Legacy cache created. Reloading to drop the old service worker…', 'info');
+                    location.reload();
+                    return;
+                }
+                document.getElementById('start-btn').disabled = false;
+                showMessage('Created 341 legacy tiles in Weiwudi / Weiwudi_legacy_demo', 'success');
             } catch (e) {
                 showMessage('Seed failed: ' + (e && e.message ? e.message : e), 'error');
                 console.error(e);
@@ -626,10 +654,31 @@ const stats = await source.stats();
             }
         });
 
-        document.getElementById('start-btn').addEventListener('click', startMigration);
+        document.getElementById('start-btn').addEventListener('click', () => startMigration());
         document.getElementById('reset-btn').addEventListener('click', resetDemo);
 
-        updateDbs();
+        // 読み込み時の状態に合わせて、次に押す場所を整える。移行の済んだキャッシュがあるときは
+        // 再読み込み（オフラインの再読み込みも）で地図を自動で戻す
+        async function onLoad() {
+            await updateDbs();
+            const names = await listDbNames();
+            if (hasLegacyDb(names)) {
+                document.getElementById('start-btn').disabled = false;
+                document.getElementById('migrate-status').textContent = 'Legacy cache created';
+                return;
+            }
+            if (names.indexOf('WeiwudiStore') >= 0) {
+                try {
+                    await startMigration({ restore: true });
+                } catch (e) {
+                    document.getElementById('migrate-status').textContent = 'Not started';
+                }
+                return;
+            }
+            document.getElementById('migrate-status').textContent = 'Not started';
+        }
+
+        onLoad();
 
         // Cleanup on unload
         window.addEventListener('beforeunload', () => {
