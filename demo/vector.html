@@ -338,9 +338,11 @@
             <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>
             (attribution is required; MapLibre shows it on the map).
             The style is Liberty from OpenFreeMap. Their
-            <a href="https://openfreemap.org/" target="_blank" rel="noopener">terms</a> allow offline downloads of at most
-            3,000 tiles / 50 MB with at most 4 parallel requests, so this demo refuses more than 300 tiles at once
-            and fetches with 4 parallel requests. To load this page offline, reload it once online first
+            <a href="https://openfreemap.org/tos/" target="_blank" rel="noopener">terms of service</a> allow offline
+            downloads of at most 3,000 tiles or 50 MB, made with at most 4 parallel requests and sent with a
+            User-Agent that identifies the app. A browser cannot change its User-Agent, so this demo keeps well
+            below the limit: it refuses more than 50 tiles at once, fetches with 4 parallel requests, and stops
+            caching at 50 MB. To load this page offline, reload it once online first
             (so that the service worker controls it).
         </p>
 
@@ -361,10 +363,13 @@
         // OpenFreeMap の planet タイルのズームの範囲（TileJSON の minzoom / maxzoom）
         const MIN_ZOOM = 0;
         const MAX_ZOOM = 14;
-        // OpenFreeMap の利用規約は 1 回の取得を 3,000 タイル・50 MB まで、並行 4 要求までとする。
-        // 開発用ページでは見積もりがこの枚数を超えたら取得しない
-        const MAX_FETCH_TILES = 300;
+        // OpenFreeMap の利用規約は 1 回の取得を 3,000 タイルか 50 MB まで、並行 4 要求までとし、
+        // アプリを名乗る User-Agent を要求する。ブラウザは User-Agent を変えられないので、
+        // 50 MB を大きく超えない枚数（東京付近の z14 は 1 枚 400〜700 KB）にとどめている
+        const MAX_FETCH_TILES = 50;
         const FETCH_CONCURRENCY = 4;
+        // 規約の 50 MB を Source 単位のキャッシュ容量の上限にも置く（超えると使われていないものから自動削除）
+        const CACHE_MAX_BYTES = 50 * 1024 * 1024;
 
         let map = null;
         let source = null;
@@ -522,7 +527,8 @@
                 source = await Weiwudi.register({
                     kind: 'style',
                     id: SOURCE_ID,
-                    url: STYLE_URL
+                    url: STYLE_URL,
+                    cacheMaxBytes: CACHE_MAX_BYTES
                 });
 
                 if (source.warnings.length > 0) {
@@ -533,14 +539,17 @@
                 document.getElementById('sw-status').textContent = 'Active';
 
                 // Initialize MapLibre GL JS. style.url は捕捉される実 URL（register() の完了後）
-                map = new maplibregl.Map({
+                const mapOptions = {
                     container: 'map',
                     style: source.url,
                     center: [139.76, 35.68], // Tokyo
-                    zoom: 14,
-                    // オフライン確認で canvas の中身を読めるようにする（描画済みの内容を保持）
-                    canvasContextAttributes: { preserveDrawingBuffer: true }
-                });
+                    zoom: 14
+                };
+                // 検査用のスクリプトが canvas の中身を読めるように、URL に ?verify があるときだけ描画済みの内容を保持する
+                if (new URLSearchParams(location.search).has('verify')) {
+                    mapOptions.canvasContextAttributes = { preserveDrawingBuffer: true };
+                }
+                map = new maplibregl.Map(mapOptions);
 
                 // Enable controls
                 document.getElementById('fetch-range-btn').disabled = false;
@@ -603,7 +612,8 @@
 
             try {
                 const b = map.getBounds();
-                const minZoom = Math.max(MIN_ZOOM, Math.round(map.getZoom()));
+                // ズームが Source の上限を超えても範囲が壊れないよう、MIN_ZOOM〜MAX_ZOOM に丸める
+                const minZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(map.getZoom())));
                 const range = {
                     bounds: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()],
                     minZoom,

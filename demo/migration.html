@@ -289,6 +289,10 @@
             Writes a 1.1.x-shaped cache into IndexedDB
             (<code>Weiwudi.mapSetting</code> + <code>Weiwudi_&lt;mapID&gt;.tileCache</code>),
             341 tiles (zoom 0-4, one PNG per tile labelled with its z / x / y).
+            Before writing, it deletes this demo's own data
+            (<code>Weiwudi</code> / <code>Weiwudi_*</code> / <code>WeiwudiStore</code> and this demo's service worker
+            registration), so a second run also starts from zero. Databases and service workers of other projects on
+            this origin are left untouched.
             If a service worker from a previous run is still registered, this step drops it
             and reloads the page, so that the migration starts from a clean service worker.
         </p>
@@ -298,6 +302,10 @@
             Registers the service worker and reads the map back with the old API
             (<code>Weiwudi.retrieveMap</code>). Migration runs in the background
             (200 records per batch) while the tiles are being read.
+        </p>
+        <p class="step-note" id="retry-note" hidden>
+            The migration has finished and the buttons above are disabled.
+            To run it again from zero, press "Reset demo data" below.
         </p>
 
         <div class="divider"></div>
@@ -334,6 +342,7 @@ const stats = await map.stats();
                 <pre>await Weiwudi.registerSW('./sw.js', { scope: './' });
 const source = await Weiwudi.register({
   kind: 'raster',
+  id: 'my_map',
   url: 'https://tiles.example.com/{z}/{x}/{y}.png',
   minZoom: 0, maxZoom: 8,
 });
@@ -360,8 +369,10 @@ const stats = await source.stats();
 
         <button class="button button-danger" id="reset-btn">Reset demo data</button>
         <p class="step-note">
-            Unregisters the service worker and deletes this origin's IndexedDB databases,
-            then reloads. Use this before running the demo a second time.
+            Unregisters this demo's service worker and deletes the Weiwudi IndexedDB databases
+            (<code>Weiwudi</code> / <code>Weiwudi_*</code> / <code>WeiwudiStore</code>), then reloads.
+            Service workers and databases of other projects on this origin are left untouched.
+            Use this before running the demo a second time.
         </p>
 
         <p class="policy-note">
@@ -440,6 +451,22 @@ const stats = await source.stats();
             (indexedDB.databases ? (await indexedDB.databases()).map((d) => d.name).filter(Boolean) : []);
         const isLegacyDb = (name) => name === 'Weiwudi' || name.startsWith('Weiwudi_');
         const hasLegacyDb = (names) => names.some(isLegacyDb);
+
+        // GitHub Pages では他のプロジェクトと同じオリジンに置かれるので、触るのは
+        // このデモのスコープのサービスワーカーと、Weiwudi の DB（Weiwudi・Weiwudi_*・WeiwudiStore）だけにする
+        const DEMO_SW_SCOPE = new URL('../', location.href).href;
+        const isDemoSw = (reg) => reg.scope === DEMO_SW_SCOPE;
+        const isDemoDb = (name) => isLegacyDb(name) || name === 'WeiwudiStore';
+        const unregisterDemoSw = async () => {
+            for (const reg of await navigator.serviceWorker.getRegistrations()) {
+                if (isDemoSw(reg)) await reg.unregister();
+            }
+        };
+        const deleteDemoDbs = async () => {
+            for (const name of await listDbNames()) {
+                if (isDemoDb(name)) await deleteDb(name);
+            }
+        };
 
         // 1 枚のタイルの PNG（色と z / x / y の文字を入れる）。旧キャッシュの本体は Blob
         const makeTileBlob = (z, x, y) => new Promise((resolve) => {
@@ -554,6 +581,7 @@ const stats = await source.stats();
                 const statusEl = document.getElementById('migrate-status');
                 if (oldLeft.length === 0) {
                     statusEl.textContent = 'Complete';
+                    document.getElementById('retry-note').hidden = false;
                 } else if (count > 0) {
                     statusEl.textContent = `Migrating… ${count} / ${total}`;
                 } else {
@@ -582,7 +610,9 @@ const stats = await source.stats();
                     `mapID: ${map.mapID}\nurl: ${map.url}`;
 
                 if (!leafletMap) {
-                    leafletMap = L.map('map').setView([30, 135], 3);
+                    // ズームの操作は左下に置く（左上の「← Demo Portal」と重ねない）
+                    leafletMap = L.map('map', { zoomControl: false }).setView([30, 135], 3);
+                    L.control.zoom({ position: 'bottomleft' }).addTo(leafletMap);
                 }
                 L.tileLayer(map.url, {
                     minZoom: 0,
@@ -613,18 +643,12 @@ const stats = await source.stats();
         }
 
         async function resetDemo() {
-            if (!confirm('Delete this origin\'s IndexedDB databases and unregister the service worker?')) {
+            if (!confirm('Delete the Weiwudi IndexedDB databases and unregister this demo\'s service worker?')) {
                 return;
             }
             try {
-                for (const reg of await navigator.serviceWorker.getRegistrations()) {
-                    await reg.unregister();
-                }
-                if (indexedDB.databases) {
-                    for (const d of await indexedDB.databases()) {
-                        if (d.name) await deleteDb(d.name);
-                    }
-                }
+                await unregisterDemoSw();
+                await deleteDemoDbs();
             } catch (e) {
                 console.error(e);
             }
@@ -636,9 +660,12 @@ const stats = await source.stats();
             btn.disabled = true;
             try {
                 // 前回の実行のサービスワーカーが残っていると「移行は済んだ」状態のまま動き、
-                // 新しく作った旧 DB が移されない。先に登録を外し、外せたら再読み込みして新しい SW で始める
-                const regs = await navigator.serviceWorker.getRegistrations();
+                // 新しく作った旧 DB が移されない。前の移行の結果（WeiwudiStore）が残っていても
+                // 0 から移す様子が見えない。自分のスコープのサービスワーカーの登録だけを外し、
+                // Weiwudi の DB だけ消してから作り直す
+                const regs = (await navigator.serviceWorker.getRegistrations()).filter(isDemoSw);
                 for (const reg of regs) await reg.unregister();
+                await deleteDemoDbs();
                 await seedLegacy();
                 if (regs.length > 0) {
                     showMessage('Legacy cache created. Reloading to drop the old service worker…', 'info');
