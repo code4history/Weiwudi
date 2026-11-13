@@ -87,10 +87,12 @@ export interface Context {
     settingsDone?: boolean;
     /** 進行中の migrateStep（同時の契機で 2 バッチ走らせない。clean・delete が待つ） */
     migrating?: Promise<void>;
-    /** 起動後の最初の契機の点検（pendingDelete の消し直し・やり直しの判定。R59）が済んだ */
+    /** 起動後の点検（やり直すかの判定。R59）が済んだ。起動後の最初の契機か、旧 API の最初の要求（ping を除く）で点検する */
     migrationBooted?: boolean;
     /** 進行中の起動後の点検（第 1 段と契機が共有する。どちらが先でも点検は 1 回） */
     migrationBooting?: Promise<void>;
+    /** 起動後の最初の契機で pendingDelete を消し直した（R51。契機だけが行い、旧 API の要求には待たせない） */
+    pendingDeletesRetried?: boolean;
     /** mapID → 進行中の pullTile（clean・delete が待つ） */
     pulls?: Map<string, Set<Promise<void>>>;
     /** 旧 API の clean・delete で忘れた地図（以後の migrateStep・pullTile が書かない） */
