@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weiwudi - Legacy Cache Migration Demo</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .portal-link {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+            padding: 8px 12px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.95);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            font-size: 13px;
+            font-weight: 600;
+            color: #3b82f6;
+            text-decoration: none;
+        }
+
+        .portal-link:hover {
+            background: #fff;
+            color: #2563eb;
+        }
+
+        .stats-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            min-width: 320px;
+            max-width: 380px;
+            max-height: calc(100vh - 20px);
+            overflow-y: auto;
+            z-index: 1000;
+            font-size: 14px;
+        }
+
+        .stats-panel h2 {
+            margin-bottom: 15px;
+            font-size: 18px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        .stats-panel h3 {
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: #444;
+            font-weight: 600;
+        }
+
+        .stat-item {
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .stat-label {
+            color: #666;
+            font-weight: 500;
+        }
+
+        .stat-value {
+            color: #333;
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        .button {
+            width: 100%;
+            padding: 10px 16px;
+            margin-top: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .button-primary {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .button-primary:hover {
+            background: #2563eb;
+            transform: translateY(-1px);
+        }
+
+        .button-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .button-danger:hover {
+            background: #dc2626;
+            transform: translateY(-1px);
+        }
+
+        .button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .step-note {
+            margin-top: 6px;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #666;
+        }
+
+        .db-list {
+            list-style: none;
+            font-size: 12px;
+        }
+
+        .db-list li {
+            padding: 3px 0;
+            color: #333;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .db-kind-old {
+            color: #b45309;
+            font-weight: 600;
+        }
+
+        .db-kind-new {
+            color: #065f46;
+            font-weight: 600;
+        }
+
+        .api-box {
+            margin-top: 8px;
+            padding: 8px 10px;
+            border-radius: 8px;
+            background: #f6f8fa;
+            border: 1px solid #e5e7eb;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 11px;
+            line-height: 1.5;
+            color: #24292f;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .code-compare {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 10px;
+            margin-top: 8px;
+        }
+
+        .code-compare pre {
+            padding: 10px;
+            border-radius: 8px;
+            background: #f6f8fa;
+            border: 1px solid #e5e7eb;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 11px;
+            line-height: 1.55;
+            color: #24292f;
+            overflow-x: auto;
+        }
+
+        .code-compare .code-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: #444;
+            margin-bottom: 4px;
+        }
+
+        .verify-note {
+            margin-top: 12px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            background: #f8f9fb;
+            border: 1px solid #e5e7eb;
+            font-size: 12px;
+            line-height: 1.6;
+            color: #444;
+        }
+
+        .verify-note ol {
+            padding-left: 18px;
+            margin-top: 6px;
+        }
+
+        .verify-note li {
+            margin-bottom: 2px;
+        }
+
+        .policy-note {
+            margin-top: 12px;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #666;
+        }
+
+        .status-message {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            text-align: center;
+        }
+
+        .status-success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status-error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .status-info {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .divider {
+            margin: 15px 0;
+            border-top: 1px solid #e5e7eb;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+
+    <a class="portal-link" href="../index.html">← Demo Portal</a>
+
+    <div class="stats-panel">
+        <h2>📦 1.1.x Cache Migration</h2>
+
+        <div class="stat-item">
+            <span class="stat-label">Migration:</span>
+            <span class="stat-value" id="migrate-status">Not started</span>
+        </div>
+
+        <div class="stat-item">
+            <span class="stat-label">Tiles copied:</span>
+            <span class="stat-value" id="progress-count">-</span>
+        </div>
+
+        <div class="stat-item">
+            <span class="stat-label">Cache Size:</span>
+            <span class="stat-value" id="progress-size">-</span>
+        </div>
+
+        <div class="divider"></div>
+
+        <button class="button button-primary" id="seed-btn">1. Create a 1.1.x cache</button>
+        <p class="step-note">
+            Writes a 1.1.x-shaped cache into IndexedDB
+            (<code>Weiwudi.mapSetting</code> + <code>Weiwudi_&lt;mapID&gt;.tileCache</code>),
+            341 tiles (zoom 0-4, one PNG per tile labelled with its z / x / y).
+            Before writing, it deletes this demo's own data
+            (<code>Weiwudi</code> / <code>Weiwudi_*</code> / <code>WeiwudiStore</code> and this demo's service worker
+            registration), so a second run also starts from zero. Databases and service workers of other projects on
+            this origin are left untouched.
+            If a service worker from a previous run is still registered, this step drops it
+            and reloads the page, so that the migration starts from a clean service worker.
+        </p>
+
+        <button class="button button-primary" id="start-btn" disabled>2. Register SW and migrate</button>
+        <p class="step-note">
+            Registers the service worker and reads the map back with the old API
+            (<code>Weiwudi.retrieveMap</code>). Migration runs in the background
+            (200 records per batch) while the tiles are being read.
+        </p>
+        <p class="step-note" id="retry-note" hidden>
+            The migration has finished. To run it again from zero,
+            press "Reset demo data" below.
+        </p>
+
+        <div class="divider"></div>
+
+        <h3>IndexedDB databases</h3>
+        <ul class="db-list" id="db-list">
+            <li>-</li>
+        </ul>
+
+        <h3>Old API still working</h3>
+        <div class="api-box" id="old-api-result">-</div>
+        <div class="api-box" id="old-stats-json">-</div>
+
+        <div class="divider"></div>
+
+        <h3>Old API vs new API</h3>
+        <div class="code-compare">
+            <div>
+                <div class="code-title">Old (1.1.x) — still runs unchanged</div>
+                <pre>await Weiwudi.registerSW('./sw.js', { scope: './' });
+const map = await Weiwudi.registerMap('my_map', {
+  type: 'xyz',
+  url: 'https://tiles.example.com/{z}/{x}/{y}.png',
+  width: 65536, height: 65536, tileSize: 256,
+  minZoom: 0, maxZoom: 8,
+});
+L.tileLayer(map.url).addTo(leaflet);
+await map.fetchAll();
+const stats = await map.stats();
+// { count, size, total, percent }</pre>
+            </div>
+            <div>
+                <div class="code-title">New (Source API)</div>
+                <pre>await Weiwudi.registerSW('./sw.js', { scope: './' });
+const source = await Weiwudi.register({
+  kind: 'raster',
+  id: 'my_map',
+  url: 'https://tiles.example.com/{z}/{x}/{y}.png',
+  minZoom: 0, maxZoom: 8,
+});
+L.tileLayer(source.url).addTo(leaflet);
+await source.fetchRange({
+  bounds: [139.7, 35.6, 139.8, 35.7],
+  minZoom: 0, maxZoom: 8,
+});
+const stats = await source.stats();
+// { count, size, byResource }</pre>
+            </div>
+        </div>
+
+        <div class="verify-note">
+            <strong>How to verify the migration</strong>
+            <ol>
+                <li>Press "1. Create a 1.1.x cache"</li>
+                <li>Press "2. Register SW and migrate" and watch the counters</li>
+                <li>The map fills with the migrated tiles (each tile shows its z / x / y)</li>
+                <li>The old databases disappear when the migration finishes</li>
+                <li>Reload with DevTools → Network → Offline: the tiles still come from the migrated cache</li>
+            </ol>
+        </div>
+
+        <button class="button button-danger" id="reset-btn">Reset demo data</button>
+        <p class="step-note">
+            Unregisters this demo's service worker and deletes the Weiwudi IndexedDB databases
+            (<code>Weiwudi</code> / <code>Weiwudi_*</code> / <code>WeiwudiStore</code>), then reloads.
+            Service workers and databases of other projects on this origin are left untouched.
+            Use this before running the demo a second time.
+        </p>
+
+        <p class="policy-note">
+            The tile URL recorded in the 1.1.x setting (<code>tiles.example.com</code>) is never
+            contacted: every tile is served from the migrated cache. These are synthetic demo
+            tiles generated in the browser, not map data.
+        </p>
+
+        <div id="status-message"></div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+    <script type="module">
+        import Weiwudi from '../dist/weiwudi.es.js';
+
+        // 1.1.x（旧版）のキャッシュの形（tests/e2e/fixtures/legacy-seed.html・src/migrate.ts と同じ）:
+        // - Weiwudi.mapSetting（keyPath: mapID）: /api/add が保存した MapSetting
+        // - Weiwudi_<mapID>.tileCache（keyPath: z_x_y）: { z_x_y, headers, blob, epoch }
+        const MAP_ID = 'legacy_demo';
+        const TILE_URL = 'https://tiles.example.com/legacy/{z}/{x}/{y}.png';
+        const MAX_ZOOM = 4;
+        const TILE_COUNT = 341; // z0〜4 の全タイル（1 + 4 + 16 + 64 + 256）
+
+        let map = null;
+        let leafletMap = null;
+        let pollTimer = null;
+        let messageTimer = null;
+
+        function showMessage(message, type = 'info') {
+            const statusEl = document.getElementById('status-message');
+            statusEl.textContent = message;
+            statusEl.className = `status-message status-${type}`;
+
+            if (messageTimer !== null) clearTimeout(messageTimer);
+            messageTimer = setTimeout(() => {
+                messageTimer = null;
+                statusEl.textContent = '';
+                statusEl.className = '';
+            }, 5000);
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            if (!bytes) return '-';
+
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+            return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        const open = (name, upgrade) => new Promise((resolve, reject) => {
+            const req = indexedDB.open(name, 1);
+            req.onupgradeneeded = () => upgrade(req.result);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+
+        const putAll = (db, storeName, values) => new Promise((resolve, reject) => {
+            const t = db.transaction([storeName], 'readwrite');
+            for (const v of values) t.objectStore(storeName).put(v);
+            t.oncomplete = () => resolve();
+            t.onabort = () => reject(t.error);
+        });
+
+        const deleteDb = (name) => new Promise((resolve, reject) => {
+            const req = indexedDB.deleteDatabase(name);
+            req.onsuccess = () => resolve();
+            req.onerror = () => reject(req.error);
+            req.onblocked = () => resolve();
+        });
+
+        const listDbNames = async () =>
+            (indexedDB.databases ? (await indexedDB.databases()).map((d) => d.name).filter(Boolean) : []);
+        const isLegacyDb = (name) => name === 'Weiwudi' || name.startsWith('Weiwudi_');
+        const hasLegacyDb = (names) => names.some(isLegacyDb);
+
+        // GitHub Pages では他のプロジェクトと同じオリジンに置かれるので、触るのは
+        // このデモのスコープのサービスワーカーと、Weiwudi の DB（Weiwudi・Weiwudi_*・WeiwudiStore）だけにする
+        const DEMO_SW_SCOPE = new URL('../', location.href).href;
+        const isDemoSw = (reg) => reg.scope === DEMO_SW_SCOPE;
+        const isDemoDb = (name) => isLegacyDb(name) || name === 'WeiwudiStore';
+        const unregisterDemoSw = async () => {
+            for (const reg of await navigator.serviceWorker.getRegistrations()) {
+                if (isDemoSw(reg)) await reg.unregister();
+            }
+        };
+        const deleteDemoDbs = async () => {
+            for (const name of await listDbNames()) {
+                if (isDemoDb(name)) await deleteDb(name);
+            }
+        };
+
+        // 1 枚のタイルの PNG（色と z / x / y の文字を入れる）。旧キャッシュの本体は Blob
+        const makeTileBlob = (z, x, y) => new Promise((resolve) => {
+            const c = document.createElement('canvas');
+            c.width = 256;
+            c.height = 256;
+            const g = c.getContext('2d');
+            const hue = (z * 67 + x * 29 + y * 13) % 360;
+            g.fillStyle = `hsl(${hue}, 42%, 72%)`;
+            g.fillRect(0, 0, 256, 256);
+            g.strokeStyle = 'rgba(0, 0, 0, 0.35)';
+            g.lineWidth = 2;
+            g.strokeRect(1, 1, 254, 254);
+            g.fillStyle = 'rgba(0, 0, 0, 0.78)';
+            g.font = 'bold 26px sans-serif';
+            g.textAlign = 'center';
+            g.fillText(`${z} / ${x} / ${y}`, 128, 138);
+            c.toBlob(resolve, 'image/png');
+        });
+
+        // 1.1.x の形の旧 DB を作る（legacy-seed.html と同じ形）。epoch は作った時刻
+        //（24 時間を過ぎると鮮度の扱いで hit にならない）
+        async function seedLegacy() {
+            const n = 2 ** MAX_ZOOM;
+            const opened = Date.now();
+            const setting = {
+                mapID: MAP_ID,
+                type: 'xyz',
+                url: TILE_URL,
+                width: 256 * n,
+                height: 256 * n,
+                tileSize: 256,
+                maxZoom: MAX_ZOOM,
+                minZoom: 0,
+                minX: 0,
+                maxX: n - 1,
+                minY: 0,
+                maxY: n - 1,
+                totalTile: TILE_COUNT,
+            };
+
+            const records = [];
+            for (let z = 0; z <= MAX_ZOOM; z++) {
+                const m = 2 ** z;
+                for (let x = 0; x < m; x++) {
+                    for (let y = 0; y < m; y++) {
+                        records.push({
+                            z_x_y: `${z}_${x}_${y}`,
+                            headers: { 'content-type': 'image/png', 'Cache-Control': 'max-age=60' },
+                            blob: await makeTileBlob(z, x, y),
+                            epoch: opened,
+                        });
+                    }
+                }
+                document.getElementById('migrate-status').textContent = `Seeding… ${records.length} / ${TILE_COUNT}`;
+            }
+
+            const tiles = await open(`Weiwudi_${MAP_ID}`, (d) => d.createObjectStore('tileCache', { keyPath: 'z_x_y' }));
+            await putAll(tiles, 'tileCache', records);
+            tiles.close();
+            const settings = await open('Weiwudi', (d) => d.createObjectStore('mapSetting', { keyPath: 'mapID' }));
+            await putAll(settings, 'mapSetting', [setting]);
+            settings.close();
+
+            document.getElementById('migrate-status').textContent = 'Legacy cache created';
+            await updateDbs();
+        }
+
+        async function updateDbs() {
+            const el = document.getElementById('db-list');
+            el.textContent = '';
+            if (!indexedDB.databases) {
+                const li = document.createElement('li');
+                li.textContent = 'indexedDB.databases() is not available in this browser';
+                el.appendChild(li);
+                return;
+            }
+            const names = (await indexedDB.databases()).map((d) => d.name).filter(Boolean).sort();
+            if (names.length === 0) {
+                const li = document.createElement('li');
+                li.textContent = '-';
+                el.appendChild(li);
+                return;
+            }
+            for (const name of names) {
+                const li = document.createElement('li');
+                const isOld = name === 'Weiwudi' || name.startsWith('Weiwudi_');
+                const kind = document.createElement('span');
+                const isCurrent = name === 'WeiwudiStore';
+                kind.className = isOld ? 'db-kind-old' : isCurrent ? 'db-kind-new' : 'db-kind-other';
+                kind.textContent = isOld ? '1.1.x: ' : isCurrent ? 'current: ' : 'other: ';
+                li.append(kind, document.createTextNode(name));
+                el.appendChild(li);
+            }
+        }
+
+        // 旧 API（1.1.x の呼び方）のまま動くことを確かめながら、移行の様子を読む
+        async function poll() {
+            if (!map) return;
+
+            try {
+                const stats = await map.stats();
+                const total = typeof stats.total === 'number' ? stats.total : TILE_COUNT;
+                const count = stats.count ?? 0;
+                document.getElementById('progress-count').textContent =
+                    typeof stats.percent === 'number' ? `${count} / ${total} (${Math.round(stats.percent)}%)` : `${count} / ${total}`;
+                document.getElementById('progress-size').textContent = formatBytes(stats.size);
+                document.getElementById('old-stats-json').textContent =
+                    'map.stats()  →  ' + JSON.stringify(stats);
+
+                const names = (await indexedDB.databases()).map((d) => d.name).filter(Boolean);
+                const oldLeft = names.filter((n) => n === 'Weiwudi' || n.startsWith('Weiwudi_'));
+                const statusEl = document.getElementById('migrate-status');
+                if (oldLeft.length === 0) {
+                    statusEl.textContent = 'Complete';
+                    document.getElementById('retry-note').hidden = false;
+                } else if (count > 0) {
+                    statusEl.textContent = `Migrating… ${count} / ${total}`;
+                } else {
+                    statusEl.textContent = 'Running…';
+                }
+                await updateDbs();
+            } catch (e) {
+                console.error('Failed to poll migration state:', e);
+            }
+        }
+
+        async function startMigration(opts = {}) {
+            const seedBtn = document.getElementById('seed-btn');
+            const startBtn = document.getElementById('start-btn');
+            seedBtn.disabled = true;
+            startBtn.disabled = true;
+
+            try {
+                document.getElementById('migrate-status').textContent = 'Registering SW...';
+                await Weiwudi.registerSW('../demo-sw.js', { scope: '../', userAgent: 'WeiwudiDemo/1.0' });
+
+                // 旧 API（Weiwudi.retrieveMap）をそのまま呼ぶ。新しいサービスワーカーが旧 DB から答える
+                map = await Weiwudi.retrieveMap(MAP_ID);
+                document.getElementById('old-api-result').textContent =
+                    `Weiwudi.retrieveMap('${MAP_ID}')  →  OK\n` +
+                    `mapID: ${map.mapID}\nurl: ${map.url}`;
+
+                if (!leafletMap) {
+                    // ズームの操作は左下に置く（左上の「← Demo Portal」と重ねない）
+                    leafletMap = L.map('map', { zoomControl: false }).setView([30, 135], 3);
+                    L.control.zoom({ position: 'bottomleft' }).addTo(leafletMap);
+                }
+                L.tileLayer(map.url, {
+                    minZoom: 0,
+                    maxZoom: MAX_ZOOM,
+                    attribution: 'Demo tiles migrated from a 1.1.x cache'
+                }).addTo(leafletMap);
+
+                showMessage('Old API calls work: migration is running in the background', 'success');
+                if (opts.restore) seedBtn.disabled = false;
+                await poll();
+                if (pollTimer) clearInterval(pollTimer);
+                pollTimer = setInterval(poll, 700);
+            } catch (e) {
+                console.error(e);
+                seedBtn.disabled = false;
+                startBtn.disabled = false;
+                if (opts.restore) {
+                    // 自動の復元で読めないだけ（まだ移行の対象が無い）。手順どおり 1 → 2 で進める
+                    document.getElementById('migrate-status').textContent = 'Not started';
+                    return;
+                }
+                document.getElementById('migrate-status').textContent = 'Error';
+                showMessage(
+                    'Start failed: ' + (e && e.message ? e.message : e) +
+                    ' — press "1. Create a 1.1.x cache" again (or Reset) if a previous run is still active.',
+                    'error');
+            }
+        }
+
+        async function resetDemo() {
+            if (!confirm('Delete the Weiwudi IndexedDB databases and unregister this demo\'s service worker?')) {
+                return;
+            }
+            try {
+                await unregisterDemoSw();
+                await deleteDemoDbs();
+            } catch (e) {
+                console.error(e);
+            }
+            location.reload();
+        }
+
+        document.getElementById('seed-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('seed-btn');
+            btn.disabled = true;
+            try {
+                // 前回の実行のサービスワーカーが残っていると「移行は済んだ」状態のまま動き、
+                // 新しく作った旧 DB が移されない。前の移行の結果（WeiwudiStore）が残っていても
+                // 0 から移す様子が見えない。自分のスコープのサービスワーカーの登録だけを外し、
+                // Weiwudi の DB だけ消してから作り直す
+                const regs = (await navigator.serviceWorker.getRegistrations()).filter(isDemoSw);
+                for (const reg of regs) await reg.unregister();
+                await deleteDemoDbs();
+                await seedLegacy();
+                if (regs.length > 0) {
+                    showMessage('Legacy cache created. Reloading to drop the old service worker…', 'info');
+                    location.reload();
+                    return;
+                }
+                document.getElementById('start-btn').disabled = false;
+                showMessage('Created 341 legacy tiles in Weiwudi / Weiwudi_legacy_demo', 'success');
+            } catch (e) {
+                showMessage('Seed failed: ' + (e && e.message ? e.message : e), 'error');
+                console.error(e);
+                btn.disabled = false;
+            }
+        });
+
+        document.getElementById('start-btn').addEventListener('click', () => startMigration());
+        document.getElementById('reset-btn').addEventListener('click', resetDemo);
+
+        // 読み込み時の状態に合わせて、次に押す場所を整える。移行の済んだキャッシュがあるときは
+        // 再読み込み（オフラインの再読み込みも）で地図を自動で戻す
+        async function onLoad() {
+            await updateDbs();
+            const names = await listDbNames();
+            if (hasLegacyDb(names)) {
+                document.getElementById('start-btn').disabled = false;
+                document.getElementById('migrate-status').textContent = 'Legacy cache created';
+                return;
+            }
+            if (names.indexOf('WeiwudiStore') >= 0) {
+                try {
+                    await startMigration({ restore: true });
+                } catch (e) {
+                    document.getElementById('migrate-status').textContent = 'Not started';
+                }
+                return;
+            }
+            document.getElementById('migrate-status').textContent = 'Not started';
+        }
+
+        onLoad();
+
+        // Cleanup on unload
+        window.addEventListener('beforeunload', () => {
+            if (pollTimer) clearInterval(pollTimer);
+        });
+    </script>
+</body>
+
+</html>

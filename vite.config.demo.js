@@ -7,10 +7,13 @@ export default defineConfig({
     build: {
         outDir: 'dist-demo',
         emptyOutDir: true,
-        // Build the demo site (index.html)
+        // Build the demo site (the portal and the demo pages under demo/)
         rollupOptions: {
             input: {
-                main: './index.html'
+                main: './index.html',
+                raster: './demo/raster.html',
+                vector: './demo/vector.html',
+                migration: './demo/migration.html'
             }
         }
     },
