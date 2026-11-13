@@ -15,20 +15,22 @@ const SRC = fileURLToPath(new URL('../../src', import.meta.url));
 // 表の 1 行 = 1 モジュール。providers/ の下の全ファイルが providers の行（m3-t1 で plugins と行を分けた）。
 // constants は全ファイルが import してよい（表の注。constants 自身は何も import しない）
 const ABOVE_ALL = [
-  'constants', 'tile_math', 'errors', 'url_pattern', 'spec', 'style_body', 'plugins', 'providers', 'store', 'context',
+  'constants', 'tile_math', 'errors', 'user_agent', 'url_pattern', 'spec', 'style_body', 'plugins', 'providers', 'store', 'context',
   'registry', 'upstream', 'core', 'hook', 'style', 'range', 'control', 'legacy', 'migrate',
 ];
 const DEPS_TABLE: Record<string, readonly string[]> = {
   constants: [],
   tile_math: [],
   errors: [],
+  // 上流へ送る User-Agent
+  user_agent: ['errors'],
   url_pattern: ['tile_math', 'constants', 'errors'],
   spec: ['url_pattern', 'tile_math', 'constants', 'errors'],
   style_body: ['url_pattern', 'constants', 'errors'],
-  plugins: ['constants', 'errors'],
+  plugins: ['user_agent', 'constants', 'errors'],
   providers: ['errors', 'constants'],
   store: ['constants', 'errors'],
-  context: ['store', 'constants', 'errors'],
+  context: ['store', 'user_agent', 'constants', 'errors'],
   registry: ['store', 'spec', 'url_pattern', 'tile_math', 'constants', 'errors'],
   upstream: ['context', 'store', 'url_pattern', 'constants', 'errors'],
   core: ['context', 'store', 'plugins', 'url_pattern', 'tile_math', 'constants', 'errors'],
@@ -36,7 +38,7 @@ const DEPS_TABLE: Record<string, readonly string[]> = {
   style: ['hook', 'core', 'registry', 'spec', 'style_body', 'url_pattern', 'context', 'store', 'constants', 'errors'],
   // m4 で range を足す（m4-t1。range.ts は t3 で作る）
   range: ['hook', 'core', 'upstream', 'registry', 'context', 'store', 'spec', 'url_pattern', 'tile_math', 'style_body', 'constants', 'errors'],
-  control: ['hook', 'core', 'registry', 'spec', 'style', 'range', 'context', 'store', 'tile_math', 'constants', 'errors'],
+  control: ['hook', 'core', 'registry', 'spec', 'style', 'range', 'context', 'store', 'tile_math', 'user_agent', 'constants', 'errors'],
   // m4 で migrate を足す（表の「（m4 で migrate）」）
   legacy: ['core', 'context', 'store', 'tile_math', 'constants', 'errors', 'migrate'],
   migrate: ['store', 'constants', 'errors'],
@@ -44,7 +46,7 @@ const DEPS_TABLE: Record<string, readonly string[]> = {
   weiwudi_gw_logic: ABOVE_ALL,
   weiwudi_gw: ['weiwudi_gw_logic', 'plugins', 'constants'],
   weiwudi_sw: ['weiwudi_gw_logic', 'plugins', 'constants'],
-  weiwudi: ['errors', 'url_pattern', 'constants'],
+  weiwudi: ['errors', 'user_agent', 'url_pattern', 'constants'],
 };
 
 /** src/ の中の .ts（*.d.ts を除く）を、src からの相対の posix パスで返す */

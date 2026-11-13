@@ -23,13 +23,14 @@
 //   違う・見つからないときは sw-not-controlling で何もしない（I6・R25）。URL が about:srcdoc・about:blank の client は受ける。
 //   GET の /v2/ping は見ない
 import type { RouteHandlerCallbackOptions } from 'workbox-core';
-import type { Context } from './context';
+import { storedUserAgentOf, type Context } from './context';
 import { GATE_WAIT_MS, tableChanged, withTimeout } from './hook';
 import { applyRegister, applyRemove, applyUpdate, isExclusiveTo } from './registry';
 import { isNormalizedStyle, normalizeSpec, undeclaredCredentialWarnings, type NormalizedSpec } from './spec';
 import { ownersOf, registerStyle, removeStyleChildren, styleChildIds } from './style';
 import { isChildRecord, isLegacyRecord, storedSpecOf, styleSpecOf, toResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
-import { KV_LIMITS } from './store';
+import { KV_LIMITS, KV_USER_AGENT } from './store';
+import { validateUserAgent } from './user_agent';
 import { countTiles, isInTileBox, scaleTileBox, type TileBox } from './tile_math';
 import { assertSourceIdle, cancelRange, cleanRange, estimate, listRegionInfos, releaseAllOf, releaseRange, resumeRange, resumeState, startFetchRange, type JobClient } from './range';
 import { WeiwudiError } from './errors';
@@ -540,6 +541,22 @@ export function createControl(ctx: Context): Control {
     return null;
   };
 
+  // 上流へ送る User-Agent（registerSW の userAgent）。kv の userAgent に保存し、userAgent が無ければ外す。
+  // 次の取得から効く
+  const setUserAgent = async (body: unknown) => {
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+      throw new WeiwudiError('attribute-invalid', 'Request body must be an object', { attribute: 'userAgent' });
+    }
+    const raw = (body as { userAgent?: unknown }).userAgent;
+    const value = raw === undefined ? undefined : validateUserAgent(raw);
+    const store = await ctx.store();
+    if (storedUserAgentOf(await store.kvGet(KV_USER_AGENT)) !== value) {
+      await store.kvPut(KV_USER_AGENT, value === undefined ? {} : { userAgent: value });
+    }
+    ctx.userAgent.loaded = Promise.resolve(value);
+    return null;
+  };
+
   const source = async (id: string) => {
     const store = await ctx.store();
     return infoOf(store, await getOwn(store, id));
@@ -575,6 +592,7 @@ export function createControl(ctx: Context): Control {
       case 'removeResource': return removeResource(body);
       case 'usage': return usage();
       case 'setLimits': return setLimits(body);
+      case 'setUserAgent': return setUserAgent(body);
       default:
         throw new WeiwudiError('api-not-found', `Operation "${op}" not found`, { op });
     }

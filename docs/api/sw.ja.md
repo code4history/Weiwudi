@@ -16,6 +16,7 @@ import '@c4h/weiwudi/sw';
 |---|---|
 | `addPlugin(plugin)` | 関数 |
 | `addProvider(provider)` | 関数 |
+| `setUserAgent(userAgent)` | 関数 |
 | `WeiwudiPlugin` | 型 |
 | `WeiwudiProvider` | 型 |
 | `Credentials` | 型 |
@@ -23,7 +24,7 @@ import '@c4h/weiwudi/sw';
 | `ResourceType` | 型 |
 
 UMD 版（`importScripts` で読む `weiwudi-sw.umd.js`）では、同じ関数を
-`self.Weiwudi_SW.addPlugin`・`self.Weiwudi_SW.addProvider` として使います。
+`self.Weiwudi_SW.addPlugin`・`self.Weiwudi_SW.addProvider`・`self.Weiwudi_SW.setUserAgent` として使います。
 
 ## `addPlugin(plugin: WeiwudiPlugin): void`
 
@@ -258,3 +259,20 @@ interface WeiwudiProvider {
 移します）。秘密トークン（`sk.`）は `credential-rejected` で拒否します。オフライン保存の可否を含め、
 提供元の利用規約の確認は利用者の責任です。
 
+## `setUserAgent(userAgent: string | undefined): void`
+
+上流へ送る User-Agent に足す値（`'Maplat/2.0'` など）を、サービスワーカーのスクリプトで指定します。先頭で呼んでください。
+値はサービスワーカー全体で 1 つで、`undefined` で外します。永続化しません（サービスワーカーが起き直せば、スクリプトが
+もう一度呼びます）。ページの `Weiwudi.registerSW` の `userAgent` があれば、そちらを使います。
+
+- 上流が受け取る値は `<ブラウザの User-Agent> <userAgent> Weiwudi/<版>` です。指定が無ければ `<ブラウザの User-Agent> Weiwudi/<版>`。
+- 付けるのはサービスワーカーと同じオリジンの、mode が `cors` か `same-origin` の要求だけです。Chromium 系のブラウザは捨てます。
+  詳しくは [README の「上流へ送る User-Agent」](../../README.ja.md#上流へ送る-user-agent) を参照してください。
+- 空白だけ・制御文字を含む・印字できる ASCII 以外を含む・200 文字を超える値は `WeiwudiError`（`attribute-invalid`）を投げ、
+  前の値を変えません。
+- 差し込み口（`requestWillFetch`）が User-Agent を明示した要求には、上書きせずそのまま送ります。
+
+```js
+import { setUserAgent } from '@c4h/weiwudi/sw';
+setUserAgent('Maplat/2.0');
+```

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { PAGE_HOST } from './fixtures/page-origin.mjs';
 
 // 旧 API（registerMap・Weiwudi のインスタンス）を、MaplatCore が実際に使う呼び方のまま実の Service Worker で確かめる。
 // Core の試験は Weiwudi を mock しているので、旧 API の実挙動はここで見る（12 月トレインの依頼）。
@@ -14,7 +15,7 @@ import { test, expect } from '@playwright/test';
 const UPSTREAM = 'http://localhost:5174';
 const PAGE = '/tests/e2e/fixtures/offline-page.html';
 const PSEUDO = 'weiwudi.example.com';
-const ALLOWED_HOSTS = ['localhost:5173', 'localhost:5174'];
+const ALLOWED_HOSTS = [PAGE_HOST, 'localhost:5174'];
 const tpl = (kind, y = '{y}') => `${UPSTREAM}/${kind}/{z}/{x}/${y}.png`;
 
 // 東京付近（z3〜8 で 25 枚）。期待値は試験の側で別の式（Web メルカトルのタイル番号の定義式）から出す

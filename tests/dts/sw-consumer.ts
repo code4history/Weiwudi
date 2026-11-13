@@ -2,7 +2,7 @@
 // `node_modules/.bin/tsc -p tests/dts/tsconfig.json` で型検査する（build の後）。
 // 名前があるだけでは通らない: 形が違えば代入や Equals の検査で型エラーになる。
 import {
-  addPlugin, addProvider, type Credentials, type ResourceInfo, type ResourceType, type WeiwudiPlugin, type WeiwudiProvider,
+  addPlugin, addProvider, setUserAgent, type Credentials, type ResourceInfo, type ResourceType, type WeiwudiPlugin, type WeiwudiProvider,
 } from '../../dist/weiwudi_gw';
 
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
@@ -116,3 +116,6 @@ assertType<Equals<ReturnType<WeiwudiProvider['resolve']>, string>>();
 // @ts-expect-error id は必須
 const noId: WeiwudiProvider = { matches: () => false, resolve: (u: string) => u, applyCredentials: () => undefined };
 void noId;
+
+// 上流へ送る User-Agent（SW 側の指定。undefined で外す）
+assertType<Equals<typeof setUserAgent, (value: string | undefined) => void>>();

@@ -464,14 +464,14 @@ describe('opaque イベントの口（ctx.notify）と probeNoCors（m4-t3・R20
 
   it("probeNoCors: opaque は 'opaque'、TypeError は 'network'。要求は no-cors で資格情報を付けない", async () => {
     fetchMock.mockResolvedValueOnce(opq());
-    expect(await probeNoCors(TILE)).toBe('opaque');
+    expect(await probeNoCors(ctx, TILE)).toBe('opaque');
     fetchMock.mockRejectedValueOnce(new TypeError('offline'));
-    expect(await probeNoCors(TILE)).toBe('network');
+    expect(await probeNoCors(ctx, TILE)).toBe('network');
     for (const [input, init] of fetchMock.mock.calls) {
       expect(input).toBe(TILE);
       expect(init).toEqual({ mode: 'no-cors', credentials: 'omit' });
     }
     fetchMock.mockResolvedValueOnce(png());
-    expect(await probeNoCors(TILE)).toBe('response');
+    expect(await probeNoCors(ctx, TILE)).toBe('response');
   });
 });

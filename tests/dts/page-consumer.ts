@@ -5,7 +5,7 @@ import Weiwudi, {
   WeiwudiError, WeiwudiSource,
   type CommonPolicy, type Credentials, type OutOfRange, type ResourceInfo, type ResourceType,
   type SourceInfo, type SourceSpec, type SourceStats, type TileBox, type UsageReport, type WeiwudiErrorCode,
-  type FetchRangeOptions, type RangeSpec, type RegionInfo, type TileFailure,
+  type FetchRangeOptions, type RangeSpec, type RegionInfo, type TileFailure, type WeiwudiRegistrationOptions,
 } from '../../dist/weiwudi';
 
 type Equals<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
@@ -170,3 +170,13 @@ const useLimits = async (): Promise<void> => {
   void [set, off];
 };
 void useLimits;
+
+// 上流へ送る User-Agent（registerSW の userAgent）。RegistrationOptions の項目もそのまま渡せる
+assertType<Equals<WeiwudiRegistrationOptions['userAgent'], string | undefined>>();
+const useUserAgent = async (): Promise<void> => {
+  const reg: ServiceWorkerRegistration = await Weiwudi.registerSW('./sw.js', { scope: './', userAgent: 'Maplat/2.0' });
+  // @ts-expect-error userAgent は文字列
+  await Weiwudi.registerSW('./sw.js', { userAgent: 2 });
+  void reg;
+};
+void useUserAgent;

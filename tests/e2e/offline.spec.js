@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { PAGE_HOST } from './fixtures/page-origin.mjs';
 
 // オフライン時の挙動を、外部へ出ない構成（ローカルの上流サーバ・ローカルの workbox）で確かめる（#32）
 const UPSTREAM = 'http://localhost:5174';
@@ -47,7 +48,7 @@ async function guardNetwork(context) {
     const external = [];
     await context.route('**/*', (route) => {
         const url = new URL(route.request().url());
-        if (['localhost:5173', 'localhost:5174'].includes(url.host)) return route.continue();
+        if ([PAGE_HOST, 'localhost:5174'].includes(url.host)) return route.continue();
         external.push(`${route.request().method()} ${url.origin}${url.pathname}`);
         return route.abort();
     });

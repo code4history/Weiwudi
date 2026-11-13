@@ -297,6 +297,8 @@ export interface Totals {
 export const KV_TOTALS = 'totals';
 /** kv の鍵: 全体上限（{ maxBytes?: number }。setLimits が書き、core の evictScopesFor が読む。m4-t6） */
 export const KV_LIMITS = 'limits';
+/** kv の鍵: ページ（registerSW）が指定した User-Agent（{ userAgent?: string }。control の setUserAgent が書き、context が読む） */
+export const KV_USER_AGENT = 'userAgent';
 
 const isTotals = (x: unknown): x is Totals => {
   const t = x as Partial<Totals> | null | undefined;
