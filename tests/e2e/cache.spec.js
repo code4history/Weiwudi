@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { PAGE_HOST } from './fixtures/page-origin.mjs';
 
 // 地図の上流と workbox は手元のタイルサーバ（localhost:5174）。外のサーバへ出ないことを各試験の後で確かめる。
 // weiwudi.example.com は旧 API の制御の擬似オリジンで、SW が応答する（外へは出ない）
-const ALLOWED_HOSTS = ['localhost:5173', 'localhost:5174', 'weiwudi.example.com'];
+const ALLOWED_HOSTS = [PAGE_HOST, 'localhost:5174', 'weiwudi.example.com'];
 
 test.describe.serial('Weiwudi Cache Operations', () => {
 

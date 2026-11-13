@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { PAGE_HOST } from './fixtures/page-origin.mjs';
 
 // 範囲取得・解放・全体上限を実ブラウザで確かめる（m4-t10・仕様 §7.2・§12）。外部へ出ない構成で、上流は tile-server.mjs
 // （localhost:5174。ページは localhost:5173 で別オリジン）。WebKit・Firefox でも走らせる（R14'）。Chromium だけで成り立つ
@@ -7,7 +8,7 @@ import { test, expect } from '@playwright/test';
 const UPSTREAM = 'http://localhost:5174';
 const PAGE = '/tests/e2e/fixtures/range-page.html';
 const PSEUDO = 'weiwudi.example.com';
-const ALLOWED_HOSTS = ['localhost:5173', 'localhost:5174'];
+const ALLOWED_HOSTS = [PAGE_HOST, 'localhost:5174'];
 
 const tpl = (kind) => `${UPSTREAM}/${kind}/{z}/{x}/{y}.png`;
 const at = (kind, z, x, y) => `${UPSTREAM}/${kind}/${z}/${x}/${y}.png`;

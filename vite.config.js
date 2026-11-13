@@ -2,10 +2,12 @@ import { defineConfig } from 'vite';
 import fs from 'fs';
 import path from 'path';
 import { copyWorkboxPlugin } from './scripts/vite-plugin-copy-workbox.mjs';
+import { uaEchoPlugin } from './tests/e2e/fixtures/vite-plugin-ua-echo.mjs';
 
 export default defineConfig({
     appType: 'mpa', // Multi-Page App mode
-    plugins: [copyWorkboxPlugin()],
+    // uaEchoPlugin: User-Agent の e2e が使う、ページと同じオリジンの上流（/__e2e/ だけ。開発用サーバだけ）
+    plugins: [copyWorkboxPlugin(), uaEchoPlugin()],
     server: {
         port: 5173,
     },

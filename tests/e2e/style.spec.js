@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { PAGE_HOST } from './fixtures/page-origin.mjs';
 
 // スタイルの芋づる登録と捕捉を実ブラウザで確かめる（m3-t9・仕様 §5.5・§10・§12）。MapLibre は依存に足さない（R15）。
 // ページの blob Worker から、MapLibre 6.9.0 が出すのと同じ形の要求（スタイル → TileJSON → タイル・sprite@2x・
@@ -8,7 +9,7 @@ import { test, expect } from '@playwright/test';
 const UPSTREAM = 'http://localhost:5174';
 const PAGE = '/tests/e2e/fixtures/style-page.html';
 const PSEUDO = 'weiwudi.example.com';
-const ALLOWED_HOSTS = ['localhost:5173', 'localhost:5174'];
+const ALLOWED_HOSTS = [PAGE_HOST, 'localhost:5174'];
 
 const STYLE_URL = `${UPSTREAM}/style/basic.json`;
 const TILEJSON_URL = `${UPSTREAM}/style/tiles.json`;

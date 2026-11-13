@@ -9,7 +9,7 @@
 // - GET /sparse/{z}/{x}/{y}.png: x が偶数なら 404・CORS ヘッダなし、奇数なら 200・CORS あり
 // - GET /auth/{z}/{x}/{y}.png: Cookie `weiwudi=1` があれば 200・なければ 401。どちらも CORS あり
 // - GET /html/{z}/{x}/{y}.png: 200・text/html・CORS あり
-// - GET /__log: 上の端点が受けた要求の { path, mode（sec-fetch-mode）, cookie（weiwudi=1 の有無） } の並び
+// - GET /__log: 上の端点が受けた要求の { path, mode（sec-fetch-mode）, cookie（weiwudi=1 の有無）, ua（user-agent） } の並び
 // スタイルの e2e（m3-t9・style.spec.js）の端点。どれも CORS あり。受けた要求は /__log に積む（path はデコード後）:
 // - GET /style/basic.json: スタイル（sources の url の TileJSON・tiles・geojson の data、glyphs・sprite）
 // - GET /style/tiles.json: TileJSON（tiles・bounds・minzoom・maxzoom）
@@ -74,7 +74,7 @@ function serveHookTile(req, pathname, res) {
     const kind = m[1];
     const x = Number(m[3]);
     const cookie = /(?:^|;\s*)weiwudi=1(?:;|$)/.test(req.headers.cookie ?? '');
-    log.push({ path: pathname, mode: req.headers['sec-fetch-mode'] ?? null, cookie });
+    log.push({ path: pathname, mode: req.headers['sec-fetch-mode'] ?? null, cookie, ua: req.headers['user-agent'] ?? null });
     const png = (headers) => {
         res.writeHead(200, { ...headers, 'content-type': 'image/png' });
         res.end(PNG);
