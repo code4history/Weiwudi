@@ -304,8 +304,8 @@
             (200 records per batch) while the tiles are being read.
         </p>
         <p class="step-note" id="retry-note" hidden>
-            The migration has finished and the buttons above are disabled.
-            To run it again from zero, press "Reset demo data" below.
+            The migration has finished. To run it again from zero,
+            press "Reset demo data" below.
         </p>
 
         <div class="divider"></div>
@@ -555,8 +555,9 @@ const stats = await source.stats();
                 const li = document.createElement('li');
                 const isOld = name === 'Weiwudi' || name.startsWith('Weiwudi_');
                 const kind = document.createElement('span');
-                kind.className = isOld ? 'db-kind-old' : 'db-kind-new';
-                kind.textContent = isOld ? '1.1.x: ' : 'current: ';
+                const isCurrent = name === 'WeiwudiStore';
+                kind.className = isOld ? 'db-kind-old' : isCurrent ? 'db-kind-new' : 'db-kind-other';
+                kind.textContent = isOld ? '1.1.x: ' : isCurrent ? 'current: ' : 'other: ';
                 li.append(kind, document.createTextNode(name));
                 el.appendChild(li);
             }

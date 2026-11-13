@@ -340,9 +340,9 @@
             The style is Liberty from OpenFreeMap. Their
             <a href="https://openfreemap.org/tos/" target="_blank" rel="noopener">terms of service</a> allow offline
             downloads of at most 3,000 tiles or 50 MB, made with at most 4 parallel requests and sent with a
-            User-Agent that identifies the app. A browser cannot change its User-Agent, so this demo keeps well
-            below the limit: it refuses more than 50 tiles at once, fetches with 4 parallel requests, and stops
-            caching at 50 MB. To load this page offline, reload it once online first
+            User-Agent that identifies the app. This page runs in a browser and does not send its own User-Agent,
+            so it keeps well below the limit: it refuses more than 50 tiles at once, fetches with 4 parallel
+            requests, and stops range downloads once the pinned tiles reach 50 MB in total. To load this page offline, reload it once online first
             (so that the service worker controls it).
         </p>
 
