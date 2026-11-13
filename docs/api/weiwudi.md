@@ -14,7 +14,8 @@ Register a service worker.
 
 **Parameters:**
 - `sw` (string | URL): Path to the service worker file
-- `swOptions` (RegistrationOptions, optional): Service worker registration options
+- `swOptions` (RegistrationOptions, optional): Service worker registration options, plus:
+  - `userAgent` (string, optional): Appended to the User-Agent sent to the upstream (e.g. `'Maplat/2.0'`). The upstream receives `<browser User-Agent> <userAgent> Weiwudi/<version>`. Without it, only `Weiwudi/<version>` is appended and a value given before is removed. Only added to upstreams on the service worker's own origin (Chromium-based browsers drop it; see the [README](../../README.md#upstream-user-agent))
 
 **Returns:** `Promise<ServiceWorkerRegistration>`
 
@@ -26,6 +27,8 @@ activate, so the page is controlled from the first visit without a page reload.
 - `"Error: Service worker is not supported"`: When the browser doesn't support service workers
 - `"Error: Service worker registration failed with {error}"`: When registration fails
 - `"Error: Service worker did not control this page within 10000 ms"`: When the page is not controlled within 10000 ms (e.g. the page URL is outside the registration scope)
+- `WeiwudiError` (`attribute-invalid`): When `userAgent` is blank, contains a control character or a character outside printable ASCII, or is longer than 200 characters (before registering)
+- `WeiwudiError` (`sw-outdated` etc.): When `userAgent` is given and the service worker cannot take it (after registering)
 
 **Example:**
 ```js

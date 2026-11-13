@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weiwudi User-Agent Test Page</title>
+</head>
+
+<body>
+    <h1>Weiwudi User-Agent E2E Test Page</h1>
+    <div id="status">Initializing...</div>
+
+    <script type="module">
+        import Weiwudi from '/dist/weiwudi.es.js';
+
+        // 上流へ送る User-Agent の e2e（user-agent.spec.js）。SW は hook-sw.js。?ua= があれば registerSW の userAgent に渡す
+        window.Weiwudi = Weiwudi;
+
+        window.attempt = async (fn) => {
+            try {
+                return { ok: true, value: await fn() };
+            } catch (e) {
+                return { ok: false, code: e && e.code, message: String(e && e.message || e) };
+            }
+        };
+
+        // fetch で取る（mode: cors）。状態・SW の印・本体の長さを返す
+        window.tile = async (url) => {
+            const res = await fetch(url);
+            const body = await res.arrayBuffer();
+            return { status: res.status, weiwudi: res.headers.get('x-weiwudi-status'), bytes: body.byteLength };
+        };
+
+        // <img> で読む（mode: no-cors）
+        window.img = (url) => new Promise((resolve) => {
+            const el = new Image();
+            el.onload = () => resolve(true);
+            el.onerror = () => resolve(false);
+            el.src = url;
+        });
+
+        const done = (error) => {
+            if (error) window.swError = String(error);
+            else window.swReady = true;
+            document.getElementById('status').textContent = error ? 'Error: ' + String(error) : 'Ready';
+        };
+
+        const ua = new URL(location.href).searchParams.get('ua');
+        const options = { scope: '/tests/e2e/fixtures/' };
+        if (ua !== null) options.userAgent = ua;
+        Weiwudi.registerSW('./hook-sw.js', options).then(() => done(), done);
+    </script>
+</body>
+
+</html>

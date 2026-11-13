@@ -1,5 +1,6 @@
 "use strict";
 import { WeiwudiError, isCodeFormat, legacyMessage, type WeiwudiErrorCode } from './errors';
+import { validateUserAgent } from './user_agent';
 import { absolutizeTemplate } from './url_pattern';
 import { PSEUDO_HOST, V2_PREFIX } from './constants';
 import type { Credentials, OutOfRange, ResourceInfo, ResourceType } from './store';
@@ -23,6 +24,18 @@ export interface SourceInfo {
     resources: ResourceInfo[];
     /** 登録・update の時点の写し */
     warnings: string[];
+}
+
+/**
+ * registerSW の options（navigator.serviceWorker.register の RegistrationOptions に足したもの）
+ */
+export interface WeiwudiRegistrationOptions extends RegistrationOptions {
+    /**
+     * 上流へ送る User-Agent に足す値（'Maplat/2.0' など）。SW 全体で 1 つ。ブラウザの User-Agent の後ろに
+     * `<userAgent> Weiwudi/<version>` を足す。省略すると `Weiwudi/<version>` だけを足す。
+     * SW と同じオリジンの上流にだけ付ける（Chromium はブラウザが捨てる）
+     */
+    userAgent?: string;
 }
 
 /** Source の統計（仕様 §12） */
@@ -503,13 +516,25 @@ export default class Weiwudi extends WeiwudiEventTarget {
     url?: string;
     listener: (e: MessageEvent) => void;
 
-    static async registerSW(sw: string | URL, swOptions?: RegistrationOptions) {
+    /**
+     * SW を登録し、ページが制御下に入るまで待つ。options.userAgent は登録の前に検査し（不正なら
+     * WeiwudiError('attribute-invalid')）、制御下に入った後で SW へ渡す（POST /v2/setUserAgent。SW の kv に保存）。
+     * 省略したときは、前に渡した値を外す（SW が新 API を持たなければ何もしない）
+     */
+    static async registerSW(sw: string | URL, swOptions?: WeiwudiRegistrationOptions) {
+        const hasUserAgent = !!swOptions && swOptions.userAgent !== undefined;
+        const userAgent = hasUserAgent ? validateUserAgent(swOptions!.userAgent) : undefined;
+        let regOptions: RegistrationOptions | undefined = swOptions;
+        if (swOptions && 'userAgent' in swOptions) {
+            const { userAgent: _ua, ...rest } = swOptions;
+            regOptions = rest;
+        }
         if (!('serviceWorker' in navigator)) {
             throw (legacyMessage('sw-unsupported'));
         }
         let reg: ServiceWorkerRegistration;
         try {
-            reg = await navigator.serviceWorker.register(sw, swOptions);
+            reg = await navigator.serviceWorker.register(sw, regOptions);
         } catch (e) {
             throw (legacyMessage('sw-register-failed', { error: `${e}` }));
         }
@@ -517,6 +542,12 @@ export default class Weiwudi extends WeiwudiEventTarget {
         // ready + controller 取得を上限付きで待つ（#30）
         await Weiwudi.waitForController();
         await Weiwudi.swCheck();
+        if (hasUserAgent) {
+            await postV2<null>('setUserAgent', { userAgent });
+        } else {
+            // 前に渡した値を外す。旧い SW（新 API が無い）・失敗は登録の結果を変えない
+            await postV2<null>('setUserAgent', {}).catch(() => undefined);
+        }
         return reg;
     }
 

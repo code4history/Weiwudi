@@ -8,7 +8,8 @@
 // 決まり:
 // - Source と Resource の id はどちらも map:<mapID>（第 1 回 S6）。Source.legacy に現行の設定（query）をそのまま持つ
 // - Entry のキーは map:<mapID>\0<tileKeySuffix>（R2・第 2 回 O12）。照合表には入れない
-// - 上流は fetch(URL の文字列) の 1 引数。差し込み口が別の Request を返したときだけ fetch(その Request)（第 1 回 S8）
+// - 上流は fetch(URL の文字列) の 1 引数。差し込み口が別の Request を返したときだけ fetch(その Request)（第 1 回 S8）。
+//   どちらも ctx.upstreamFetch を通す（同じオリジンの要求にだけ User-Agent を足し、それ以外は引数のまま fetch）
 // - 差し込み口へは選んだミラーを展開した URL の Request を渡す（疑似ホストの URL を渡さない。第 2 回 S-5）
 // - Range つきの要求は serve() に入れず、上流のタイルの URL へそのまま素通しする（仕様 §11）
 // - fetchAll のジョブは開始の FetchEvent の waitUntil に渡す（R11・第 1 回 S11）。1 度に 1 ジョブ（context.job）
@@ -132,7 +133,7 @@ const serveTile = (ctx: Context, s: MapSetting, z: number, x: number, y: number)
     request: requestOf(url),
     storable: true,
     upstream: async (request, { requestChanged }) =>
-      ({ kind: 'response', response: await (requestChanged ? fetch(request) : fetch(url)) }),
+      ({ kind: 'response', response: await (requestChanged ? ctx.upstreamFetch(request) : ctx.upstreamFetch(url)) }),
   }, () => Date.now());
 };
 
@@ -140,14 +141,14 @@ const serveTile = (ctx: Context, s: MapSetting, z: number, x: number, y: number)
  * Range つきの要求の素通し（serve に入れない。保存しない）。core.passThrough を使うので、ネットワーク失敗は
  * 新 API と同じ 404・offline-miss・x-weiwudi-error: network（m2-t7。素通しを 1 か所にまとめた）
  */
-const passRange = (s: MapSetting, z: number, x: number, y: number, range: string): Promise<Response> =>
-  passThrough(() => fetch(requestOf(tileUrl(s, z, x, y), { headers: { range } })));
+const passRange = (ctx: Context, s: MapSetting, z: number, x: number, y: number, range: string): Promise<Response> =>
+  passThrough(() => ctx.upstreamFetch(requestOf(tileUrl(s, z, x, y), { headers: { range } })));
 
 const getImage = async (ctx: Context, mapID: string, z: number, x: number, y: number, range: string | null) => {
   const store = await ctx.store();
   const setting = await getSetting(ctx, store, mapID);
   if (!setting) return legacyMessage('map-not-found', { mapID });
-  if (range !== null) return passRange(setting, z, x, y, range);
+  if (range !== null) return passRange(ctx, setting, z, x, y, range);
   // 移行の途中は、旧 Weiwudi_<mapID> にあれば新 DB へ移してから配信する（読み通し。R18。配信の経路は serve 1 つ）
   await pullTile(ctx, migrationDeps, mapID, z, x, y);
   return serveTile(ctx, setting, z, x, y);

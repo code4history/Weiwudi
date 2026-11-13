@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { PAGE_ORIGIN, PAGE_PORT } from './tests/e2e/fixtures/page-origin.mjs';
 
 // WebKit・Firefox は環境変数 WEIWUDI_E2E_ENGINES（webkit・firefox をカンマで）があるときだけ足す（m3-t10・R14'）。
 // 手元は Chromium だけ（共有キャッシュに playwright install をしない）。CI の e2e-engines の job が足して走らせる。
@@ -25,7 +26,8 @@ export default defineConfig({
     workers: 1,
     reporter: [['html', { open: 'never' }]],
     use: {
-        baseURL: 'http://localhost:5173',
+        // ページの番号は WEIWUDI_E2E_PORT で替えられる（既定 5173。tests/e2e/fixtures/page-origin.mjs）
+        baseURL: PAGE_ORIGIN,
         trace: 'on-first-retry',
     },
     projects: [
@@ -37,8 +39,8 @@ export default defineConfig({
     ],
     webServer: [
         {
-            command: 'pnpm run dev',
-            url: 'http://localhost:5173',
+            command: PAGE_PORT === 5173 ? 'pnpm run dev' : `node node_modules/vite/bin/vite.js --host --port ${PAGE_PORT} --strictPort`,
+            url: PAGE_ORIGIN,
             reuseExistingServer: !process.env.CI,
         },
         // オフラインの e2e が使うローカルの上流サーバ（タイルと workbox を配る）

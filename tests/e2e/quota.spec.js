@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { PAGE_ORIGIN } from './fixtures/page-origin.mjs';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -15,7 +16,7 @@ import { join } from 'node:path';
 // プロファイルを持つ永続コンテキストにする
 const UPSTREAM = 'http://localhost:5174';
 const TILE_URL = `${UPSTREAM}/tiles/{z}/{x}/{y}.png`;
-const ORIGIN = 'http://localhost:5173';
+const ORIGIN = PAGE_ORIGIN;
 const PAGE = `${ORIGIN}/tests/e2e/fixtures/offline-page.html`;
 // 上限（byte）。登録の後の使用量より小さい。DB を開くことと読むことはこの上限でも通る（実測）
 const QUOTA_BYTES = 1;

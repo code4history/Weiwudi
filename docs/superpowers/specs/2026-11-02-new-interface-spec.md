@@ -77,25 +77,26 @@
 | `constants.ts` | 疑似ホスト・旧 API の前置き・既定の時間（m3）・保存と合成で落とすヘッダと自前のヘッダの接頭辞（m4） | なし（全ファイルが import してよい） |
 | `tile_math.ts` | 座標・タイル計算（#34。m1）・テンプレートの展開・タイルのキーの suffix（`tileKeySuffix`。新旧で 1 つ） | なし |
 | `errors.ts` | `WeiwudiError` と旧文面の表（#33。m1） | なし |
+| `user_agent.ts` | 上流へ送る User-Agent の検査・組み立て・付ける場面の判定 | `errors` |
 | `url_pattern.ts` | テンプレートの解析・照合・正規化・キー | `tile_math`・`constants`・`errors` |
 | `spec.ts` | 登録内容（`SourceSpec`）の検査と正規化 | `url_pattern`・`tile_math`・`constants`・`errors` |
 | `style_body.ts` | スタイル・TileJSON の本体の解析と書き換え（純粋。m3） | `url_pattern`・`constants`・`errors` |
-| `plugins.ts` | 差し込み口（#36）・提供元の登録表（m3） | `constants`・`errors` |
+| `plugins.ts` | 差し込み口（#36）・提供元の登録表（m3）・SW 側の User-Agent の指定 | `user_agent`・`constants`・`errors` |
 | `providers/` | 提供元（`mapbox.ts`。#40。m3） | `errors`・`constants`・`providers/` どうし |
 | `store.ts` | IndexedDB の全操作。型 `ResourceMeta` などの正本（#37）。`SourceRecord` を読む小さな補助の唯一の置き場 | `constants`・`errors` |
-| `context.ts` | 実行中の状態（接続・照合表・同時要求・連続数・ジョブ）の入れ物。`Weiwudi_Internal` の呼び出しごとに 1 つ | `store`・`constants`・`errors` |
+| `context.ts` | 実行中の状態（接続・照合表・同時要求・連続数・ジョブ）の入れ物。`Weiwudi_Internal` の呼び出しごとに 1 つ。上流への取得（`upstreamFetch`。upstream・legacy・hook が通す 1 つの関数） | `store`・`user_agent`・`constants`・`errors` |
 | `registry.ts` | 合流と実効方針（§5.6） | `store`・`spec`・`url_pattern`・`tile_math`・`constants`・`errors` |
 | `upstream.ts` | 上流の取得と CORS・認証付きの要求（§4.5・§4.6） | `context`・`store`・`url_pattern`・`constants`・`errors` |
 | `core.ts` | `serve()`・退避・ジョブ | `context`・`store`・`plugins`・`url_pattern`・`tile_math`・`constants`・`errors` |
 | `hook.ts` | 照合表・ルート登録 | `core`・`upstream`・`context`・`store`・`url_pattern`・`style_body`・`constants`・`errors` |
 | `style.ts` | スタイルの芋づる登録の段取り（§5.5。m3） | `hook`・`core`・`registry`・`spec`・`style_body`・`url_pattern`・`context`・`store`・`constants`・`errors` |
 | `range.ts` | 範囲の正規化・列挙・ジョブ・region・解放（m4） | `hook`・`core`・`upstream`・`registry`・`context`・`store`・`spec`・`url_pattern`・`tile_math`・`style_body`・`constants`・`errors` |
-| `control.ts` | `/v2/*` の処理 | `hook`・`core`・`registry`・`spec`・`style`・`range`・`context`・`store`・`tile_math`・`constants`・`errors` |
+| `control.ts` | `/v2/*` の処理 | `hook`・`core`・`registry`・`spec`・`style`・`range`・`context`・`store`・`tile_math`・`user_agent`・`constants`・`errors` |
 | `legacy.ts` | `/api/*` の翻訳と `MapSetting` の変換 | `core`・`context`・`store`・`tile_math`・`constants`・`errors`（m4 で `migrate`） |
 | `migrate.ts` | 旧 DB からの移行（m4） | `store`・`constants`・`errors` |
 | `weiwudi_gw_logic.ts` | 配線だけ（`Weiwudi_Internal`） | 上の全部 |
 | `weiwudi_gw.ts`・`weiwudi_sw.ts` | SW の入口（ES・UMD） | `weiwudi_gw_logic`・`plugins`・`constants` |
-| `weiwudi.ts` | ページ側 API | `errors`・`url_pattern`・`constants` |
+| `weiwudi.ts` | ページ側 API | `errors`・`user_agent`・`url_pattern`・`constants` |
 
 注: `constants` は `tile_math`・`errors` を除く全ファイルが import してよい（`constants.ts` 自身は何も import しない）。
 
@@ -188,7 +189,7 @@
    - `source.update()` は `corslessUntil`・`corsOk`・`corslessStreak` を消す（`count` には触らない）。ただし `count > 0` の `Resource` は「実績あり」のままなので、サーバが CORS をやめた場合は候補にならない。このとき Entry が無いタイルを元の要求が `no-cors` で求めると、cors と no-cors の 2 回の要求を出し続ける（Entry があれば §6 の 4 で古い本体を返す。元の要求が `cors` なら 2 は行わない）。この場合に判定をやり直すには `clean()` で Entry を消す
    - 範囲取得は `corslessUntil` を見ずに 1 で取る。`TypeError` のタイルは `mode: 'no-cors'` で確かめる。実績が無いうちに、そのジョブの中で opaque が 3 回続いたら（ジョブごとの連続数 `jobOpaqueStreak`。`corslessStreak` とは別で、範囲取得は `corslessStreak` を増やさない）、止める前に**範囲の中から無作為に 5 枚（範囲が 5 枚未満なら全部）を cors で確かめる**。確かめで取れた 200 は通常どおり保存し、進捗にも数える（後で同じタイルを取り直さない）。1 枚でも CORS を通れば `corsOk` を立てて続ける。1 枚も通らず opaque が 1 枚でもあれば `opaque` で止め、全部が両方失敗（cors も no-cors も `TypeError`）なら `network` で止める（範囲の最初が CORS ヘッダの無い 404 の海でも、再実行のたびに同じ所で止まらないため）。それ以外の opaque は `upstream` として数えて進む。両方失敗は `network` として数え、`jobOpaqueStreak` を増やさない
    - 元の要求が `no-cors` で、1 が 401・403 を返したとき: **Entry があれば §6 の 4（古い本体）とし、取り直さない**（トークン失効などで、opaque が 401 を隠した壊れた画像を渡さないため）。Entry が無いときだけ元の要求で 1 回取り直す（同じサイトの別オリジンで Cookie で認証し、401 に CORS ヘッダを付けるサーバのため。組み替えた形は別オリジンへ Cookie を送らない）。opaque ならページへ渡し、保存しない。取り直しが `TypeError` なら 1 の 401・403 をそのまま返す（§6 の 5）。取り直しが CORS を通った・同一オリジンの応答（`basic`・`cors`）で返ったときは、状態が 200 なら通常どおり扱い（§4.6 により保存の可否を決める）、401・403 などなら保存せずそのまま返す（§6 の 5）。どれも数えない
-4. 元の要求が `cors` なら 2 は行わない。opaque は返せない（ネットワークエラーになる）
+4. 元の要求が `cors` なら 2 は行わない。opaque は返せない（ネットワークエラーになる）。なお、同じオリジンの上流へ User-Agent を付けた要求が失敗したときに、User-Agent を外して 1 回だけ取り直すのは、`context.upstreamFetch` の中の別の扱いである（GET・HEAD で、取り消されていない要求だけ。ここで言う 2 の取り直しには当たらない）
 
 テンプレートから URL を作るとき（範囲取得と旧 API）は、現行どおりミラーから無作為に 1 つ選ぶ。実 URL の捕捉では要求の URL をそのまま使う。
 

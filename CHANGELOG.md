@@ -15,6 +15,7 @@
 - 資格情報の分離保存と送信先の制限、未宣言の資格情報らしいクエリを知らせる `credential-undeclared` warning を追加
 - 新 API の `WeiwudiError` と、旧 API の文字列エラーを分類する `WeiwudiError.from`、応答の `x-weiwudi-error` ヘッダを追加
 - 1.1.x の既存タイルキャッシュを段階的に新 DB へ引き継ぐ移行を追加。移行中も旧 API のタイルはオフラインで読み出せる
+- 上流へ送る User-Agent に `Weiwudi/<版>` を足す。`registerSW` の `userAgent`（または SW 側の `setUserAgent`）で利用者の名前も足せる。Service Worker と同じオリジンの上流にだけ付ける（Chromium 系は捨てる）
 
 ### Changed
 - IndexedDB の失敗は `Error: [object Event]` ではなく `tx.error`・`req.error` に基づく文字列を返す
