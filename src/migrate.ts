@@ -324,6 +324,9 @@ const convert = async (mapID: string, oldKey: string, value: unknown): Promise<{
 
 const copySettings = async (ctx: Context, deps: MigrateDeps): Promise<void> => {
   const store = await ctx.store();
+  // 起動後の点検（R59。やり直すかの判定だけ）を先に済ませる。旧 API の最初の要求は契機（runMaintenance）より先に
+  // ここへ来るので、done のまま読むと現れた旧 DB の mapSetting を見ずに migrated にしてしまう
+  await ensureBooted(ctx, store);
   const prev = await readState(store);
   if (prev.stage === 'tiles' || prev.stage === 'done') {
     remember(ctx, prev);
@@ -583,42 +586,64 @@ const finish = async (ctx: Context, store: Store): Promise<void> => {
   remember(ctx, s);
 };
 
-/** SW の起動後の最初の契機: pendingDelete を消し直し、done でも旧 DB が作り直されていればやり直す（R59） */
+/**
+ * 起動後の点検（R59）: stage が done でも、旧 DB（pendingDelete と failed の地図のものを除く）があれば移行をやり直す
+ * （1.1.x に戻している間に作り直された旧 DB）。旧 DB を消さないので、旧 API の要求が待っても止まらない
+ */
 const boot = async (ctx: Context, store: Store): Promise<void> => {
   const m = ctx.maintenance;
+  const prev = await readState(store);
+  if (prev.stage !== 'done') return;
+  const names = await listLegacyDbs();
+  if (!names) return;
+  const kept = prev.maps.filter((x) => x.status === 'failed').map((x) => mapDbName(x.mapID));
+  if (!names.some((n) => prev.pendingDelete.indexOf(n) < 0 && kept.indexOf(n) < 0)) return;
+  await updateState(ctx, store, (s) => { s.stage = 'pending'; });
+  m.migrated = false;
+  m.settingsDone = false;
+  m.failedMaps = undefined;
+};
+
+/**
+ * 起動後の点検（boot）を 1 回だけ走らせる。旧 API の要求（ping を除く。第 1 段が待つ）と契機の両方が呼び、進行中の
+ * Promise を共有する（どちらが先に来ても、done の印より先に旧 DB の有無を見る）。失敗は reject（次の呼び出しでやり直す）
+ */
+const ensureBooted = (ctx: Context, store: Store): Promise<void> => {
+  const m = ctx.maintenance;
+  if (m.migrationBooted) return Promise.resolve();
+  if (m.migrationBooting) return m.migrationBooting;
+  const p = boot(ctx, store).then(() => { m.migrationBooted = true; }).finally(() => {
+    if (m.migrationBooting === p) m.migrationBooting = undefined;
+  });
+  m.migrationBooting = p;
+  return p;
+};
+
+/**
+ * pendingDelete の消し直し（R51）。起動後の最初の契機（waitUntil）だけが行う。同じ名前の削除が待ちのままだと
+ * deleteDatabase が返らないことがあるので、旧 API の要求には待たせない
+ */
+const retryPendingDeletes = async (ctx: Context, store: Store): Promise<void> => {
+  const m = ctx.maintenance;
+  if (m.pendingDeletesRetried) return;
   const prev = await readState(store);
   const deleted: string[] = [];
   for (const name of prev.pendingDelete) {
     if ((await deleteLegacyDb(ctx, name)) === 'deleted') deleted.push(name);
   }
-  let restart = false;
-  if (prev.stage === 'done') {
-    const names = await listLegacyDbs();
-    if (names) {
-      const kept = prev.maps.filter((x) => x.status === 'failed').map((x) => mapDbName(x.mapID));
-      restart = names.some((n) => prev.pendingDelete.indexOf(n) < 0 && kept.indexOf(n) < 0);
-    }
-  }
-  if (deleted.length > 0 || restart) {
+  if (deleted.length > 0) {
     await updateState(ctx, store, (s) => {
       s.pendingDelete = s.pendingDelete.filter((n) => deleted.indexOf(n) < 0);
-      if (restart) s.stage = 'pending';
     });
   }
-  if (restart) {
-    m.migrated = false;
-    m.settingsDone = false;
-    m.failedMaps = undefined;
-  }
+  m.pendingDeletesRetried = true;
 };
 
 const stepOnce = async (ctx: Context, deps: MigrateDeps): Promise<void> => {
   const m = ctx.maintenance;
   const store = await ctx.store();
-  if (!m.migrationBooted) {
-    await boot(ctx, store);
-    m.migrationBooted = true;
-  }
+  await ensureBooted(ctx, store);
+  await retryPendingDeletes(ctx, store);
   if (m.migrated) return;
   const state = await readState(store);
   if (state.stage === 'done') {

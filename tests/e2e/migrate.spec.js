@@ -147,6 +147,75 @@ test.describe('Weiwudi migration from 1.1.x', () => {
         expectNoLeaks(guard);
     });
 
+    test('finds a legacy map that appears after the migration is done, on the first request of a new SW', async ({ page, context }) => {
+        const guard = await guardNetwork(context);
+        const LATE = 'y';
+        // 1 回目: 旧 DB を移し終えて kv の migration を done にする
+        await seed(page, 1);
+        await startSW(page);
+        const coords = coordsUpTo(1);
+        const deadline = Date.now() + 20000;
+        const leftovers = async () => (await databases(page)).filter((n) => n.startsWith('Weiwudi') && n !== 'WeiwudiStore');
+        const stage = () => page.evaluate(() => new Promise((resolve, reject) => {
+            const req = indexedDB.open('WeiwudiStore');
+            req.onsuccess = () => {
+                const db = req.result;
+                const g = db.transaction(['kv'], 'readonly').objectStore('kv').get('migration');
+                g.onsuccess = () => { db.close(); resolve(g.result?.value?.stage); };
+                g.onerror = () => { db.close(); reject(g.error); };
+            };
+            req.onerror = () => reject(req.error);
+        }));
+        for (let i = 0; Date.now() < deadline; i++) {
+            const [z, x, y] = coords[i % coords.length];
+            expect((await getTile(page, z, x, y)).status).toBe(200);
+            if ((await leftovers()).length === 0 && (await stage()) === 'done') break;
+            await page.waitForTimeout(50);
+        }
+        expect(await leftovers()).toEqual([]);
+        expect(await stage()).toBe('done');
+
+        // SW を外し、制御の外れたページで旧 DB を作り直す（1.1.x で新しく足された地図 y。sources に無い）
+        await page.evaluate(async () => {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map((r) => r.unregister()));
+        });
+        await page.goto(PAGE);
+        await page.waitForFunction(() => window.pageReady === true);
+        expect(await page.evaluate(() => navigator.serviceWorker.controller)).toBeNull();
+        const r = await page.evaluate((opts) => window.seed(opts), { mapID: LATE, url: TILE_URL, maxZoom: 1 });
+        test.skip(r.blobUnsupported === true, `this engine cannot store a Blob in IndexedDB here: ${r.error}`);
+        expect(await databases(page)).toEqual(expect.arrayContaining(['Weiwudi', `Weiwudi_${LATE}`]));
+
+        // 新しい SW を登録する。registerSW は /v2/setUserAgent（POST）で先に保守を起こすので使わず、
+        // 旧 API の info を新しい SW の最初の要求にする
+        const first = await page.evaluate(async ({ id, pseudo }) => {
+            await navigator.serviceWorker.register('./offline-sw.js', { scope: '/tests/e2e/fixtures/' });
+            if (!navigator.serviceWorker.controller) {
+                await new Promise((resolve) => navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true }));
+            }
+            const res = await fetch(`https://${pseudo}/api/info?mapID=${id}`);
+            return res.text();
+        }, { id: LATE, pseudo: PSEUDO });
+        expect(first).not.toMatch(/^Error: /);
+        expect(JSON.parse(first)).toMatchObject({ mapID: LATE, url: TILE_URL });
+
+        // 旧 DB のタイルが読め、移行が終わると旧 DB が消える
+        await page.evaluate(({ id, pseudo }) => { window.map = { url: `https://${pseudo}/api/cache/${id}/{z}/{x}/{y}` }; }, { id: LATE, pseudo: PSEUDO });
+        const tile = await getTile(page, 1, 1, 0);
+        expect(tile).toMatchObject({ status: 200, wstatus: 'hit', text: 'legacy:1/1/0' });
+        const deadline2 = Date.now() + 20000;
+        for (let i = 0; Date.now() < deadline2; i++) {
+            const [z, x, y] = coords[i % coords.length];
+            expect((await getTile(page, z, x, y)).status).toBe(200);
+            if ((await leftovers()).length === 0 && (await stage()) === 'done') break;
+            await page.waitForTimeout(50);
+        }
+        expect(await leftovers()).toEqual([]);
+        expect(await stage()).toBe('done');
+        expectNoLeaks(guard);
+    });
+
     // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた（仕様 §2 の 7）
     test('serves migrated tiles offline during migration', { tag: '@chromium-only' }, async ({ page, context, request }) => {
         const guard = await guardNetwork(context);
