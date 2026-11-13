@@ -584,6 +584,50 @@ describe('戻して上げ直す・blocked・databases() の無い環境（R17・
     expect(left).not.toContain('Weiwudi');
   });
 
+  it('done の後に旧 DB が現れたとき、新しい SW の最初の旧 API の要求（契機より先）が map-not-found にならず、地図を移す', async () => {
+    const factory = new IDBFactory();
+    setup(factory);
+    await makeSettings(factory, [setting('a')]);
+    await makeTiles(factory, 'a', [record('2_1_1')]);
+    const ctx = startSw();
+    await steps(ctx, 2);
+    expect((await stateOf(ctx)).stage).toBe('done');
+    // 1.1.x で新しく足された地図（sources に無い）
+    await makeSettings(factory, [setting('b')]);
+    await makeTiles(factory, 'b', [record('2_2_2')]);
+    const next = startSw();
+    // migrateStep（R59 の boot）を先に呼ばず、旧 API の要求を最初に受ける
+    const res = await get(next, '/api/info?mapID=b');
+    expect(await res.text()).not.toMatch(/not found/);
+    expect(await (await next.store()).getSource('map:b')).toBeDefined();
+    expect(next.maintenance.migrated).not.toBe(true);
+    const tile = await get(next, '/api/cache/b/2/2/2');
+    expect(tile.status).toBe(200);
+    await steps(next, 2);
+    expect((await stateOf(next)).stage).toBe('done');
+    const left = await names(factory);
+    expect(left).not.toContain('Weiwudi_b');
+    expect(left).not.toContain('Weiwudi');
+  });
+
+  it('done の後に旧 DB が現れたとき、最初の要求と最初の契機が同時でも、やり直しの判定（boot）は 1 回だけ', async () => {
+    const factory = new IDBFactory();
+    setup(factory);
+    await makeSettings(factory, [setting('a')]);
+    await makeTiles(factory, 'a', [record('2_1_1')]);
+    const ctx = startSw();
+    await steps(ctx, 2);
+    await makeSettings(factory, [setting('b')]);
+    await makeTiles(factory, 'b', [record('2_2_2')]);
+    const next = startSw();
+    const spy = vi.spyOn(indexedDB, 'databases');
+    const [res] = await Promise.all([get(next, '/api/info?mapID=b'), step(next)]);
+    expect(await res.text()).not.toMatch(/not found/);
+    // boot の databases() は 1 回（copySettings の 1 回と合わせて 2 回まで）
+    expect(spy.mock.calls.length).toBeLessThanOrEqual(2);
+    expect(next.maintenance.migrationBooted).toBe(true);
+  });
+
   it('閉じない接続で deleteDatabase が blocked でも契機は終わり、pendingDelete に残り、次の SW の最初の契機で消える', async () => {
     const factory = new IDBFactory();
     setup(factory);

@@ -324,6 +324,9 @@ const convert = async (mapID: string, oldKey: string, value: unknown): Promise<{
 
 const copySettings = async (ctx: Context, deps: MigrateDeps): Promise<void> => {
   const store = await ctx.store();
+  // 起動後の点検（R59）を先に済ませる。旧 API の最初の要求は契機（runMaintenance）より先にここへ来るので、
+  // done のまま読むと現れた旧 DB の mapSetting を見ずに migrated にしてしまう
+  await ensureBooted(ctx, store);
   const prev = await readState(store);
   if (prev.stage === 'tiles' || prev.stage === 'done') {
     remember(ctx, prev);
@@ -612,13 +615,25 @@ const boot = async (ctx: Context, store: Store): Promise<void> => {
   }
 };
 
+/**
+ * 起動後の点検（boot）を 1 回だけ走らせる。第 1 段（旧 API の要求が待つ）と契機の両方が呼び、進行中の Promise を
+ * 共有する（どちらが先に来ても、done の印より先に旧 DB の有無を見る）。失敗は reject（次の呼び出しでやり直す）
+ */
+const ensureBooted = (ctx: Context, store: Store): Promise<void> => {
+  const m = ctx.maintenance;
+  if (m.migrationBooted) return Promise.resolve();
+  if (m.migrationBooting) return m.migrationBooting;
+  const p = boot(ctx, store).then(() => { m.migrationBooted = true; }).finally(() => {
+    if (m.migrationBooting === p) m.migrationBooting = undefined;
+  });
+  m.migrationBooting = p;
+  return p;
+};
+
 const stepOnce = async (ctx: Context, deps: MigrateDeps): Promise<void> => {
   const m = ctx.maintenance;
   const store = await ctx.store();
-  if (!m.migrationBooted) {
-    await boot(ctx, store);
-    m.migrationBooted = true;
-  }
+  await ensureBooted(ctx, store);
   if (m.migrated) return;
   const state = await readState(store);
   if (state.stage === 'done') {

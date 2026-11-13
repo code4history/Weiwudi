@@ -89,6 +89,8 @@ export interface Context {
     migrating?: Promise<void>;
     /** 起動後の最初の契機の点検（pendingDelete の消し直し・やり直しの判定。R59）が済んだ */
     migrationBooted?: boolean;
+    /** 進行中の起動後の点検（第 1 段と契機が共有する。どちらが先でも点検は 1 回） */
+    migrationBooting?: Promise<void>;
     /** mapID → 進行中の pullTile（clean・delete が待つ） */
     pulls?: Map<string, Set<Promise<void>>>;
     /** 旧 API の clean・delete で忘れた地図（以後の migrateStep・pullTile が書かない） */
