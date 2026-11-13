@@ -133,8 +133,8 @@ importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.1.1/dist/weiwudi-sw.u
 
 ```typescript
 await Weiwudi.registerSW('./sw.js', { scope: './', userAgent: 'Maplat/2.0' });
-// 上流が受け取る値: "<ブラウザの User-Agent> Maplat/2.0 Weiwudi/1.2.0"
-// 指定しないとき:   "<ブラウザの User-Agent> Weiwudi/1.2.0"
+// 上流が受け取る値: "<ブラウザの User-Agent> Maplat/2.0 Weiwudi/<版>"
+// 指定しないとき:   "<ブラウザの User-Agent> Weiwudi/<版>"
 ```
 
 - 値はサービスワーカー全体で 1 つです（サービスワーカーに保存し、後から指定した値が勝ちます）。`registerSW` を `userAgent`

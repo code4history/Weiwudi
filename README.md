@@ -138,8 +138,8 @@ To also identify your application (e.g. `Maplat/2.0`), pass `userAgent` to `regi
 
 ```typescript
 await Weiwudi.registerSW('./sw.js', { scope: './', userAgent: 'Maplat/2.0' });
-// The upstream receives: "<browser User-Agent> Maplat/2.0 Weiwudi/1.2.0"
-// Without userAgent:     "<browser User-Agent> Weiwudi/1.2.0"
+// The upstream receives: "<browser User-Agent> Maplat/2.0 Weiwudi/<version>"
+// Without userAgent:     "<browser User-Agent> Weiwudi/<version>"
 ```
 
 - There is one value for the whole service worker (it is stored in the service worker; the latest one wins). Calling

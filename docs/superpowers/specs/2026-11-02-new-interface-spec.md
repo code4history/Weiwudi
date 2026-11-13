@@ -77,7 +77,7 @@
 | `constants.ts` | 疑似ホスト・旧 API の前置き・既定の時間（m3）・保存と合成で落とすヘッダと自前のヘッダの接頭辞（m4） | なし（全ファイルが import してよい） |
 | `tile_math.ts` | 座標・タイル計算（#34。m1）・テンプレートの展開・タイルのキーの suffix（`tileKeySuffix`。新旧で 1 つ） | なし |
 | `errors.ts` | `WeiwudiError` と旧文面の表（#33。m1） | なし |
-| `user_agent.ts` | 上流へ送る User-Agent の検査・組み立て・付ける場面の判定（2026-11-14） | `errors` |
+| `user_agent.ts` | 上流へ送る User-Agent の検査・組み立て・付ける場面の判定 | `errors` |
 | `url_pattern.ts` | テンプレートの解析・照合・正規化・キー | `tile_math`・`constants`・`errors` |
 | `spec.ts` | 登録内容（`SourceSpec`）の検査と正規化 | `url_pattern`・`tile_math`・`constants`・`errors` |
 | `style_body.ts` | スタイル・TileJSON の本体の解析と書き換え（純粋。m3） | `url_pattern`・`constants`・`errors` |
