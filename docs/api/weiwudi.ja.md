@@ -12,7 +12,8 @@ Source の API（`Weiwudi.register` と `WeiwudiSource`）は、地図ライブ�
 
 **パラメータ:**
 - `sw` (string | URL): サービスワーカーファイルへのパス
-- `swOptions` (RegistrationOptions, オプション): サービスワーカー登録オプション
+- `swOptions` (RegistrationOptions, オプション): サービスワーカー登録オプション。次の項目を足せます
+  - `userAgent` (string, オプション): 上流へ送る User-Agent に足す値（`'Maplat/2.0'` など）。上流は `<ブラウザの User-Agent> <userAgent> Weiwudi/<版>` を受け取ります。省略すると `Weiwudi/<版>` だけを足し、前に指定した値を外します。サービスワーカーと同じオリジンの上流にだけ付けます（Chromium 系のブラウザは捨てます。[README](../../README.ja.md#上流へ送る-user-agent)）
 
 **戻り値:** `Promise<ServiceWorkerRegistration>`
 
@@ -24,6 +25,8 @@ Source の API（`Weiwudi.register` と `WeiwudiSource`）は、地図ライブ�
 - `"Error: Service worker is not supported"`: ブラウザがサービスワーカーをサポートしていない場合
 - `"Error: Service worker registration failed with {error}"`: 登録に失敗した場合
 - `"Error: Service worker did not control this page within 10000 ms"`: 10000 ms 以内にページが制御下に入らなかった場合（例: ページ URL が登録スコープ外）
+- `WeiwudiError`（`attribute-invalid`）: `userAgent` が空白だけ・制御文字を含む・印字できる ASCII 以外を含む・200 文字を超える場合（登録の前）
+- `WeiwudiError`（`sw-outdated` など）: `userAgent` を指定し、サービスワーカーが受け取れなかった場合（登録の後）
 
 **例:**
 ```js

@@ -16,6 +16,7 @@ adding URL providers.
 |---|---|
 | `addPlugin(plugin)` | function |
 | `addProvider(provider)` | function |
+| `setUserAgent(userAgent)` | function |
 | `WeiwudiPlugin` | type |
 | `WeiwudiProvider` | type |
 | `Credentials` | type |
@@ -23,7 +24,8 @@ adding URL providers.
 | `ResourceType` | type |
 
 With the UMD build (`weiwudi-sw.umd.js` loaded by `importScripts`), the same
-functions are `self.Weiwudi_SW.addPlugin` and `self.Weiwudi_SW.addProvider`.
+functions are `self.Weiwudi_SW.addPlugin`, `self.Weiwudi_SW.addProvider` and
+`self.Weiwudi_SW.setUserAgent`.
 
 ## `addPlugin(plugin: WeiwudiPlugin): void`
 
@@ -298,3 +300,22 @@ the URL query; it is moved out). A secret token (`sk.`) is rejected with
 `credential-rejected`. Checking the provider's terms of service, including
 whether offline storage is allowed, is your responsibility.
 
+## `setUserAgent(userAgent: string | undefined): void`
+
+Sets, in the service worker script, the value appended to the User-Agent sent to the upstream (e.g. `'Maplat/2.0'`).
+Call it at the top of the script. There is one value for the whole service worker; `undefined` removes it. It is not
+persisted (the script calls it again when the service worker restarts). A `userAgent` given to the page's
+`Weiwudi.registerSW` takes precedence.
+
+- The upstream receives `<browser User-Agent> <userAgent> Weiwudi/<version>`, or `<browser User-Agent> Weiwudi/<version>`
+  without a value.
+- It is only added to requests on the service worker's own origin with mode `cors` or `same-origin`. Chromium-based
+  browsers drop it. See [Upstream User-Agent in the README](../../README.md#upstream-user-agent).
+- A value that is blank, contains a control character or a character outside printable ASCII, or is longer than
+  200 characters throws a `WeiwudiError` (`attribute-invalid`) and keeps the previous value.
+- A request whose User-Agent was set explicitly by a plugin (`requestWillFetch`) is sent as is.
+
+```js
+import { setUserAgent } from '@c4h/weiwudi/sw';
+setUserAgent('Maplat/2.0');
+```

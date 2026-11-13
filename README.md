@@ -131,6 +131,32 @@ importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.1.1/dist/weiwudi-sw.u
 - Going back to 1.1.x does not break anything (its cache starts empty, so the tiles are fetched again). Where `indexedDB.databases()` is not available (older Firefox), a cache that 1.1.x recreated while you were back on it is not migrated again.
 - During the migration, `fetchAll` and `stats` count only the tiles migrated so far (`fetchAll` fetches the tiles not migrated yet again when online, and the `percent` of `stats` is temporarily low).
 
+### Upstream User-Agent
+
+When the service worker fetches tiles from the upstream, it appends `Weiwudi/<version>` to the browser's User-Agent.
+To also identify your application (e.g. `Maplat/2.0`), pass `userAgent` to `registerSW`.
+
+```typescript
+await Weiwudi.registerSW('./sw.js', { scope: './', userAgent: 'Maplat/2.0' });
+// The upstream receives: "<browser User-Agent> Maplat/2.0 Weiwudi/1.2.0"
+// Without userAgent:     "<browser User-Agent> Weiwudi/1.2.0"
+```
+
+- There is one value for the whole service worker (it is stored in the service worker; the latest one wins). Calling
+  `registerSW` without `userAgent` removes a value given before.
+- A value that is blank, contains a control character or a character outside printable ASCII, or is longer than
+  200 characters is rejected with a `WeiwudiError` (`attribute-invalid`) before registering. Surrounding spaces are trimmed.
+- To set it in the service worker script, call `setUserAgent('Maplat/2.0')` (`self.Weiwudi_SW.setUserAgent` in the UMD
+  build) at the top. A value given to `registerSW` takes precedence.
+- **It is only added to upstream requests on the service worker's own origin** (with mode `cors` or `same-origin`).
+  Cross-origin upstreams and `no-cors` requests never get it.
+- **Chromium-based browsers drop a User-Agent set on service worker requests** (even on the same origin; the fetch still
+  succeeds). Safari (WebKit) sends it.
+- On a cross-origin upstream, Safari would send a preflight (`OPTIONS`), and the fetch fails on tile servers that do
+  not answer it. This is why Weiwudi does not add it to cross-origin requests.
+- To identify your application to a cross-origin tile server, put a relay (reverse proxy) on the page's origin and
+  register its URL. The relay decides the User-Agent of its own upstream requests.
+
 ### Service worker plugins
 
 `@c4h/weiwudi/sw` exports `addPlugin` to hook into how tiles are fetched and
@@ -332,6 +358,8 @@ This generates:
 pnpm run test:unit   # Unit tests (Vitest, tests/unit/)
 pnpm test            # E2E tests (Playwright, tests/e2e/)
 ```
+
+The E2E pages are served on port 5173 by default. Set e.g. `WEIWUDI_E2E_PORT=5183` when 5173 is in use.
 
 The unit tests cover the service-worker gateway logic (`src/weiwudi_gw_logic.ts`): API branching, tile fetching and caching, and the cache size limit.
 

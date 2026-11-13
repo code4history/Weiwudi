@@ -126,6 +126,32 @@ importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.1.1/dist/weiwudi-sw.u
 - 1.1.x へ戻しても壊れません（キャッシュは取り直しになります）。`indexedDB.databases()` の無い環境（古い Firefox）では、1.1.x に戻している間に作り直されたキャッシュは、もう一度は移しません。
 - 移行の途中の `fetchAll` と `stats` は、移し終えたタイルだけを数えます（`fetchAll` はまだ移していないタイルをオンラインなら取り直し、`stats` の `percent` は一時的に低く出ます）。
 
+### 上流へ送る User-Agent
+
+サービスワーカーがタイルを上流から取るとき、ブラウザの User-Agent の後ろに `Weiwudi/<版>` を足します。
+利用者の名前（`Maplat/2.0` など）も足したいときは、`registerSW` の `userAgent` で指定します。
+
+```typescript
+await Weiwudi.registerSW('./sw.js', { scope: './', userAgent: 'Maplat/2.0' });
+// 上流が受け取る値: "<ブラウザの User-Agent> Maplat/2.0 Weiwudi/1.2.0"
+// 指定しないとき:   "<ブラウザの User-Agent> Weiwudi/1.2.0"
+```
+
+- 値はサービスワーカー全体で 1 つです（サービスワーカーに保存し、後から指定した値が勝ちます）。`registerSW` を `userAgent`
+  なしで呼ぶと、前に指定した値を外します。
+- 空白だけ・制御文字を含む・印字できる ASCII 以外を含む・200 文字を超える値は、登録の前に `WeiwudiError`
+  （`attribute-invalid`）で reject します。前後の空白は除きます。
+- サービスワーカーのスクリプトで指定するときは `setUserAgent('Maplat/2.0')`（UMD 版は `self.Weiwudi_SW.setUserAgent`）を
+  先頭で呼びます。`registerSW` の指定があれば、そちらを使います。
+- **付けるのは、サービスワーカーと同じオリジンの上流への要求だけです**（mode が `cors` か `same-origin` のもの）。
+  別オリジンの上流と `no-cors` の要求には付けません。
+- **Chromium 系のブラウザは、サービスワーカーの要求に付けた User-Agent を捨てます**（同じオリジンでも送られません。
+  取得は成功します）。Safari（WebKit）は送ります。
+- 別オリジンの上流に付けると、Safari は事前確認（preflight の `OPTIONS`）を出し、それを受けないタイル配信では取得が
+  失敗します。そのため Weiwudi は別オリジンには付けません。
+- 別オリジンのタイル配信に利用者を名乗りたいときは、ページと同じオリジンに中継（リバースプロキシ）を置き、
+  その URL を登録してください。中継から先の要求の User-Agent は中継の側で決めます。
+
 ### サービスワーカーの差し込み口
 
 `@c4h/weiwudi/sw` は、タイルの取得と保存に処理を差し込む `addPlugin` を export します。
@@ -299,6 +325,8 @@ pnpm build
 pnpm run test:unit   # ユニットテスト（Vitest・tests/unit/）
 pnpm test            # E2E テスト（Playwright・tests/e2e/）
 ```
+
+E2E のページは既定で 5173 番で開きます。5173 番が使われているときは `WEIWUDI_E2E_PORT=5183` のように替えられます。
 
 ユニットテストは Service Worker のゲートウェイロジック（`src/weiwudi_gw_logic.ts`）の API の分岐・タイルの取得とキャッシュ・容量上限を検証します。
 
