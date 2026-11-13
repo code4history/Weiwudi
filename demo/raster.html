@@ -443,7 +443,7 @@
                 document.getElementById('sw-status').textContent = 'Registering SW...';
 
                 // Register Service Worker
-                await Weiwudi.registerSW('../demo-sw.js', { scope: '../' });
+                await Weiwudi.registerSW('../demo-sw.js', { scope: '../', userAgent: 'WeiwudiDemo/1.0' });
 
                 document.getElementById('sw-status').textContent = 'Registering source...';
 

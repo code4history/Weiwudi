@@ -337,7 +337,7 @@ Access `http://localhost:5173/` in your browser. The demo portal (`index.html`) 
 
 Each demo uses only the service worker of its own scope and the Weiwudi IndexedDB databases (`Weiwudi`, `Weiwudi_*`, `WeiwudiStore`); service workers and data of other projects on the same origin are left untouched. To load a demo offline, reload it once online first so that the service worker controls the page.
 
-Range fetching on OSM tiles is for minimal operation checks only: the demo refuses a range of more than 50 tiles. Bulk downloading is prohibited by the [OSM tile usage policy](https://operations.osmfoundation.org/policies/tiles/). In production, use your own tiles or an upstream whose terms allow it. The OpenFreeMap demo also follows its [terms of service](https://openfreemap.org/tos/) (at most 3,000 tiles or 50 MB per download, at most 4 parallel requests) and stops at 50 tiles and 50 MB.
+Range fetching on OSM tiles is for minimal operation checks only: the demo refuses a range of more than 50 tiles. Bulk downloading is prohibited by the [OSM tile usage policy](https://operations.osmfoundation.org/policies/tiles/). In production, use your own tiles or an upstream whose terms allow it. The vector demo does not download ranges from OpenFreeMap: its [terms of service](https://openfreemap.org/tos/) ask offline downloads to send a User-Agent that identifies the app, and Weiwudi adds its User-Agent only to same-origin upstreams. It caches only what you view, up to 50 MB.
 
 #### Build
 

@@ -304,7 +304,7 @@ pnpm dev
 
 各デモは同じオリジンの Service Worker（スコープはデモの配信元の直下）と Weiwudi の IndexedDB（`Weiwudi`・`Weiwudi_*`・`WeiwudiStore`）だけを使い、他のプロジェクトのサービスワーカーやデータには触れません。デモをオフラインで読み込むには、先にオンラインで 1 回読み直してください（ページを SW の制御下に入れるため）。
 
-OSM のタイルでの範囲取得は動作確認の最小限にしてください（デモは 50 枚を超える範囲を断ります）。まとめての取得は [OSM のタイルの利用規約](https://operations.osmfoundation.org/policies/tiles/)で禁じられています。本番では自前のタイルか、規約で許された上流を使ってください。ベクタのデモの OpenFreeMap も [利用規約](https://openfreemap.org/tos/)（1 回あたり 3,000 タイルか 50 MB・並行 4 要求まで）に従い、50 枚と 50 MB までにとどめています。
+OSM のタイルでの範囲取得は動作確認の最小限にしてください（デモは 50 枚を超える範囲を断ります）。まとめての取得は [OSM のタイルの利用規約](https://operations.osmfoundation.org/policies/tiles/)で禁じられています。本番では自前のタイルか、規約で許された上流を使ってください。ベクタのデモは OpenFreeMap から範囲をまとめて取得しません。OpenFreeMap の[利用規約](https://openfreemap.org/tos/)はオフライン用の取得にアプリを名乗る User-Agent を求めますが、Weiwudi が User-Agent を付けるのは同じオリジンの上流だけだからです。地図で見た分だけを 50 MB までキャッシュします。
 
 #### ビルド
 

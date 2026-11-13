@@ -602,7 +602,7 @@ const stats = await source.stats();
 
             try {
                 document.getElementById('migrate-status').textContent = 'Registering SW...';
-                await Weiwudi.registerSW('../demo-sw.js', { scope: '../' });
+                await Weiwudi.registerSW('../demo-sw.js', { scope: '../', userAgent: 'WeiwudiDemo/1.0' });
 
                 // 旧 API（Weiwudi.retrieveMap）をそのまま呼ぶ。新しいサービスワーカーが旧 DB から答える
                 map = await Weiwudi.retrieveMap(MAP_ID);

@@ -310,7 +310,6 @@
 
         <div class="divider"></div>
 
-        <button class="button button-primary" id="fetch-range-btn" disabled>Fetch Visible Range</button>
         <button class="button button-danger" id="clear-cache-btn" disabled>Clear Cache</button>
 
         <div class="limit-row">
@@ -338,11 +337,11 @@
             <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>
             (attribution is required; MapLibre shows it on the map).
             The style is Liberty from OpenFreeMap. Their
-            <a href="https://openfreemap.org/tos/" target="_blank" rel="noopener">terms of service</a> allow offline
-            downloads of at most 3,000 tiles or 50 MB, made with at most 4 parallel requests and sent with a
-            User-Agent that identifies the app. This page runs in a browser and does not send its own User-Agent,
-            so it keeps well below the limit: it refuses more than 50 tiles at once, fetches with 4 parallel
-            requests, and stops range downloads once the pinned tiles reach 50 MB in total. To load this page offline, reload it once online first
+            <a href="https://openfreemap.org/tos/" target="_blank" rel="noopener">terms of service</a> ask offline
+            downloads to send a User-Agent that identifies the app. Weiwudi adds its User-Agent only to
+            same-origin upstreams, and OpenFreeMap is on another origin, so this demo does not download ranges
+            in bulk: it only caches what you view while moving the map (up to 50 MB). Range downloads are shown
+            in the raster demo. To load this page offline, reload it once online first
             (so that the service worker controls it).
         </p>
 
@@ -363,12 +362,10 @@
         // OpenFreeMap の planet タイルのズームの範囲（TileJSON の minzoom / maxzoom）
         const MIN_ZOOM = 0;
         const MAX_ZOOM = 14;
-        // OpenFreeMap の利用規約は 1 回の取得を 3,000 タイルか 50 MB まで、並行 4 要求までとし、
-        // アプリを名乗る User-Agent を要求する。ブラウザは User-Agent を変えられないので、
-        // 50 MB を大きく超えない枚数（東京付近の z14 は 1 枚 400〜700 KB）にとどめている
-        const MAX_FETCH_TILES = 50;
-        const FETCH_CONCURRENCY = 4;
-        // 規約の 50 MB を Source 単位のキャッシュ容量の上限にも置く（超えると使われていないものから自動削除）
+        // OpenFreeMap の利用規約は、オフライン用の取得にアプリを名乗る User-Agent を求める。
+        // Weiwudi が User-Agent を付けるのは同じオリジンの上流だけで、OpenFreeMap は別オリジンなので、
+        // このデモは範囲の一括取得をしない（見た分だけをキャッシュする）。
+        // キャッシュの容量は 50 MB までに抑える（超えると使われていないものから自動削除）
         const CACHE_MAX_BYTES = 50 * 1024 * 1024;
 
         let map = null;
@@ -518,7 +515,8 @@
                 document.getElementById('sw-status').textContent = 'Registering SW...';
 
                 // Register Service Worker
-                await Weiwudi.registerSW('../demo-sw.js', { scope: '../' });
+                // userAgent は同じオリジンの上流への要求にだけ足される（README の User-Agent の節）
+                await Weiwudi.registerSW('../demo-sw.js', { scope: '../', userAgent: 'WeiwudiDemo/1.0' });
 
                 document.getElementById('sw-status').textContent = 'Registering style...';
 
@@ -552,7 +550,6 @@
                 map = new maplibregl.Map(mapOptions);
 
                 // Enable controls
-                document.getElementById('fetch-range-btn').disabled = false;
                 document.getElementById('clear-cache-btn').disabled = false;
                 document.getElementById('limit-input').disabled = false;
                 document.getElementById('limit-btn').disabled = false;
@@ -606,50 +603,6 @@
         }
 
         // Event handlers
-        document.getElementById('fetch-range-btn').addEventListener('click', async () => {
-            const btn = document.getElementById('fetch-range-btn');
-            btn.disabled = true;
-
-            try {
-                const b = map.getBounds();
-                // ズームが Source の上限を超えても範囲が壊れないよう、MIN_ZOOM〜MAX_ZOOM に丸める
-                const minZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.round(map.getZoom())));
-                const range = {
-                    bounds: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()],
-                    minZoom,
-                    maxZoom: MAX_ZOOM
-                };
-
-                // 見積もりが上限を超えたら取得しない（OpenFreeMap の利用規約に収める）
-                const estimate = await source.estimate(range);
-                if (estimate.tiles === 0) {
-                    showMessage('Refused: no tiles to fetch in the visible range.', 'error');
-                    return;
-                }
-                if (estimate.tiles > MAX_FETCH_TILES) {
-                    showMessage(
-                        `Refused: ${estimate.tiles} tiles exceeds the ${MAX_FETCH_TILES}-tile limit of this demo. ` +
-                        'Zoom in, or fetch a smaller range.',
-                        'error');
-                    return;
-                }
-                if (!confirm(`Fetch ${estimate.tiles} tiles plus styles, glyphs and sprites (zoom ${minZoom}-${MAX_ZOOM})?`)) {
-                    return;
-                }
-
-                showMessage(`Fetching ${estimate.tiles} tiles...`, 'info');
-                const region = await source.fetchRange(range, { concurrency: FETCH_CONCURRENCY });
-                showMessage(`Region ${region.id}: ${region.status}`, region.status === 'complete' ? 'success' : 'error');
-                await updateRegions();
-                await updateStats();
-                await updateUsage();
-            } catch (e) {
-                showMessage('Fetch failed: ' + (e && e.message ? e.message : e), 'error');
-            } finally {
-                btn.disabled = false;
-            }
-        });
-
         document.getElementById('clear-cache-btn').addEventListener('click', async () => {
             if (!confirm('Are you sure you want to clear all cached resources?')) {
                 return;
