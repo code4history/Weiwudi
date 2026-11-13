@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weiwudi - Raster Tile Cache Demo</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .portal-link {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+            padding: 8px 12px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.95);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            font-size: 13px;
+            font-weight: 600;
+            color: #3b82f6;
+            text-decoration: none;
+        }
+
+        .portal-link:hover {
+            background: #fff;
+            color: #2563eb;
+        }
+
+        .stats-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            min-width: 300px;
+            max-width: 340px;
+            max-height: calc(100vh - 20px);
+            overflow-y: auto;
+            z-index: 1000;
+            font-size: 14px;
+        }
+
+        .stats-panel h2 {
+            margin-bottom: 15px;
+            font-size: 18px;
+            color: #333;
+            font-weight: 600;
+        }
+
+        .stats-panel h3 {
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: #444;
+            font-weight: 600;
+        }
+
+        .stat-item {
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .stat-label {
+            color: #666;
+            font-weight: 500;
+        }
+
+        .stat-value {
+            color: #333;
+            font-weight: 700;
+            font-size: 16px;
+        }
+
+        .button {
+            width: 100%;
+            padding: 10px 16px;
+            margin-top: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .button-primary {
+            background: #3b82f6;
+            color: white;
+        }
+
+        .button-primary:hover {
+            background: #2563eb;
+            transform: translateY(-1px);
+        }
+
+        .button-danger {
+            background: #ef4444;
+            color: white;
+        }
+
+        .button-danger:hover {
+            background: #dc2626;
+            transform: translateY(-1px);
+        }
+
+        .button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .region-list {
+            list-style: none;
+            font-size: 13px;
+        }
+
+        .region-list li {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .region-list li:last-child {
+            border-bottom: none;
+        }
+
+        .region-label {
+            color: #333;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .region-release {
+            flex: none;
+            padding: 4px 10px;
+            border: none;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            background: #f59e0b;
+            color: white;
+        }
+
+        .region-release:hover {
+            background: #d97706;
+        }
+
+        .limit-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .limit-row input {
+            flex: 1;
+            min-width: 0;
+            padding: 8px 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 13px;
+        }
+
+        .limit-row button {
+            flex: none;
+            padding: 8px 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            background: #3b82f6;
+            color: white;
+        }
+
+        .limit-row button:hover {
+            background: #2563eb;
+        }
+
+        .policy-note {
+            margin-top: 12px;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #666;
+        }
+
+        .warnings {
+            margin-top: 12px;
+            font-size: 12px;
+            line-height: 1.5;
+            color: #991b1b;
+        }
+
+        .status-message {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 13px;
+            text-align: center;
+        }
+
+        .status-success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status-error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .status-info {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        .divider {
+            margin: 15px 0;
+            border-top: 1px solid #e5e7eb;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+
+    <a class="portal-link" href="../index.html">← Demo Portal</a>
+
+    <div class="stats-panel">
+        <h2>🗺️ Cache Statistics</h2>
+
+        <div class="stat-item">
+            <span class="stat-label">Cached Tiles:</span>
+            <span class="stat-value" id="tile-count">-</span>
+        </div>
+
+        <div class="stat-item">
+            <span class="stat-label">Cache Size:</span>
+            <span class="stat-value" id="cache-size">-</span>
+        </div>
+
+        <div class="stat-item">
+            <span class="stat-label">Status:</span>
+            <span class="stat-value" id="sw-status">Initializing...</span>
+        </div>
+
+        <div class="divider"></div>
+
+        <h3>Usage by Provider</h3>
+        <div id="usage-list">-</div>
+
+        <div class="divider"></div>
+
+        <h3>Regions</h3>
+        <ul class="region-list" id="region-list">
+            <li class="region-label">-</li>
+        </ul>
+
+        <div class="divider"></div>
+
+        <button class="button button-primary" id="fetch-range-btn" disabled>Fetch Visible Range</button>
+        <button class="button button-danger" id="clear-cache-btn" disabled>Clear Cache</button>
+
+        <div class="limit-row">
+            <input type="number" id="limit-input" min="0" step="1"
+                placeholder="Global limit (bytes, empty = none)" disabled>
+            <button id="limit-btn" disabled>Apply</button>
+        </div>
+
+        <p class="policy-note">
+            Range fetching on OSM tiles is for minimal operation checks only (this demo refuses
+            more than 50 tiles at once). Bulk downloading is prohibited by the
+            <a href="https://operations.osmfoundation.org/policies/tiles/">OSM tile usage policy</a>.
+            In production, use your own tiles or an upstream whose terms allow it.
+            To load this page offline, reload it once online first (so that the service worker controls it).
+        </p>
+
+        <div class="warnings" id="warnings"></div>
+
+        <div id="status-message"></div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+    <script type="module">
+        import Weiwudi from '../dist/weiwudi.es.js';
+
+        const SOURCE_ID = 'osm_demo';
+        const OSM_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+        const SOURCE_BOUNDS = [139.71, 35.63, 139.81, 35.73]; // [west, south, east, north]
+        const MIN_ZOOM = 14;
+        const MAX_ZOOM = 17;
+        // OSM のタイルの利用規約はまとめての取得を禁じる。開発用ページでは見積もりがこの枚数を超えたら取得しない
+        const MAX_FETCH_TILES = 50;
+
+        let map = null;
+        let source = null;
+        let statsInterval = null;
+
+        let messageTimer = null;
+
+        function showMessage(message, type = 'info') {
+            const statusEl = document.getElementById('status-message');
+            statusEl.textContent = message;
+            statusEl.className = `status-message status-${type}`;
+
+            if (messageTimer !== null) clearTimeout(messageTimer);
+            messageTimer = setTimeout(() => {
+                messageTimer = null;
+                statusEl.textContent = '';
+                statusEl.className = '';
+            }, 5000);
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            if (!bytes) return '-';
+
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+            return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        // 範囲が決まる Source の stats().count は範囲の中の Entry の数（byResource の和とは一致しないことがある）
+        async function updateStats() {
+            if (!source) return;
+
+            try {
+                const stats = await source.stats();
+                const count = stats.count ?? 0;
+                document.getElementById('tile-count').textContent =
+                    typeof stats.total === 'number' && typeof stats.percent === 'number'
+                        ? `${count} / ${stats.total} (${Math.round(stats.percent)}%)`
+                        : `${count}`;
+                document.getElementById('cache-size').textContent = formatBytes(stats.size);
+            } catch (e) {
+                console.error('Failed to update stats:', e);
+            }
+        }
+
+        async function updateUsage() {
+            try {
+                const usage = await Weiwudi.usage();
+                const el = document.getElementById('usage-list');
+                const providers = Object.entries(usage.byProvider);
+                if (providers.length === 0) {
+                    el.textContent = '-';
+                    return;
+                }
+                el.textContent = '';
+                for (const [provider, v] of providers) {
+                    const row = document.createElement('div');
+                    row.className = 'stat-item';
+                    const label = document.createElement('span');
+                    label.className = 'stat-label';
+                    label.textContent = provider;
+                    const value = document.createElement('span');
+                    value.className = 'stat-value';
+                    value.textContent = `${v.count} / ${formatBytes(v.bytes)}`;
+                    row.append(label, value);
+                    el.appendChild(row);
+                }
+            } catch (e) {
+                console.error('Failed to update usage:', e);
+            }
+        }
+
+        async function updateRegions() {
+            if (!source) return;
+
+            try {
+                const regions = await source.regions();
+                const list = document.getElementById('region-list');
+                list.innerHTML = '';
+                if (regions.length === 0) {
+                    const li = document.createElement('li');
+                    li.className = 'region-label';
+                    li.textContent = '-';
+                    list.appendChild(li);
+                    return;
+                }
+                for (const region of regions) {
+                    const li = document.createElement('li');
+                    const label = document.createElement('span');
+                    label.className = 'region-label';
+                    label.textContent = `${region.id} (${region.status})`;
+                    li.appendChild(label);
+                    const btn = document.createElement('button');
+                    btn.className = 'region-release';
+                    btn.textContent = 'Release';
+                    btn.addEventListener('click', async () => {
+                        btn.disabled = true;
+                        try {
+                            await source.releaseRange(region.id);
+                            showMessage(`Region ${region.id} released`, 'success');
+                            await updateRegions();
+                            await updateStats();
+                            await updateUsage();
+                        } catch (e) {
+                            showMessage('Release failed: ' + (e && e.message ? e.message : e), 'error');
+                            btn.disabled = false;
+                        }
+                    });
+                    li.appendChild(btn);
+                    list.appendChild(li);
+                }
+            } catch (e) {
+                console.error('Failed to update regions:', e);
+            }
+        }
+
+        async function init() {
+            try {
+                document.getElementById('sw-status').textContent = 'Registering SW...';
+
+                // Register Service Worker
+                await Weiwudi.registerSW('../demo-sw.js', { scope: '../' });
+
+                document.getElementById('sw-status').textContent = 'Registering source...';
+
+                // Register the tile source with the new API
+                source = await Weiwudi.register({
+                    kind: 'raster',
+                    id: SOURCE_ID,
+                    url: OSM_URL,
+                    bounds: SOURCE_BOUNDS,
+                    minZoom: MIN_ZOOM,
+                    maxZoom: MAX_ZOOM
+                });
+
+                if (source.warnings.length > 0) {
+                    document.getElementById('warnings').textContent =
+                        'Warnings: ' + source.warnings.join(', ');
+                }
+
+                document.getElementById('sw-status').textContent = 'Active';
+
+                // Initialize Leaflet map
+                map = L.map('map').setView([35.68, 139.76], 14); // Tokyo
+
+                // Add tile layer using the real URL captured by Weiwudi
+                L.tileLayer(source.url, {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                    minZoom: MIN_ZOOM,
+                    maxZoom: MAX_ZOOM
+                }).addTo(map);
+
+                // Enable controls
+                document.getElementById('fetch-range-btn').disabled = false;
+                document.getElementById('clear-cache-btn').disabled = false;
+                document.getElementById('limit-input').disabled = false;
+                document.getElementById('limit-btn').disabled = false;
+
+                // Start stats polling
+                statsInterval = setInterval(() => {
+                    updateStats();
+                    updateUsage();
+                }, 2000);
+                updateStats();
+                updateUsage();
+                updateRegions();
+
+                showMessage('Weiwudi initialized successfully!', 'success');
+
+                // Listen to range fetching events
+                source.addEventListener('proceed', (e) => {
+                    const d = e.detail || {};
+                    if (typeof d.percent === 'number') {
+                        showMessage(`Fetching tiles: ${d.processed}/${d.total} (${Math.round(d.percent)}%)`, 'info');
+                    }
+                });
+
+                source.addEventListener('finish', () => {
+                    showMessage('Range fetched successfully!', 'success');
+                    updateRegions();
+                    updateStats();
+                    updateUsage();
+                });
+
+                source.addEventListener('stop', (e) => {
+                    const d = e.detail || {};
+                    showMessage('Fetch stopped: ' + (d.message || d.code || 'Unknown error'), 'error');
+                });
+
+                source.addEventListener('canceled', () => {
+                    showMessage('Fetch canceled', 'info');
+                    updateRegions();
+                });
+
+                source.addEventListener('opaque', (e) => {
+                    const d = e.detail || {};
+                    showMessage(`Resource ${d.resourceId} does not support CORS (opaque)`, 'error');
+                });
+
+            } catch (e) {
+                document.getElementById('sw-status').textContent = 'Error';
+                showMessage('Initialization error: ' + e.toString(), 'error');
+                console.error(e);
+            }
+        }
+
+        // Event handlers
+        document.getElementById('fetch-range-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('fetch-range-btn');
+            btn.disabled = true;
+
+            try {
+                const b = map.getBounds();
+                const minZoom = Math.max(MIN_ZOOM, Math.round(map.getZoom()));
+                const range = {
+                    bounds: [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()],
+                    minZoom,
+                    maxZoom: MAX_ZOOM
+                };
+
+                // 見積もりが上限を超えたら取得しない（OSM のタイルの利用規約はまとめての取得を禁じる）
+                const estimate = await source.estimate(range);
+                if (estimate.tiles === 0) {
+                    showMessage('Refused: no tiles to fetch in the visible range.', 'error');
+                    return;
+                }
+                if (estimate.tiles > MAX_FETCH_TILES) {
+                    showMessage(
+                        `Refused: ${estimate.tiles} tiles exceeds the ${MAX_FETCH_TILES}-tile limit of this demo. ` +
+                        'Bulk downloading is prohibited by the OSM tile usage policy.',
+                        'error');
+                    return;
+                }
+                if (!confirm(`Fetch ${estimate.tiles} tiles (zoom ${minZoom}-${MAX_ZOOM})?`)) {
+                    return;
+                }
+
+                showMessage(`Fetching ${estimate.tiles} tiles...`, 'info');
+                const region = await source.fetchRange(range);
+                showMessage(`Region ${region.id}: ${region.status}`, region.status === 'complete' ? 'success' : 'error');
+                await updateRegions();
+                await updateStats();
+                await updateUsage();
+            } catch (e) {
+                showMessage('Fetch failed: ' + (e && e.message ? e.message : e), 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        document.getElementById('clear-cache-btn').addEventListener('click', async () => {
+            if (!confirm('Are you sure you want to clear all cached tiles?')) {
+                return;
+            }
+
+            const btn = document.getElementById('clear-cache-btn');
+            btn.disabled = true;
+
+            try {
+                await source.clean();
+                await updateStats();
+                await updateUsage();
+                await updateRegions();
+                showMessage('Cache cleared successfully!', 'success');
+            } catch (e) {
+                showMessage('Clear failed: ' + (e && e.message ? e.message : e), 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        document.getElementById('limit-btn').addEventListener('click', async () => {
+            const input = document.getElementById('limit-input');
+            const btn = document.getElementById('limit-btn');
+            btn.disabled = true;
+
+            try {
+                const raw = input.value.trim();
+                if (raw === '') {
+                    await Weiwudi.setLimits({});
+                    showMessage('Global cache limit removed', 'success');
+                } else {
+                    const maxBytes = Number(raw);
+                    await Weiwudi.setLimits({ maxBytes });
+                    showMessage(`Global cache limit set to ${formatBytes(maxBytes)}`, 'success');
+                }
+            } catch (e) {
+                showMessage('Set limits failed: ' + (e && e.message ? e.message : e), 'error');
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        // Initialize on load
+        init();
+
+        // Cleanup on unload
+        window.addEventListener('beforeunload', () => {
+            if (statsInterval) clearInterval(statsInterval);
+        });
+    </script>
+</body>
+
+</html>

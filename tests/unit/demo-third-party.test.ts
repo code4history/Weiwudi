@@ -1,7 +1,7 @@
 // デモが第三者の配信元に依存する範囲を確かめる。
-// - index.html の第三者の要素は integrity と crossorigin を持つ
+// - 入口（index.html）と demo/ の各ページの第三者の要素は integrity と crossorigin を持つ
 // - デモの Service Worker は第三者から script を読まない（workbox はデモと一緒に配る）
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -12,15 +12,31 @@ const COPY_TIMEOUT_MS = 30_000;
 
 const read = (path: string): string => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf-8');
 
+/** 入口と demo/ の下の HTML（デモのページが増えても数え直す） */
+const demoPages = (): string[] => [
+  'index.html',
+  ...readdirSync(new URL('../../demo', import.meta.url))
+    .filter((name) => name.endsWith('.html'))
+    .sort()
+    .map((name) => `demo/${name}`),
+];
+
 describe('デモの第三者への依存', () => {
-  it('index.html の第三者の要素は integrity と crossorigin を持つ', () => {
-    const externals = (read('index.html').match(TAG) ?? []).filter(
-      (tag) => EXTERNAL.test(tag) && !/\brel=["']preconnect["']/.test(tag),
-    );
-    expect(externals).toHaveLength(2);
-    for (const tag of externals) {
-      expect(tag).toMatch(/\bintegrity="sha384-[A-Za-z0-9+/=]+"/);
-      expect(tag).toMatch(/\bcrossorigin="anonymous"/);
+  it('入口と demo/ のページが揃っている', () => {
+    for (const page of demoPages()) {
+      expect(existsSync(new URL(`../../${page}`, import.meta.url)), page).toBe(true);
+    }
+  });
+
+  it('デモのページの第三者の要素は integrity と crossorigin を持つ', () => {
+    for (const page of demoPages()) {
+      const externals = (read(page).match(TAG) ?? []).filter(
+        (tag) => EXTERNAL.test(tag) && !/\brel=["']preconnect["']/.test(tag),
+      );
+      for (const tag of externals) {
+        expect(tag, page).toMatch(/\bintegrity="sha384-[A-Za-z0-9+/=]+"/);
+        expect(tag, page).toMatch(/\bcrossorigin="anonymous"/);
+      }
     }
   });
 
