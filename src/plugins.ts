@@ -1,6 +1,7 @@
 // 差し込み口（#36・仕様 §8）。SW 側だけ。`@c4h/weiwudi/sw` の名前付き export（UMD は self.Weiwudi_SW）。
 // 提供元の登録表（#40・仕様 §10。m3-t5）もここに置く。
-// 値の依存は errors だけ（仕様 §3）。ResourceInfo・Credentials は store.ts の型を import type で使う。
+// SW のスクリプトが指定する User-Agent（setUserAgent。2026-11-14）もここに置く。
+// 値の依存は user_agent・errors だけ（仕様 §3）。ResourceInfo・Credentials は store.ts の型を import type で使う。
 //
 // 決まり:
 // - モジュール変数はこのファイルの登録表だけ（計画「実行中の状態」）。試験用の _resetPluginsForTest で空にする
@@ -9,6 +10,7 @@
 // - 標準の提供元（providers/mapbox.ts）はこのファイルからは import できない（§3）。配線が context に渡し、
 //   利用者の提供元（getProviders()）を先に評価する（R13）
 import type { Credentials, ResourceInfo } from './store';
+import { validateUserAgent } from './user_agent';
 
 /**
  * Weiwudi の差し込み口。Workbox のプラグインと同じ名前・同じ意味のフックを持つ（すべて省略可）。
@@ -57,6 +59,7 @@ export interface WeiwudiProvider {
 // 登録表（このファイルだけがモジュール変数を持つ）
 const registered: WeiwudiPlugin[] = [];
 const providers: WeiwudiProvider[] = [];
+let userAgent: string | undefined;
 
 /**
  * 差し込み口を登録する。SW スクリプトの先頭で呼ぶ前提で、永続化しない（SW が再起動すれば再び呼ばれる）。
@@ -102,8 +105,23 @@ export function getProviders(): readonly WeiwudiProvider[] {
   return providers.slice();
 }
 
-/** 試験用。登録表（差し込み口と提供元）を空にする */
+/**
+ * 上流へ送る User-Agent に足す値（'Maplat/2.0' など）を SW のスクリプトで指定する。SW 全体で 1 つ（後の呼び出しが勝つ）。
+ * undefined で外す。ページの registerSW の userAgent があれば、そちらを使う。永続化しない（SW が再起動すれば再び呼ばれる）。
+ * 空白だけ・制御文字を含む・200 文字を超える値などは WeiwudiError('attribute-invalid')
+ */
+export function setUserAgent(value: string | undefined): void {
+  userAgent = value === undefined ? undefined : validateUserAgent(value);
+}
+
+/** setUserAgent の今の値（配線が context に渡す） */
+export function getUserAgent(): string | undefined {
+  return userAgent;
+}
+
+/** 試験用。登録表（差し込み口と提供元）と User-Agent を空にする */
 export function _resetPluginsForTest(): void {
   registered.length = 0;
   providers.length = 0;
+  userAgent = undefined;
 }

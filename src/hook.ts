@@ -385,7 +385,7 @@ export async function serveResource(
 /** 照合した要求を配信する。store の失敗などで配信できなければ素通し（要求を止めない） */
 const serveHit = async (ctx: Context, request: Request, url: URL, hit: TableHit, loaded: LoadedTable | undefined): Promise<Response> => {
   // Range つきは serve に入れない（範囲外の判定より前。仕様 §11）
-  if (request.headers.has('range')) return passThrough(() => fetch(request));
+  if (request.headers.has('range')) return passThrough(() => ctx.upstreamFetch(request));
   let resource: ResourceMeta | undefined;
   let credentials: Credentials | undefined;
   let credentialSourceId: string | undefined;
@@ -399,14 +399,14 @@ const serveHit = async (ctx: Context, request: Request, url: URL, hit: TableHit,
       if (!isAuthenticated(request)) credentials = picked.credentials;
     }
   } catch (_e) {
-    return fetch(request);
+    return ctx.upstreamFetch(request);
   }
   // 表が古い（消された Resource）
-  if (!resource) return fetch(request);
+  if (!resource) return ctx.upstreamFetch(request);
   try {
     return await serveResource(ctx, resource, request, url, hit.m, credentials, credentialSourceId === undefined ? {} : { credentialSourceId });
   } catch (_e) {
-    return fetch(request);
+    return ctx.upstreamFetch(request);
   }
 };
 
@@ -432,7 +432,7 @@ export function installHook(ctx: Context, registerRoute: RegisterRoute, deps: Ho
   };
   const matchHandler: RouteHandlerCallback = async ({ url, request, params, event }: RouteHandlerCallbackOptions) => {
     const hit = (params as TableHit | undefined) ?? ctx.table.current?.table.match(url) ?? undefined;
-    if (!hit) return fetch(request);
+    if (!hit) return ctx.upstreamFetch(request);
     ctx.maintain?.(event);
     return serveHit(ctx, request, url, hit, ctx.table.current);
   };
@@ -446,7 +446,7 @@ export function installHook(ctx: Context, registerRoute: RegisterRoute, deps: Ho
   };
   const gateHandler: RouteHandlerCallback = async ({ url, request, event }: RouteHandlerCallbackOptions) => {
     const p = ensureLoad(ctx, Date.now());
-    if (!p) return fetch(request);
+    if (!p) return ctx.upstreamFetch(request);
     let loaded: LoadedTable;
     try {
       loaded = await withTimeout(p, GATE_WAIT_MS);
@@ -457,10 +457,10 @@ export function installHook(ctx: Context, registerRoute: RegisterRoute, deps: Ho
         s.loading = undefined;
         fail(s, Date.now());
       }
-      return fetch(request);
+      return ctx.upstreamFetch(request);
     }
     const hit = loaded.table.match(url);
-    if (!hit) return fetch(request);
+    if (!hit) return ctx.upstreamFetch(request);
     ctx.maintain?.(event);
     return serveHit(ctx, request, url, hit, loaded);
   };

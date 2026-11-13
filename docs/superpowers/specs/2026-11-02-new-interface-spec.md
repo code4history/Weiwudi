@@ -77,25 +77,26 @@
 | `constants.ts` | 疑似ホスト・旧 API の前置き・既定の時間（m3）・保存と合成で落とすヘッダと自前のヘッダの接頭辞（m4） | なし（全ファイルが import してよい） |
 | `tile_math.ts` | 座標・タイル計算（#34。m1）・テンプレートの展開・タイルのキーの suffix（`tileKeySuffix`。新旧で 1 つ） | なし |
 | `errors.ts` | `WeiwudiError` と旧文面の表（#33。m1） | なし |
+| `user_agent.ts` | 上流へ送る User-Agent の検査・組み立て・付ける場面の判定（2026-11-14） | `errors` |
 | `url_pattern.ts` | テンプレートの解析・照合・正規化・キー | `tile_math`・`constants`・`errors` |
 | `spec.ts` | 登録内容（`SourceSpec`）の検査と正規化 | `url_pattern`・`tile_math`・`constants`・`errors` |
 | `style_body.ts` | スタイル・TileJSON の本体の解析と書き換え（純粋。m3） | `url_pattern`・`constants`・`errors` |
-| `plugins.ts` | 差し込み口（#36）・提供元の登録表（m3） | `constants`・`errors` |
+| `plugins.ts` | 差し込み口（#36）・提供元の登録表（m3）・SW 側の User-Agent の指定 | `user_agent`・`constants`・`errors` |
 | `providers/` | 提供元（`mapbox.ts`。#40。m3） | `errors`・`constants`・`providers/` どうし |
 | `store.ts` | IndexedDB の全操作。型 `ResourceMeta` などの正本（#37）。`SourceRecord` を読む小さな補助の唯一の置き場 | `constants`・`errors` |
-| `context.ts` | 実行中の状態（接続・照合表・同時要求・連続数・ジョブ）の入れ物。`Weiwudi_Internal` の呼び出しごとに 1 つ | `store`・`constants`・`errors` |
+| `context.ts` | 実行中の状態（接続・照合表・同時要求・連続数・ジョブ）の入れ物。`Weiwudi_Internal` の呼び出しごとに 1 つ。上流への取得（`upstreamFetch`。upstream・legacy・hook が通す 1 つの関数） | `store`・`user_agent`・`constants`・`errors` |
 | `registry.ts` | 合流と実効方針（§5.6） | `store`・`spec`・`url_pattern`・`tile_math`・`constants`・`errors` |
 | `upstream.ts` | 上流の取得と CORS・認証付きの要求（§4.5・§4.6） | `context`・`store`・`url_pattern`・`constants`・`errors` |
 | `core.ts` | `serve()`・退避・ジョブ | `context`・`store`・`plugins`・`url_pattern`・`tile_math`・`constants`・`errors` |
 | `hook.ts` | 照合表・ルート登録 | `core`・`upstream`・`context`・`store`・`url_pattern`・`style_body`・`constants`・`errors` |
 | `style.ts` | スタイルの芋づる登録の段取り（§5.5。m3） | `hook`・`core`・`registry`・`spec`・`style_body`・`url_pattern`・`context`・`store`・`constants`・`errors` |
 | `range.ts` | 範囲の正規化・列挙・ジョブ・region・解放（m4） | `hook`・`core`・`upstream`・`registry`・`context`・`store`・`spec`・`url_pattern`・`tile_math`・`style_body`・`constants`・`errors` |
-| `control.ts` | `/v2/*` の処理 | `hook`・`core`・`registry`・`spec`・`style`・`range`・`context`・`store`・`tile_math`・`constants`・`errors` |
+| `control.ts` | `/v2/*` の処理 | `hook`・`core`・`registry`・`spec`・`style`・`range`・`context`・`store`・`tile_math`・`user_agent`・`constants`・`errors` |
 | `legacy.ts` | `/api/*` の翻訳と `MapSetting` の変換 | `core`・`context`・`store`・`tile_math`・`constants`・`errors`（m4 で `migrate`） |
 | `migrate.ts` | 旧 DB からの移行（m4） | `store`・`constants`・`errors` |
 | `weiwudi_gw_logic.ts` | 配線だけ（`Weiwudi_Internal`） | 上の全部 |
 | `weiwudi_gw.ts`・`weiwudi_sw.ts` | SW の入口（ES・UMD） | `weiwudi_gw_logic`・`plugins`・`constants` |
-| `weiwudi.ts` | ページ側 API | `errors`・`url_pattern`・`constants` |
+| `weiwudi.ts` | ページ側 API | `errors`・`user_agent`・`url_pattern`・`constants` |
 
 注: `constants` は `tile_math`・`errors` を除く全ファイルが import してよい（`constants.ts` 自身は何も import しない）。
 

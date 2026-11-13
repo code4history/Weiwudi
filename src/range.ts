@@ -671,7 +671,7 @@ const runRangeJob = async (
     quotaStreak = error === 'quota' ? quotaStreak + 1 : 0;
     if (error === 'network') {
       // §4.5-3: TypeError の単位は no-cors で確かめる。opaque は upstream に数え、実績が無ければ連続数に足す
-      const probe = await probeNoCors(t.url.href);
+      const probe = await probeNoCors(ctx, t.url.href);
       if (probe === 'opaque') {
         fail('upstream', t.key);
         if (unit.tile && !confirmed.has(unit.resource.id) && !experienced(await store.getResource(unit.resource.id))) {
@@ -844,7 +844,7 @@ const runRangeJob = async (
         }
         continue;
       }
-      if ((await probeNoCors(t.url.href)) === 'opaque') sawOpaque = true;
+      if ((await probeNoCors(ctx, t.url.href)) === 'opaque') sawOpaque = true;
     }
     opaqueStreak.delete(resource.id);
     if (passed) {

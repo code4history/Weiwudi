@@ -1,7 +1,9 @@
 // 実行中の状態の入れ物（仕様 §3・計画「実行中の状態」・第 1 回 S1）。Weiwudi_Internal の呼び出しごとに 1 つ作る。
 // モジュール変数を置かないので、1 試験 1 SW（同じプロセスに複数の SW の実行文脈が同居しても混ざらない）。
-// 値の依存は store・errors だけ（仕様 §3）。照合表と連続数は t7、ジョブは t5 で足した。
-import { openStore, type ResourceMeta, type ResourceType, type SourceRecord, type Store } from './store';
+// 値の依存は store・user_agent・errors だけ（仕様 §3）。照合表と連続数は t7、ジョブは t5 で足した。
+// 上流への取得（upstreamFetch）もここに置く。upstream・legacy・hook が同じ 1 つの関数を通す（User-Agent。2026-11-14）
+import { KV_USER_AGENT, openStore, type ResourceMeta, type ResourceType, type SourceRecord, type Store } from './store';
+import { composeUserAgent, shouldAttachUserAgent, withUserAgent } from './user_agent';
 import type { TileFailure } from './errors';
 import type { MatchTable } from './url_pattern';
 import type { WeiwudiProvider } from './plugins';
@@ -130,6 +132,13 @@ export interface Context {
    * 本体の資格情報の除去（style_body）が、子作り（style.ts）と同じ組だけを除くのに使う。無ければ字句の許可だけで見る
    */
   acceptsMember?: MemberAcceptorWithParams;
+  /**
+   * 上流への取得（引数は fetch と同じ）。SW と同じオリジンで mode が cors か same-origin の要求にだけ User-Agent を足す。
+   * それ以外は fetch(input, init) をそのまま呼ぶ
+   */
+  upstreamFetch(input: Request | string, init?: RequestInit): Promise<Response>;
+  /** ページ（registerSW）が指定した User-Agent の読み込み済みの値。setUserAgent の op が書き換える */
+  userAgent: { loaded?: Promise<string | undefined> };
 }
 
 /** 子の URL の組を受けるか（type・テンプレート・credentialParams） */
@@ -142,26 +151,87 @@ export interface ContextOptions {
   providers?: () => readonly WeiwudiProvider[];
   /** 子の URL の組の判定（既定は無し） */
   acceptsMember?: MemberAcceptorWithParams;
+  /** SW のスクリプトが指定した User-Agent（plugins.getUserAgent。ページの指定が無いときに使う） */
+  userAgent?: () => string | undefined;
 }
+
+/** ページの指定値を kv から読むのを待つ上限（store が開けないときに素通しを止めない） */
+export const USER_AGENT_LOAD_MS = 1000;
+
+/** kv の userAgent の値（{ userAgent?: string }）から指定値を取り出す */
+export const storedUserAgentOf = (v: unknown): string | undefined => {
+  const u = v !== null && typeof v === 'object' ? (v as { userAgent?: unknown }).userAgent : undefined;
+  return typeof u === 'string' && u !== '' ? u : undefined;
+};
+
+/** SW 自身の場所（self.location）。無い環境では undefined */
+const selfLocation = (): { origin: string; href: string } | undefined => {
+  const loc = typeof self !== 'undefined' ? (self as { location?: { origin?: unknown; href?: unknown } }).location : undefined;
+  return loc && typeof loc.origin === 'string' && typeof loc.href === 'string' ? { origin: loc.origin, href: loc.href } : undefined;
+};
+
+/** ブラウザの User-Agent（WorkerNavigator）。無い環境では undefined */
+const browserUserAgent = (): string | undefined =>
+  typeof navigator !== 'undefined' && typeof navigator.userAgent === 'string' ? navigator.userAgent : undefined;
 
 /** 引数は open の関数（試験の差し替え用）か ContextOptions */
 export function createContext(options: ContextOptions | (() => Promise<Store>) = {}): Context {
   const opts: ContextOptions = typeof options === 'function' ? { open: options } : options;
   const open = opts.open ?? openStore;
   const providers = opts.providers ?? (() => []);
+  const swUserAgent = opts.userAgent ?? (() => undefined);
   let opening: Promise<Store> | undefined;
-  return {
-    store: () => {
-      if (!opening) {
-        const p = open();
-        opening = p;
-        // 失敗は覚えない（次の呼び出しで開き直す）。呼び出し側には reject のまま返す
-        p.catch(() => {
-          if (opening === p) opening = undefined;
-        });
+  const store = (): Promise<Store> => {
+    if (!opening) {
+      const p = open();
+      opening = p;
+      // 失敗は覚えない（次の呼び出しで開き直す）。呼び出し側には reject のまま返す
+      p.catch(() => {
+        if (opening === p) opening = undefined;
+      });
+    }
+    return opening;
+  };
+  const userAgent: Context['userAgent'] = {};
+  /** ページの指定値。読めない・上限を越えたときは覚えずに undefined（次の取得で読み直す） */
+  const pageUserAgent = async (): Promise<string | undefined> => {
+    if (!userAgent.loaded) {
+      const p = store().then((s) => s.kvGet(KV_USER_AGENT)).then(storedUserAgentOf);
+      userAgent.loaded = p;
+      p.catch(() => {
+        if (userAgent.loaded === p) userAgent.loaded = undefined;
+      });
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        userAgent.loaded,
+        new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), USER_AGENT_LOAD_MS); }),
+      ]);
+    } catch (_e) {
+      return undefined;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  };
+  const upstreamFetch = async (input: Request | string, init?: RequestInit): Promise<Response> => {
+    if (!shouldAttachUserAgent(input, init, selfLocation())) return init === undefined ? fetch(input) : fetch(input, init);
+    let custom = await pageUserAgent();
+    if (custom === undefined) {
+      try {
+        custom = swUserAgent();
+      } catch (_e) {
+        custom = undefined;
       }
-      return opening;
-    },
+    }
+    const request = withUserAgent(input, init, composeUserAgent(browserUserAgent(), custom));
+    if (!request) return init === undefined ? fetch(input) : fetch(input, init);
+    return fetch(request);
+  };
+  return {
+    store,
+    upstreamFetch,
+    userAgent,
     inflight: new Map(),
     maintenance: { swept: false },
     table: { generation: 0, failures: 0, retryAt: 0 },

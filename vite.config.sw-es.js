@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import { readFileSync } from 'node:fs';
 import dts from 'vite-plugin-dts';
 
-// /v2/ping が返す版（package.json と同じ。m2-t8・第 1 回 S13）
+// /v2/ping が返す版と、上流へ送る User-Agent の Weiwudi/<version>（package.json と同じ。m2-t8・第 1 回 S13）
 const version = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version;
 
 export default defineConfig({

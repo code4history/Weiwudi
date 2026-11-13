@@ -13,7 +13,7 @@ import { migrationDeps } from './legacy';
 import { migrateStep } from './migrate';
 import { installHook } from './hook';
 import { credentialSourceFor } from './registry';
-import { getProviders } from './plugins';
+import { getProviders, getUserAgent } from './plugins';
 import { createMapboxProvider } from './providers/mapbox';
 import { appendQueryCredentials } from './upstream';
 import { acceptsMember } from './spec';
@@ -44,6 +44,8 @@ export function Weiwudi_Internal(registerRoute: (capture: RegExp | RouteMatchCal
   const ctx = createContext({
     providers,
     acceptsMember: (type, templates, credentialParams) => acceptsMember(type, templates, credentialParams, providers()),
+    // SW のスクリプトの setUserAgent（ページの registerSW の指定が無いときに使う）
+    userAgent: getUserAgent,
   });
 
   // opaque イベント（m4-t3・R20）: 子 Source は親に読み替えて全 window の client へ送る

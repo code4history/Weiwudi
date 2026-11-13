@@ -2,6 +2,7 @@
 // 値の依存は context・store・url_pattern・constants・errors だけ（仕様 §3。値で使っているのは constants だけ）。
 //
 // 決まり:
+// - 上流への取得は ctx.upstreamFetch だけ（同じオリジンの要求に User-Agent を足す。2026-11-14）
 // - 匿名の要求は mode: 'cors'・credentials: 'same-origin' に組み替える。認証付きの要求は元の Request のまま
 // - corsOk・corslessUntil は判定のたびに store から読み直し、書き換えは patchResource（1 tx で読み・直し・書き。第 1 回 S2）。
 //   書き換えの関数の中でも実績の有無を見直す（別の SW が同じ DB に書くため）
@@ -119,9 +120,9 @@ const rebuild = (
 };
 
 /** 1 回の取得。opaque は opaque、TypeError などは network */
-const attempt = async (request: Request): Promise<UpstreamResult> => {
+const attempt = async (ctx: Context, request: Request): Promise<UpstreamResult> => {
   try {
-    const response = await fetch(request);
+    const response = await ctx.upstreamFetch(request);
     return { kind: response.type === 'opaque' ? 'opaque' : 'response', response };
   } catch (error) {
     return { kind: 'network', error };
@@ -188,10 +189,10 @@ const countCorsless = async (ctx: Context, o: UpstreamOptions, t: number): Promi
  * Cookie も送らない（credentials: 'omit'。R-t3-5）・保存しない。opaque は 'opaque'、TypeError は 'network'、
  * それ以外の応答（同じオリジンの basic など）は 'response'（本文は読み捨てる）
  */
-export async function probeNoCors(url: string): Promise<'opaque' | 'network' | 'response'> {
+export async function probeNoCors(ctx: Context, url: string): Promise<'opaque' | 'network' | 'response'> {
   let res: Response;
   try {
-    res = await fetch(url, { mode: 'no-cors', credentials: 'omit' });
+    res = await ctx.upstreamFetch(url, { mode: 'no-cors', credentials: 'omit' });
   } catch (_e) {
     return 'network';
   }
@@ -219,7 +220,7 @@ const readResource = async (ctx: Context, id: string): Promise<ResourceMeta | un
 export function createUpstream(ctx: Context, o: UpstreamOptions): ServeInput['upstream'] {
   return async (request, { hasEntry, requestChanged }) => {
     // §4.6 認証付き: 元の Request のまま。組み替えず、2〜4 も通らない（hasEntry も見ない）
-    if (isAuthenticated(o.original)) return attempt(request);
+    if (isAuthenticated(o.original)) return attempt(ctx, request);
 
     // 差し込み口が別オリジンへ替えた要求には登録の資格情報を足さない（I1・R21）
     const credentials = requestChanged && new URL(request.url).origin !== new URL(o.original.url).origin ? undefined : o.credentials;
@@ -227,7 +228,7 @@ export function createUpstream(ctx: Context, o: UpstreamOptions): ServeInput['up
     const t = o.now();
     const read = await readResource(ctx, o.resourceId);
     const noCors = request.mode === 'no-cors';
-    const retry = () => attempt(rebuild(request, credentials, o.provider, request.mode, request.credentials));
+    const retry = () => attempt(ctx, rebuild(request, credentials, o.provider, request.mode, request.credentials));
 
     // §4.5-3 corslessUntil の間は 1 を省いて元の要求を出す（元が cors の要求は 1 で取る）
     if (noCors && read?.corslessUntil !== undefined && read.corslessUntil > t) return retry();
@@ -235,7 +236,7 @@ export function createUpstream(ctx: Context, o: UpstreamOptions): ServeInput['up
     // 1 組み替えた形で取る
     let first: Response;
     try {
-      first = await fetch(rebuild(request, credentials, o.provider, 'cors', 'same-origin'));
+      first = await ctx.upstreamFetch(rebuild(request, credentials, o.provider, 'cors', 'same-origin'));
     } catch (error) {
       // 4 元の要求が cors なら取り直さない
       if (!noCors) return { kind: 'network', error };
