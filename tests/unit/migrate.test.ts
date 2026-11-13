@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBKeyRange, IDBObjectStore } from 'fake-indexeddb';
 import { createContext, type Context } from '../../src/context';
 import { handleLegacy, migrationDeps } from '../../src/legacy';
-import { migrateStep, type MigrationState } from '../../src/migrate';
+import { DELETE_WAIT_MS, migrateStep, type MigrationState } from '../../src/migrate';
 import { openStore, STORE_DB_NAME, type MapSetting, type StoredBody } from '../../src/store';
 import { createSwHarness, SW_ORIGIN } from './sw-harness';
 
@@ -654,10 +654,93 @@ describe('戻して上げ直す・blocked・databases() の無い環境（R17・
     expect(res).not.toBe('timeout');
     expect(await (res as Response).text()).not.toMatch(/not found/);
     expect(next.maintenance.migrationBooted).toBe(true);
-    // 消し直しは契機の側だけが行い、そちらは待ちのまま
+    // 消し直しは契機の側だけが行う。返らない削除は上限（DELETE_WAIT_MS）で blocked として切り、pendingDelete に残す
     expect(hung).toHaveBeenCalled();
     expect(stepSettled).toBe(false);
-    expect(next.maintenance.pendingDeletesRetried).not.toBe(true);
+    await vi.waitFor(() => expect(stepSettled).toBe(true), { timeout: DELETE_WAIT_MS + 1000 });
+    expect(next.maintenance.pendingDeletesRetried).toBe(true);
+    expect(next.maintenance.blockedDeletes?.has('Weiwudi_a')).toBe(true);
+    expect((await stateOf(next)).pendingDelete).toContain('Weiwudi_a');
+  }, DELETE_WAIT_MS + 5000);
+
+  it('消し直しの削除が返らなくても、別の地図の旧 API の clean・delete は上限のうちに返り、契機も終わる（R51）', async () => {
+    const factory = new IDBFactory();
+    setup(factory);
+    await makeSettings(factory, [setting('a'), setting('b'), setting('c')]);
+    await makeTiles(factory, 'a', [record('2_1_1')]);
+    await makeTiles(factory, 'b', [record('2_2_2')]);
+    await makeTiles(factory, 'c', [record('2_3_3')]);
+    const holder = await openRaw(factory, 'Weiwudi_a');
+    const ctx = startSw();
+    await steps(ctx, 2);
+    expect((await stateOf(ctx)).pendingDelete).toContain('Weiwudi_a');
+    holder.close();
+    const hung = vi.fn(() => ({}) as IDBOpenDBRequest);
+    vi.stubGlobal('indexedDB', {
+      open: factory.open.bind(factory),
+      databases: factory.databases.bind(factory),
+      cmp: factory.cmp.bind(factory),
+      deleteDatabase: (name: string) => (name === 'Weiwudi_a' ? hung() : factory.deleteDatabase(name)),
+    });
+    const next = startSw();
+    let stepSettled = false;
+    void step(next).finally(() => { stepSettled = true; });
+    await vi.waitFor(() => expect(hung).toHaveBeenCalled());
+    const t0 = Date.now();
+    const limit = new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), DELETE_WAIT_MS + 1500));
+    const [clean, del] = await Promise.all([
+      Promise.race([get(next, '/api/clean?mapID=b').then((r) => r.text()), limit]),
+      Promise.race([get(next, '/api/delete?mapID=c').then((r) => r.text()), limit]),
+    ]);
+    expect(clean).toBe('Cleaned: b');
+    expect(del).toBe('Deleted: c');
+    expect(Date.now() - t0).toBeLessThan(DELETE_WAIT_MS + 1500);
+    expect(stepSettled).toBe(true);
+    expect(next.maintenance.migrating).toBeUndefined();
+    expect(next.maintenance.pendingDeletesRetried).toBe(true);
+    // 返らなかった名前だけが pendingDelete に残る（次の起動で消し直す）
+    const st = await stateOf(next);
+    expect(st.pendingDelete).toEqual(['Weiwudi_a']);
+  }, DELETE_WAIT_MS + 5000);
+
+  it('やり直し（R59）の第 1 段は pendingDelete の名前を開かず・消さず、前の削除が裏で並んだままでも最初の旧 API の要求が止まらない', async () => {
+    const factory = new IDBFactory();
+    setup(factory);
+    await makeSettings(factory, [setting('a')]);
+    await makeTiles(factory, 'a', [record('2_1_1')]);
+    // 閉じない接続で Weiwudi_a と Weiwudi の削除を待ちのまま残す（前の SW の削除が裏で並んでいる）
+    const holders = [await openRaw(factory, 'Weiwudi_a'), await openRaw(factory, 'Weiwudi')];
+    const ctx = startSw();
+    await steps(ctx, 2);
+    const done = await stateOf(ctx);
+    expect(done.stage).toBe('done');
+    expect(done.pendingDelete).toEqual(expect.arrayContaining(['Weiwudi_a', 'Weiwudi']));
+    // 1.1.x に戻している間に作られた孤児の旧 DB（やり直しの契機）
+    await makeTiles(factory, 'x', [record('2_1_1')]);
+    const opened: string[] = [];
+    const deleted: string[] = [];
+    vi.stubGlobal('indexedDB', {
+      open: (name: string, v?: number) => { opened.push(name); return factory.open(name, v); },
+      databases: factory.databases.bind(factory),
+      cmp: factory.cmp.bind(factory),
+      deleteDatabase: (name: string) => { deleted.push(name); return factory.deleteDatabase(name); },
+    });
+    const next = startSw();
+    const limit = new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 1000));
+    const res = await Promise.race([get(next, '/api/info?mapID=a'), limit]);
+    expect(res).not.toBe('timeout');
+    expect(await (res as Response).text()).not.toMatch(/not found/);
+    expect(next.maintenance.settingsDone).toBe(true);
+    // 孤児は消し、pendingDelete の名前は開きも消しもしない（消し直しに任せる）
+    expect(deleted).toContain('Weiwudi_x');
+    for (const n of ['Weiwudi', 'Weiwudi_a']) {
+      expect(opened).not.toContain(n);
+      expect(deleted).not.toContain(n);
+    }
+    const st = await stateOf(next);
+    expect(st.pendingDelete).toEqual(expect.arrayContaining(['Weiwudi_a', 'Weiwudi']));
+    expect(st.maps.find((x) => x.mapID === 'a')?.status ?? 'done').toBe('done');
+    for (const h of holders) h.close();
   });
 
   it('起動後の点検の kvPut が 1 回失敗しても、旧 API の要求は readLegacySetting で補い、次の呼び出しで点検をやり直す（R51）', async () => {
