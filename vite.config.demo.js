@@ -12,7 +12,8 @@ export default defineConfig({
             input: {
                 main: './index.html',
                 raster: './demo/raster.html',
-                vector: './demo/vector.html'
+                vector: './demo/vector.html',
+                migration: './demo/migration.html'
             }
         }
     },
