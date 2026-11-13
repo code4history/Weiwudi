@@ -9,7 +9,7 @@
 // - Source と Resource の id はどちらも map:<mapID>（第 1 回 S6）。Source.legacy に現行の設定（query）をそのまま持つ
 // - Entry のキーは map:<mapID>\0<tileKeySuffix>（R2・第 2 回 O12）。照合表には入れない
 // - 上流は fetch(URL の文字列) の 1 引数。差し込み口が別の Request を返したときだけ fetch(その Request)（第 1 回 S8）。
-//   どちらも ctx.upstreamFetch を通す（同じオリジンの要求にだけ User-Agent を足し、それ以外は引数のまま fetch。2026-11-14）
+//   どちらも ctx.upstreamFetch を通す（同じオリジンの要求にだけ User-Agent を足し、それ以外は引数のまま fetch）
 // - 差し込み口へは選んだミラーを展開した URL の Request を渡す（疑似ホストの URL を渡さない。第 2 回 S-5）
 // - Range つきの要求は serve() に入れず、上流のタイルの URL へそのまま素通しする（仕様 §11）
 // - fetchAll のジョブは開始の FetchEvent の waitUntil に渡す（R11・第 1 回 S11）。1 度に 1 ジョブ（context.job）

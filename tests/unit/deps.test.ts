@@ -22,7 +22,7 @@ const DEPS_TABLE: Record<string, readonly string[]> = {
   constants: [],
   tile_math: [],
   errors: [],
-  // 上流へ送る User-Agent（2026-11-14）
+  // 上流へ送る User-Agent
   user_agent: ['errors'],
   url_pattern: ['tile_math', 'constants', 'errors'],
   spec: ['url_pattern', 'tile_math', 'constants', 'errors'],

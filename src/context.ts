@@ -1,7 +1,7 @@
 // 実行中の状態の入れ物（仕様 §3・計画「実行中の状態」・第 1 回 S1）。Weiwudi_Internal の呼び出しごとに 1 つ作る。
 // モジュール変数を置かないので、1 試験 1 SW（同じプロセスに複数の SW の実行文脈が同居しても混ざらない）。
 // 値の依存は store・user_agent・errors だけ（仕様 §3）。照合表と連続数は t7、ジョブは t5 で足した。
-// 上流への取得（upstreamFetch）もここに置く。upstream・legacy・hook が同じ 1 つの関数を通す（User-Agent。2026-11-14）
+// 上流への取得（upstreamFetch）もここに置く。upstream・legacy・hook が同じ 1 つの関数を通す（User-Agent）
 import { KV_USER_AGENT, openStore, type ResourceMeta, type ResourceType, type SourceRecord, type Store } from './store';
 import { composeUserAgent, shouldAttachUserAgent, withUserAgent } from './user_agent';
 import type { TileFailure } from './errors';
@@ -137,8 +137,11 @@ export interface Context {
    * それ以外は fetch(input, init) をそのまま呼ぶ
    */
   upstreamFetch(input: Request | string, init?: RequestInit): Promise<Response>;
-  /** ページ（registerSW）が指定した User-Agent の読み込み済みの値。setUserAgent の op が書き換える */
-  userAgent: { loaded?: Promise<string | undefined> };
+  /**
+   * ページ（registerSW）が指定した User-Agent の読み込み。setUserAgent の op が loaded を書き換える。
+   * stalledOn は上限の時間を越えた読み込み（それが loaded の間は待たない）
+   */
+  userAgent: { loaded?: Promise<string | undefined>; stalledOn?: Promise<string | undefined> };
 }
 
 /** 子の URL の組を受けるか（type・テンプレート・credentialParams） */
@@ -193,29 +196,47 @@ export function createContext(options: ContextOptions | (() => Promise<Store>) =
     return opening;
   };
   const userAgent: Context['userAgent'] = {};
-  /** ページの指定値。読めない・上限を越えたときは覚えずに undefined（次の取得で読み直す） */
+  /**
+   * ページの指定値。読めない・上限を越えたときは undefined。上限を一度越えた読み込み（stalledOn）は、以後は待たずに
+   * undefined を返し、背景で読み続ける（終われば次の取得から使う。IndexedDB が blocked でも毎回は待たない）
+   */
   const pageUserAgent = async (): Promise<string | undefined> => {
     if (!userAgent.loaded) {
       const p = store().then((s) => s.kvGet(KV_USER_AGENT)).then(storedUserAgentOf);
       userAgent.loaded = p;
-      p.catch(() => {
+      const settle = () => {
+        if (userAgent.stalledOn === p) userAgent.stalledOn = undefined;
+      };
+      p.then(settle, () => {
+        settle();
+        // 失敗は覚えない（次の取得で読み直す）
         if (userAgent.loaded === p) userAgent.loaded = undefined;
       });
     }
+    const loaded = userAgent.loaded;
+    if (userAgent.stalledOn === loaded) return undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const TIMEOUT = Symbol('timeout');
     try {
-      return await Promise.race([
-        userAgent.loaded,
-        new Promise<undefined>((resolve) => { timer = setTimeout(() => resolve(undefined), USER_AGENT_LOAD_MS); }),
+      const r = await Promise.race([
+        loaded,
+        new Promise<typeof TIMEOUT>((resolve) => { timer = setTimeout(() => resolve(TIMEOUT), USER_AGENT_LOAD_MS); }),
       ]);
+      if (r === TIMEOUT) {
+        if (userAgent.loaded === loaded) userAgent.stalledOn = loaded;
+        return undefined;
+      }
+      return r;
     } catch (_e) {
       return undefined;
     } finally {
       if (timer !== undefined) clearTimeout(timer);
     }
   };
+  const plain = (input: Request | string, init?: RequestInit): Promise<Response> =>
+    init === undefined ? fetch(input) : fetch(input, init);
   const upstreamFetch = async (input: Request | string, init?: RequestInit): Promise<Response> => {
-    if (!shouldAttachUserAgent(input, init, selfLocation())) return init === undefined ? fetch(input) : fetch(input, init);
+    if (!shouldAttachUserAgent(input, init, selfLocation())) return plain(input, init);
     let custom = await pageUserAgent();
     if (custom === undefined) {
       try {
@@ -225,8 +246,14 @@ export function createContext(options: ContextOptions | (() => Promise<Store>) =
       }
     }
     const request = withUserAgent(input, init, composeUserAgent(browserUserAgent(), custom));
-    if (!request) return init === undefined ? fetch(input) : fetch(input, init);
-    return fetch(request);
+    if (!request) return plain(input, init);
+    try {
+      return await fetch(request);
+    } catch (_e) {
+      // 同じオリジンの上流が別オリジンへ redirect すると、redirect 先で User-Agent のための preflight が要り、
+      // 答えない相手では TypeError になる（WebKit・Firefox）。元の引数のまま 1 回だけ取り直す（オフラインなら同じく失敗する）
+      return plain(input, init);
+    }
   };
   return {
     store,

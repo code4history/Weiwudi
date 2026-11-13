@@ -1,6 +1,6 @@
 // 差し込み口（#36・仕様 §8）。SW 側だけ。`@c4h/weiwudi/sw` の名前付き export（UMD は self.Weiwudi_SW）。
 // 提供元の登録表（#40・仕様 §10。m3-t5）もここに置く。
-// SW のスクリプトが指定する User-Agent（setUserAgent。2026-11-14）もここに置く。
+// SW のスクリプトが指定する User-Agent（setUserAgent）もここに置く。
 // 値の依存は user_agent・errors だけ（仕様 §3）。ResourceInfo・Credentials は store.ts の型を import type で使う。
 //
 // 決まり:

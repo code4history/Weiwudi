@@ -541,7 +541,7 @@ export function createControl(ctx: Context): Control {
     return null;
   };
 
-  // 上流へ送る User-Agent（registerSW の userAgent。2026-11-14）。kv の userAgent に保存し、userAgent が無ければ外す。
+  // 上流へ送る User-Agent（registerSW の userAgent）。kv の userAgent に保存し、userAgent が無ければ外す。
   // 次の取得から効く
   const setUserAgent = async (body: unknown) => {
     if (body === null || typeof body !== 'object' || Array.isArray(body)) {

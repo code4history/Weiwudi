@@ -1,4 +1,4 @@
-// 上流へ送る User-Agent（2026-11-14 の指示）。ページ（registerSW の検査）と SW（組み立て・付ける場面）の両方が import する。
+// 上流へ送る User-Agent。ページ（registerSW の検査）と SW（組み立て・付ける場面）の両方が import する。
 // 値の依存は errors だけ（仕様 §3）。
 //
 // 決まり:
@@ -6,6 +6,8 @@
 //   指定が無ければ `${navigator.userAgent} Weiwudi/<version>`。Weiwudi/<version> は指定があっても残す
 // - 付けるのは、SW と同じオリジンの URL で mode が cors か same-origin の要求だけ。別オリジンに付けると WebKit が
 //   preflight を出して取得が壊れる。no-cors はヘッダが捨てられる。Chromium は同じオリジンでも捨てる（エラーにしない）
+// - 付けた要求が失敗したら（同じオリジンの上流が別オリジンへ redirect した先で preflight が通らないなど）、
+//   context.upstreamFetch が元の引数のまま 1 回だけ取り直す
 // - 要求がすでに User-Agent を持っていれば（差し込み口などが明示したもの）、そのまま送る
 // - version は build（vite・vitest の define）が package.json から埋め込む
 import { WeiwudiError } from './errors';
@@ -65,11 +67,13 @@ export function shouldAttachUserAgent(input: Request | string, init: RequestInit
 export function withUserAgent(input: Request | string, init: RequestInit | undefined, value: string): Request | undefined {
   let request: Request;
   try {
-    request = new Request(input, init);
+    // init が無ければ Request はそのまま使う（new Request(r, undefined) は実装によって referrer を既定に戻す）
+    request = init === undefined ? (typeof input === 'string' ? new Request(input) : input) : new Request(input, init);
     if (request.headers.has('user-agent')) return undefined;
     const headers = new Headers(request.headers);
     headers.set('user-agent', value);
-    return new Request(request, { headers });
+    // 作り直すと referrer・referrerPolicy が既定に戻るので、元の値を明示する
+    return new Request(request, { headers, referrer: request.referrer, referrerPolicy: request.referrerPolicy });
   } catch (_e) {
     return undefined;
   }

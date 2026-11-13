@@ -1,4 +1,4 @@
-// 上流へ送る User-Agent（2026-11-14）。検査・組み立て・付ける場面（同じオリジンで cors か same-origin だけ）・
+// 上流へ送る User-Agent。検査・組み立て・付ける場面（同じオリジンで cors か same-origin だけ）・
 // 指定の経路（registerSW → POST /v2/setUserAgent → kv、SW 側の setUserAgent）を確かめる。
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -109,6 +109,16 @@ describe('付ける場面（同じオリジンで mode が cors か same-origin 
     expect(r?.credentials).toBe('include');
     expect(withUserAgent(new Request(same, { headers: { 'user-agent': 'Mine' } }), undefined, 'UA')).toBeUndefined();
   });
+
+  it('withUserAgent は referrer と referrerPolicy を元のまま保つ（作り直しで既定に戻さない）', () => {
+    const page = `${SW_SELF_ORIGIN}/app/index.html`;
+    const r = withUserAgent(new Request(same, { referrer: page, referrerPolicy: 'no-referrer-when-downgrade' }), undefined, 'UA');
+    expect(r?.referrer).toBe(page);
+    expect(r?.referrerPolicy).toBe('no-referrer-when-downgrade');
+    const s2 = withUserAgent(same, { referrer: page, referrerPolicy: 'origin' }, 'UA');
+    expect(s2?.referrer).toBe(page);
+    expect(s2?.referrerPolicy).toBe('origin');
+  });
 });
 
 describe('ctx.upstreamFetch（上流への取得の 1 つの関数）', () => {
@@ -157,6 +167,53 @@ describe('ctx.upstreamFetch（上流への取得の 1 つの関数）', () => {
     const ctx = createContext({ open: () => Promise.reject(new Error('blocked')), userAgent: () => 'SwSide/1' });
     await ctx.upstreamFetch(`${SW_SELF_ORIGIN}/a.png`);
     expect(sentUa(f)).toBe(`${BROWSER} SwSide/1 Weiwudi/${VERSION}`);
+  });
+
+  it('付けた要求が reject したら、元の引数のまま 1 回だけ取り直す（redirect 先の preflight の失敗など）', async () => {
+    const f = setup();
+    f.mockImplementationOnce(async () => { throw new TypeError('preflight failed'); });
+    const original = new Request(`${SW_SELF_ORIGIN}/a.png`);
+    const res = await createContext().upstreamFetch(original);
+    expect(res.status).toBe(200);
+    expect(f).toHaveBeenCalledTimes(2);
+    expect(sentUa(f, 0)).toBe(`${BROWSER} Weiwudi/${VERSION}`);
+    expect(f.mock.calls[1]).toEqual([original]);
+    expect(f.mock.calls[1][0]).toBe(original);
+  });
+
+  it('取り直しも失敗すれば（オフラインなど）その失敗を返す。付けない要求は取り直さない', async () => {
+    const f = setup();
+    f.mockImplementation(async () => { throw new TypeError('offline'); });
+    const ctx = createContext();
+    await expect(ctx.upstreamFetch(`${SW_SELF_ORIGIN}/a.png`)).rejects.toThrow('offline');
+    expect(f).toHaveBeenCalledTimes(2);
+    f.mockClear();
+    await expect(ctx.upstreamFetch('https://t.example/a.png')).rejects.toThrow('offline');
+    expect(f).toHaveBeenCalledTimes(1);
+    f.mockClear();
+    await expect(ctx.upstreamFetch(`${SW_SELF_ORIGIN}/a.png`, { mode: 'no-cors' })).rejects.toThrow('offline');
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  it('kv の読み込みが上限を一度越えたら、以後は待たずに送り、読み終えたら次の取得から使う', async () => {
+    const f = setup();
+    vi.useFakeTimers();
+    let release: (s: Store) => void = () => undefined;
+    const opened = { kvGet: async () => ({ userAgent: 'Page/2' }) } as unknown as Store;
+    const ctx = createContext({ open: () => new Promise<Store>((res) => { release = res; }), userAgent: () => 'SwSide/1' });
+    const first = ctx.upstreamFetch(`${SW_SELF_ORIGIN}/a.png`);
+    await vi.advanceTimersByTimeAsync(1000);
+    await first;
+    expect(sentUa(f, 0)).toBe(`${BROWSER} SwSide/1 Weiwudi/${VERSION}`);
+    // 2 回目は時間を進めなくても終わる（待たない。タイマも作らない）
+    await ctx.upstreamFetch(`${SW_SELF_ORIGIN}/a.png`);
+    expect(sentUa(f, 1)).toBe(`${BROWSER} SwSide/1 Weiwudi/${VERSION}`);
+    expect(vi.getTimerCount()).toBe(0);
+    // 背景の読み込みが終われば、ページの指定を使う
+    release(opened);
+    await vi.advanceTimersByTimeAsync(0);
+    await ctx.upstreamFetch(`${SW_SELF_ORIGIN}/a.png`);
+    expect(sentUa(f, 2)).toBe(`${BROWSER} Page/2 Weiwudi/${VERSION}`);
   });
 
   it('store の読み込みが止まっても、上限の時間で既定値に切り替えて送る', async () => {
@@ -222,13 +279,14 @@ describe('SW の配信（新 API）', () => {
     const h = harness();
     await registerBoth();
     await h.flushRoutes();
-    // §4.5: 匿名の no-cors はまず cors に組み替えて取る。組み替えた要求は cors なので付く。元の形での取り直しには付けない
+    // §4.5: 匿名の no-cors はまず cors に組み替えて取る。組み替えた要求は cors なので付く（失敗すれば付けずに 1 回取り直す）。
+    // 元の形（no-cors）での取り直しには付けない
+    h.fetch.mockImplementationOnce(async () => { throw new TypeError('cors failed'); });
     h.fetch.mockImplementationOnce(async () => { throw new TypeError('cors failed'); });
     await h.dispatch(new Request(`${SW_SELF_ORIGIN}/tiles/2/0/0.png`, { mode: 'no-cors' }));
     const calls = h.fetch.mock.calls.map((c) => c[0] as Request).filter((r) => r.url === `${SW_SELF_ORIGIN}/tiles/2/0/0.png`);
-    expect(calls.map((r) => r.mode)).toEqual(['cors', 'no-cors']);
-    expect(calls[0].headers.get('user-agent')).toBe(`${BROWSER} Weiwudi/${VERSION}`);
-    expect(calls[1].headers.get('user-agent')).toBeNull();
+    expect(calls.map((r) => r.mode)).toEqual(['cors', 'cors', 'no-cors']);
+    expect(calls.map((r) => r.headers.get('user-agent'))).toEqual([`${BROWSER} Weiwudi/${VERSION}`, null, null]);
   });
 
   it('POST /v2/setUserAgent の値を kv に保存して使い、{} で外す。SW 側の setUserAgent より先', async () => {

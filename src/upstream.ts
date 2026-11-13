@@ -2,7 +2,7 @@
 // 値の依存は context・store・url_pattern・constants・errors だけ（仕様 §3。値で使っているのは constants だけ）。
 //
 // 決まり:
-// - 上流への取得は ctx.upstreamFetch だけ（同じオリジンの要求に User-Agent を足す。2026-11-14）
+// - 上流への取得は ctx.upstreamFetch だけ（同じオリジンの要求に User-Agent を足す）
 // - 匿名の要求は mode: 'cors'・credentials: 'same-origin' に組み替える。認証付きの要求は元の Request のまま
 // - corsOk・corslessUntil は判定のたびに store から読み直し、書き換えは patchResource（1 tx で読み・直し・書き。第 1 回 S2）。
 //   書き換えの関数の中でも実績の有無を見直す（別の SW が同じ DB に書くため）

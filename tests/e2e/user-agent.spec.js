@@ -2,10 +2,10 @@ import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 import { PAGE_ORIGIN } from './fixtures/page-origin.mjs';
 
-// 上流へ送る User-Agent（2026-11-14）。SW は同じオリジンの上流にだけ `<ブラウザの UA> [userAgent] Weiwudi/<version>` を付ける。
+// 上流へ送る User-Agent。SW は同じオリジンの上流にだけ `<ブラウザの UA> [userAgent] Weiwudi/<version>` を付ける。
 // - 同じオリジンの上流: vite の開発用サーバの /__e2e/ua/（tests/e2e/fixtures/vite-plugin-ua-echo.mjs）
 // - 別オリジンの上流: tile-server.mjs（localhost:5174）。付けない（付けると WebKit が preflight を出して 405 で失敗する）
-// エンジンの差（前の担当の実測）: WebKit は同じオリジンの要求の User-Agent を送る。Chromium は SW の fetch の User-Agent を捨てる
+// エンジンの差（実測）: WebKit は同じオリジンの要求の User-Agent を送る。Chromium は SW の fetch の User-Agent を捨てる
 const VERSION = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
 const UPSTREAM = 'http://localhost:5174';
 const SAME_TPL = `${PAGE_ORIGIN}/__e2e/ua/{z}/{x}/{y}.png`;
@@ -82,6 +82,19 @@ test.describe('Weiwudi upstream User-Agent', () => {
             scope: '/tests/e2e/fixtures/', userAgent: 'x'.repeat(201),
         })));
         expect(r).toMatchObject({ ok: false, code: 'attribute-invalid' });
+    });
+
+    test('keeps a same-origin upstream that redirects to another origin working', async ({ page, request, browserName }) => {
+        // 付けた要求が redirect 先で preflight を要して失敗しても（WebKit・Firefox）、付けずに 1 回取り直して成功する
+        await openPage(page, 'Maplat/2.0');
+        expect(await register(page, `${PAGE_ORIGIN}/__e2e/ua-redirect/{z}/{x}/{y}.png`)).toMatchObject({ ok: true });
+        const url = `${PAGE_ORIGIN}/__e2e/ua-redirect/2/1/3.png`;
+        expect(await page.evaluate((u) => window.tile(u), url)).toMatchObject({ status: 200, weiwudi: 'miss' });
+        const sameLog = await sameOriginLog(request, url);
+        const crossLog = await crossOriginLog(request, crossAt(2, 1, 3));
+        console.log(`[user-agent] ${browserName} redirect: same-origin ${sameLog.length} request(s), cross-origin ${crossLog.length} GET(s)`);
+        expect(crossLog.length).toBeGreaterThanOrEqual(1);
+        expect(crossLog.every((e) => !String(e.ua).includes('Weiwudi/'))).toBe(true);
     });
 
     test('keeps cross-origin upstream requests working without the header', async ({ page, request }) => {
