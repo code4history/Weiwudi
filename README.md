@@ -303,15 +303,15 @@ Start the development server with hot reload.
 pnpm dev
 ```
 
-Access `http://localhost:5173/` in your browser. The demo features:
-- Leaflet map with OSM tiles captured via `Weiwudi.register()` (the map uses `source.url`)
-- Real-time statistics: `stats()` (count, size, percent), `usage()` by provider, `regions()`, warnings and `opaque` notices
-- "Fetch Visible Range" (`estimate()` then `fetchRange()` from the current zoom to 17) and "Release" per region (`releaseRange()`)
-- "Clear Cache" (`clean()`) and a global limit input (`Weiwudi.setLimits()`)
+Access `http://localhost:5173/` in your browser. The demo portal (`index.html`) opens first and leads to three demos:
 
-Range fetching on OSM tiles is for minimal operation checks only: the demo refuses a range of more than 50 tiles. Bulk downloading is prohibited by the [OSM tile usage policy](https://operations.osmfoundation.org/policies/tiles/). In production, use your own tiles or an upstream whose terms allow it.
+- **Raster demo** (`demo/raster.html`): a Leaflet map with OSM raster tiles captured by `Weiwudi.register({ kind: 'raster' })`. Statistics (`stats()`, `usage()`, `regions()`), bulk fetch of the visible range (`estimate()` then `fetchRange()`) with per-region release, cache clearing (`clean()`) and a global limit input (`Weiwudi.setLimits()`)
+- **Vector demo** (`demo/vector.html`): a MapLibre GL JS map with the OpenFreeMap Liberty style captured by `Weiwudi.register({ kind: 'style' })`. The style, TileJSON, tiles, glyphs and sprites are cached together, with statistics broken down by resource type
+- **Migration demo** (`demo/migration.html`): migrates a 1.1.x cache (IndexedDB `Weiwudi` / `Weiwudi_<mapID>`) into the current store, showing the progress and drawing the migrated tiles on a map
 
-To load the demo offline, reload it once online first so that the service worker controls the page.
+Each demo uses only the service worker of its own scope and the Weiwudi IndexedDB databases (`Weiwudi`, `Weiwudi_*`, `WeiwudiStore`); service workers and data of other projects on the same origin are left untouched. To load a demo offline, reload it once online first so that the service worker controls the page.
+
+Range fetching on OSM tiles is for minimal operation checks only: the demo refuses a range of more than 50 tiles. Bulk downloading is prohibited by the [OSM tile usage policy](https://operations.osmfoundation.org/policies/tiles/). In production, use your own tiles or an upstream whose terms allow it. The OpenFreeMap demo also follows its [terms of service](https://openfreemap.org/tos/) (at most 3,000 tiles or 50 MB per download, at most 4 parallel requests) and stops at 50 tiles and 50 MB.
 
 #### Build
 

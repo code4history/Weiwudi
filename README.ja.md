@@ -270,15 +270,15 @@ pnpm install
 pnpm dev
 ```
 
-ブラウザで `http://localhost:5173/` にアクセスしてください。デモには以下の機能があります:
-- `Weiwudi.register()` で捕捉する OSM タイルの Leaflet マップ（地図には `source.url` を渡す）
-- リアルタイムの統計: `stats()`（件数・容量・割合）、`usage()` の提供元別、`regions()`、警告と `opaque` の通知
-- 「表示範囲を取得」（`estimate()` の後に現在のズームから 17 まで `fetchRange()`）と region ごとの「解放」（`releaseRange()`）
-- 「キャッシュを消す」（`clean()`）と全体上限の入力（`Weiwudi.setLimits()`）
+ブラウザで `http://localhost:5173/` にアクセスしてください。最初にデモの入口（`index.html`）が開き、3 つのデモへ進みます:
 
-OSM のタイルでの範囲取得は動作確認の最小限にしてください（デモは 50 枚を超える範囲を断ります）。まとめての取得は [OSM のタイルの利用規約](https://operations.osmfoundation.org/policies/tiles/)で禁じられています。本番では自前のタイルか、規約で許された上流を使ってください。
+- **ラスタのデモ**（`demo/raster.html`）: OSM のラスタタイルを `Weiwudi.register({ kind: 'raster' })` で捕捉する Leaflet の地図。統計（`stats()`・`usage()`・`regions()`）、表示範囲の一括取得（`estimate()` で見積もってから `fetchRange()`）と region ごとの解放、キャッシュの消去（`clean()`）と全体上限の入力（`Weiwudi.setLimits()`）
+- **ベクタのデモ**（`demo/vector.html`）: OpenFreeMap の Liberty スタイルを `Weiwudi.register({ kind: 'style' })` で捕捉する MapLibre GL JS の地図。スタイル・TileJSON・タイル・グリフ・スプライトをまとめてキャッシュし、資源の種類ごとの統計を表示します
+- **移行のデモ**（`demo/migration.html`）: 1.1.x のキャッシュ（IndexedDB `Weiwudi` / `Weiwudi_<mapID>`）を現在のストアへ移します。移行の進み具合を表示し、移したタイルを地図に描きます
 
-デモをオフラインで読み込むには、先にオンラインで 1 回読み直してください（ページを SW の制御下に入れるため）。
+各デモは同じオリジンの Service Worker（スコープはデモの配信元の直下）と Weiwudi の IndexedDB（`Weiwudi`・`Weiwudi_*`・`WeiwudiStore`）だけを使い、他のプロジェクトのサービスワーカーやデータには触れません。デモをオフラインで読み込むには、先にオンラインで 1 回読み直してください（ページを SW の制御下に入れるため）。
+
+OSM のタイルでの範囲取得は動作確認の最小限にしてください（デモは 50 枚を超える範囲を断ります）。まとめての取得は [OSM のタイルの利用規約](https://operations.osmfoundation.org/policies/tiles/)で禁じられています。本番では自前のタイルか、規約で許された上流を使ってください。ベクタのデモの OpenFreeMap も [利用規約](https://openfreemap.org/tos/)（1 回あたり 3,000 タイルか 50 MB・並行 4 要求まで）に従い、50 枚と 50 MB までにとどめています。
 
 #### ビルド
 
