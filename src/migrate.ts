@@ -354,7 +354,9 @@ const copySettings = async (ctx: Context, deps: MigrateDeps): Promise<void> => {
   }
   const names = await listLegacyDbs();
   // pendingDelete の名前（消し終えた後の残り）は開かず、消し直し（retryPendingDeletes）に任せる。やり直し（R59）では
-  // 前の SW の削除が裏で並んだままのことがあり、開く・消すとその後ろに並んで旧 API の最初の要求が止まる
+  // 前の SW の削除が裏で並んだままのことがあり、開く・消すとその後ろに並んで旧 API の最初の要求が止まる。
+  // 既知の制約（R59）: 1.1.x に戻している間にその名前が作り直されていても読まない（新しい地図の設定・増えたタイルは
+  // 移らず、旧 DB は消し直しで消える）
   const pending = (name: string) => prev.pendingDelete.indexOf(name) >= 0;
   let settings: unknown[] = [];
   let hadSettingsDb = false;
@@ -391,6 +393,7 @@ const copySettings = async (ctx: Context, deps: MigrateDeps): Promise<void> => {
     if (kept) return kept;
     let status: MigrationMapStatus = 'pending';
     if (mapID.indexOf('\0') >= 0) status = 'failed';
+    // pendingDelete の Weiwudi_<mapID> は、1.1.x の間に増えたタイルがあっても移さない（既知の制約。R59）
     else if (isForgotten(ctx, mapID) || pending(mapDbName(mapID)) || (names && names.indexOf(mapDbName(mapID)) < 0)) status = 'done';
     return { mapID, status, recordFailures: 0, batchFailures: 0 };
   });
@@ -400,6 +403,7 @@ const copySettings = async (ctx: Context, deps: MigrateDeps): Promise<void> => {
   // 作り直された）は移す。sources にも無いもの（孤児）は配信できないのでその場で消す（PR #103 L2）
   const blocked: string[] = [];
   for (const name of names ?? []) {
+    // pendingDelete の名前は作り直されていても移さない（既知の制約。R59）
     if (name === SETTINGS_DB || pending(name)) continue;
     const mapID = name.slice(MAP_DB_PREFIX.length);
     if (maps.some((x) => x.mapID === mapID)) continue;
@@ -452,9 +456,20 @@ export async function waitForSettings(ctx: Context, deps: MigrateDeps): Promise<
 /** 第 1 段がまだ済んでいない（旧 API の地図の参照で mapSetting も見る） */
 export const settingsPending = (ctx: Context): boolean => !ctx.maintenance.settingsDone && !ctx.maintenance.migrated;
 
-/** 旧 Weiwudi.mapSetting から 1 件読む（第 1 段が失敗したときの補い）。無い・読めないなら undefined */
+/**
+ * 旧 Weiwudi.mapSetting から 1 件読む（第 1 段が失敗したときの補い）。無い・読めないなら undefined。
+ * Weiwudi が pendingDelete にあれば開かない（第 1 段と同じ。契機の消し直しの削除が並んでいると、開く要求がその後ろに
+ * 並んで返らない）。状態が読めないときは今までどおり開く
+ */
 export async function readLegacySetting(ctx: Context, mapID: string): Promise<MapSetting | undefined> {
   try {
+    let state: MigrationState | undefined;
+    try {
+      state = await readState(await ctx.store());
+    } catch (_e) {
+      state = undefined;
+    }
+    if (state && state.pendingDelete.indexOf(SETTINGS_DB) >= 0) return undefined;
     const names = await listLegacyDbs();
     if (names && names.indexOf(SETTINGS_DB) < 0) return undefined;
     const db = await openExisting(ctx, SETTINGS_DB);

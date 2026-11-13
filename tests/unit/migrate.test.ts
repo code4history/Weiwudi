@@ -773,6 +773,70 @@ describe('戻して上げ直す・blocked・databases() の無い環境（R17・
     expect(await store.getSource('map:b')).toBeDefined();
   });
 
+  it('Weiwudi が pendingDelete にあり、その削除が並んでいる間に第 1 段が失敗しても、readLegacySetting は Weiwudi を開かずに上限のうちに返る（R51）', async () => {
+    const factory = new IDBFactory();
+    setup(factory);
+    await makeSettings(factory, [setting('a')]);
+    await makeTiles(factory, 'a', [record('2_1_1')]);
+    // 閉じない接続で Weiwudi の削除を待ちのまま残す
+    const holder = await openRaw(factory, 'Weiwudi');
+    const ctx = startSw();
+    await steps(ctx, 2);
+    expect((await stateOf(ctx)).pendingDelete).toContain('Weiwudi');
+    // 1.1.x に戻している間に作られた孤児の旧 DB（やり直しの契機）
+    await makeTiles(factory, 'x', [record('2_1_1')]);
+    // Weiwudi の削除が並んでいて、開く要求も消す要求もその後ろに並んで返らない
+    const opened: string[] = [];
+    const hung = () => ({}) as IDBOpenDBRequest;
+    vi.stubGlobal('indexedDB', {
+      open: (name: string, v?: number) => { opened.push(name); return name === 'Weiwudi' ? hung() : factory.open(name, v); },
+      databases: factory.databases.bind(factory),
+      cmp: factory.cmp.bind(factory),
+      deleteDatabase: (name: string) => (name === 'Weiwudi' ? hung() : factory.deleteDatabase(name)),
+    });
+    const next = startSw();
+    const store = await next.store();
+    // 起動後の点検の kvPut を 1 回落として第 1 段を失敗させ、getSetting を readLegacySetting の補いへ回す
+    const put = vi.spyOn(store, 'kvPut').mockRejectedValueOnce(new Error('kvPut failed'));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const limit = new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 1000));
+    const res = await Promise.race([get(next, '/api/info?mapID=b'), limit]);
+    expect(res).not.toBe('timeout');
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(err).toHaveBeenCalled();
+    expect(next.maintenance.settingsDone).not.toBe(true);
+    expect(opened).not.toContain('Weiwudi');
+    holder.close();
+  });
+
+  it('上限を過ぎて blocked とした削除に success が遅れて届くと、blockedDeletes から外れる（R51）', async () => {
+    const factory = new IDBFactory();
+    setup(factory);
+    await makeSettings(factory, [setting('a')]);
+    await makeTiles(factory, 'a', [record('2_1_1')]);
+    const holder = await openRaw(factory, 'Weiwudi_a');
+    const ctx = startSw();
+    await steps(ctx, 2);
+    expect((await stateOf(ctx)).pendingDelete).toContain('Weiwudi_a');
+    holder.close();
+    // success も blocked も上限のうちに来ない削除（後から success を届ける）
+    const late = {} as IDBOpenDBRequest;
+    vi.stubGlobal('indexedDB', {
+      open: factory.open.bind(factory),
+      databases: factory.databases.bind(factory),
+      cmp: factory.cmp.bind(factory),
+      deleteDatabase: (name: string) => (name === 'Weiwudi_a' ? late : factory.deleteDatabase(name)),
+    });
+    const next = startSw();
+    await step(next);
+    expect(next.maintenance.blockedDeletes?.has('Weiwudi_a')).toBe(true);
+    expect((await stateOf(next)).pendingDelete).toContain('Weiwudi_a');
+    // 遅れて届いた success で印が外れる（pendingDelete は残り、次の起動で消し直す）
+    (late.onsuccess as (ev: Event) => void)(new Event('success'));
+    expect(next.maintenance.blockedDeletes?.has('Weiwudi_a')).toBe(false);
+    expect((await stateOf(next)).pendingDelete).toContain('Weiwudi_a');
+  }, DELETE_WAIT_MS + 5000);
+
   it('閉じない接続で deleteDatabase が blocked でも契機は終わり、pendingDelete に残り、次の SW の最初の契機で消える', async () => {
     const factory = new IDBFactory();
     setup(factory);
