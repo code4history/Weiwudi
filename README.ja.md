@@ -41,8 +41,8 @@ Weiwudi は MIT License のオープンソースソフトウェアです。
 ## クイックスタート
 
 <!-- release-pinned:start -->
-> **現在のリリース: `1.1.1`**。下のインストール手順と旧 API の例はこのリリース向けです
-> （ADR-0012）。機能一覧と API 文書には、このブランチで実装済みの変更も記載しています。
+> **現在のリリース: `1.1.1`**。下のインストール手順と旧 API の例はこのリリース向けです。
+> 機能一覧と API 文書には、このブランチで実装済みの変更も記載しています。
 > [Unreleased](CHANGELOG.md#unreleased) に載せた変更は、現在の npm リリースには含まれません。
 > npm: [`@c4h/weiwudi`](https://www.npmjs.com/package/@c4h/weiwudi)
 > [![npm](https://img.shields.io/npm/v/@c4h/weiwudi)](https://www.npmjs.com/package/@c4h/weiwudi)
@@ -278,6 +278,12 @@ region を `partial` にします。共有の Entry と他の Source の region 
 
 - **API シグネチャ**（リリース依存）: [`docs/api/`](docs/api/) を参照
 
+### 公開デモ
+
+- **GitHub Pages**: <https://code4history.dev/Weiwudi/>
+
+入口のページから、ラスタ・ベクタ・1.1.x のキャッシュからの移行の 3 つのデモへ進めます。各デモの内容は[開発サーバー](#開発サーバー)の節を参照してください。
+
 ### 開発
 
 #### 準備
@@ -340,7 +346,7 @@ E2E テストでは以下を検証します:
 <!-- SECTION 6: Prerequisites -->
 ## 動作環境
 
-> `package.json` の `engines` フィールドから自動抽出（ADR-0012: 特定リリースに紐づく）。
+> `package.json` の `engines` フィールドから自動抽出（特定のリリースに紐づく値）。
 
 - Node.js: `>= 20.0.0`
 - pnpm: `>= 9.0.0`（推奨・npm も可）
@@ -381,7 +387,7 @@ Maplat エコシステムの一部です。全容は下記エコシステム図�
 > MaplatEditor で作成し、いずれかのビューアライブラリで公開、という流れになります。
 
 <!-- SECTION 9: Nayuta links -->
-<!-- MIT ライセンスのリポジトリ（Weiwudi / Quyuan / Chuci）へは那由多社リンクを置きません（ADR-0012）。 -->
+<!-- MIT ライセンスのリポジトリ（Weiwudi / Quyuan / Chuci）へは那由多社リンクを置きません。 -->
 
 <!-- SECTION 10: License -->
 ## License

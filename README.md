@@ -45,7 +45,7 @@ Weiwudi is open-source under the MIT License.
 
 <!-- release-pinned:start -->
 > **Current release: `1.1.1`**. The installation instructions and legacy API examples
-> below target this release (ADR-0012). The feature list and API documentation also describe changes
+> below target this release. The feature list and API documentation also describe changes
 > implemented on this branch; changes listed in [Unreleased](CHANGELOG.md#unreleased)
 > are not included in the current npm release.
 > npm: [`@c4h/weiwudi`](https://www.npmjs.com/package/@c4h/weiwudi)
@@ -311,6 +311,12 @@ Details: [Source API](docs/api/weiwudi.md#source-api).
 
 - **API signatures** (release-dependent): see [`docs/api/`](docs/api/)
 
+### Live demo
+
+- **GitHub Pages**: <https://code4history.dev/Weiwudi/>
+
+The portal page leads to three demos: raster, vector and migration from the 1.1.x cache. See [Development Server](#development-server) for what each demo shows.
+
 ### Development
 
 #### Setup
@@ -373,7 +379,7 @@ The E2E tests verify:
 <!-- SECTION 6: Prerequisites -->
 ## Prerequisites
 
-> Derived from the `engines` field in `package.json` (ADR-0012: release-dependent).
+> Derived from the `engines` field in `package.json` (release-dependent).
 
 - Node.js: `>= 20.0.0`
 - pnpm: `>= 9.0.0` (recommended; npm also works)
@@ -414,7 +420,7 @@ repository; the Sister repositories table below is the public substitute)*
 > author with MaplatEditor, serve with any of the viewer libraries.
 
 <!-- SECTION 9: Nayuta links -->
-<!-- MIT-licensed repositories (Weiwudi / Quyuan / Chuci) carry no Nayuta link (ADR-0012). -->
+<!-- MIT-licensed repositories (Weiwudi / Quyuan / Chuci) carry no Nayuta link. -->
 
 <!-- SECTION 10: License -->
 ## License
