@@ -117,3 +117,11 @@ test/
 dist-demo/
 playwright-report/
 public/workbox/
+
+# Internal development records (not published)
+.superpowers/
+docs/superpowers/state/
+docs/superpowers/plans/
+docs/superpowers/specs/
+docs/superpowers/reports/
+docs/superpowers/nayuta.json

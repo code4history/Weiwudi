@@ -311,6 +311,12 @@ Details: [Source API](docs/api/weiwudi.md#source-api).
 
 - **API signatures** (release-dependent): see [`docs/api/`](docs/api/)
 
+### Live demo
+
+- Live demo (GitHub Pages): <https://code4history.dev/Weiwudi/>
+
+The portal page leads to three demos: raster, vector and migration from the 1.1.x cache. See [Development Server](#development-server) for what each demo shows.
+
 ### Development
 
 #### Setup

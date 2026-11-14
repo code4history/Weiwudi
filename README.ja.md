@@ -278,6 +278,12 @@ region を `partial` にします。共有の Entry と他の Source の region 
 
 - **API シグネチャ**（リリース依存）: [`docs/api/`](docs/api/) を参照
 
+### 公開デモ
+
+- 公開デモ（GitHub Pages）: <https://code4history.dev/Weiwudi/>
+
+入口のページから、ラスタ・ベクタ・1.1.x のキャッシュからの移行の 3 つのデモへ進めます。各デモの内容は「開発サーバー」の節を参照してください。
+
 ### 開発
 
 #### 準備
