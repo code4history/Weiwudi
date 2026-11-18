@@ -56,7 +56,7 @@ const seed = async () => {
   await store.putEntry(meta, { key: KEY, blob: new Blob([new Uint8Array([9, 9, 9])]), headers: { 'content-type': 'image/png' } }, []);
 };
 
-/** serve を通した配信（hook と同じ組み立て。storable は認証付きかどうかで決める） */
+/** serve を通した配信（hook と同じ組み立て。storable は認証付きでも cachePrivate が有れば真） */
 const serveVia = (request: Request, policy: ResourcePolicy = POLICY, credentials?: Credentials) => {
   const input: ServeInput = {
     resourceId: RID, key: KEY, coord: { z: 1, x: 0, y: 0 }, request,
@@ -254,7 +254,7 @@ describe('corsOk・corslessStreak・corslessUntil', () => {
     expect(CORSLESS_PERIOD_MS).toBe(24 * 60 * 60 * 1000);
   });
 
-  it('corslessUntil の間は 1 を省いて元の要求（no-cors）を出す', async () => {
+  it('corslessUntil の間は組み替えずに元の要求（no-cors）を出す', async () => {
     await store.patchResource(RID, (m) => ({ ...m, corslessUntil: T + 1000 }));
     fetchMock.mockResolvedValueOnce(opq());
     const r = await call(img());
@@ -263,7 +263,7 @@ describe('corsOk・corslessStreak・corslessUntil', () => {
     expect(sent(0).mode).toBe('no-cors');
   });
 
-  it('corslessUntil の期限を過ぎたら 1 に戻す', async () => {
+  it('corslessUntil の期限を過ぎたら組み替えに戻す', async () => {
     await store.patchResource(RID, (m) => ({ ...m, corslessUntil: T + 1000 }));
     now = T + 1001;
     await call(img());
@@ -347,7 +347,7 @@ describe('corsOk・corslessStreak・corslessUntil', () => {
     expect(m.corslessUntil).toBeUndefined();
   });
 
-  it('実績ありで 1 が TypeError: Entry あり→古い本体（stale・upstream）、無し→opaque', async () => {
+  it('実績ありで組み替えた要求が TypeError: Entry があれば古い本体（stale）、無ければ opaque', async () => {
     await store.patchResource(RID, (m) => ({ ...m, corsOk: true }));
     fetchMock.mockRejectedValueOnce(new TypeError('cors')).mockResolvedValueOnce(opq());
     const none = await serveVia(img());
@@ -420,7 +420,7 @@ describe('no-cors の 401・403', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('は数えない', async () => {
+  it('401 の後の取り直しで opaque が返っても CORS 非対応の連続数に数えない', async () => {
     for (let i = 0; i < 3; i++) fetchMock.mockResolvedValueOnce(png(401)).mockResolvedValueOnce(opq());
     for (let i = 0; i < 3; i++) await call(img());
     expect(ctx.corslessStreak.get(RID) ?? 0).toBe(0);

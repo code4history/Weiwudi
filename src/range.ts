@@ -351,7 +351,7 @@ export function cancelRange(ctx: Context, sourceId: string): { regionId: string 
 
 // ---- 解放と範囲つき clean ----
 
-/** Resource を参照する Source（範囲だけの参照も含む）。子は region を持つ親に読み替える（S1） */
+/** Resource を参照する Source（範囲だけの参照も含む）。子は region を持つ親に読み替える */
 export async function holdersOf(store: Store, resource: ResourceMeta): Promise<string[]> {
   const holders = new Set<string>();
   for (const id of [...resource.sourceIds, ...resource.rangeOnlySourceIds ?? []]) {

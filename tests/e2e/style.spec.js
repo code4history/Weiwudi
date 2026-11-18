@@ -257,7 +257,7 @@ test.describe('Weiwudi style (kind: style)', () => {
         });
         expect(src.url).toBe(MAPBOX_STYLE);
         expect(JSON.stringify(src)).not.toContain(MAPBOX_TOKEN);
-        // 登録の戻り値（url・resources のテンプレート）に mapbox:// が残らない（i-1）
+        // 登録の戻り値（url・resources のテンプレート）に mapbox:// が残らない
         expect(JSON.stringify(src)).not.toContain('mapbox://');
         // MapLibre の Worker と同じ順: スタイル → ?secure の TileJSON → タイル・sprite@2x・{fontstack}/{range}
         const urls = [

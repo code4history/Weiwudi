@@ -508,7 +508,7 @@ describe('同じオリジンの検査', () => {
     expect(await store.getSource(childId('st', 'tile:ok'))).toBeDefined();
   });
 
-  it('A: userinfo を持つ URL は subject に出さない（TileJSON の tiles は same-origin-skipped: sources.<名前>、スタイルの参照は unsupported-source）', async () => {
+  it('userinfo を持つ URL は subject に出さない（TileJSON の tiles は same-origin-skipped: sources.<名前>、スタイルの参照は unsupported-source）', async () => {
     const { h } = await setup({
       [STYLE]: styleOf({
         x: { type: 'vector', url: TJ },
@@ -817,7 +817,7 @@ describe('衝突', () => {
     expect(r.encoding).toBe('raster');
   });
 
-  it('D: 子の内部の id に子でない記録があれば internal で止め、その記録を上書きも削除もしない', async () => {
+  it('子の内部の id に子でない記録があれば internal で止め、その記録を上書きも削除もしない', async () => {
     const { h, store } = await setup({ [STYLE]: styleOf({ vt: { type: 'vector', tiles: [VT] } }) });
     const foreign = { id: childId('st', 'tile:vt'), kind: 'raster' as const, spec: {} as never, order: 9, warnings: [], createdAt: 0 };
     await store.putSource(foreign);
