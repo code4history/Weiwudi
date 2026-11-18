@@ -14,7 +14,7 @@
     <script type="module">
         import Weiwudi from '/dist/weiwudi.es.js';
 
-        // 旧 DB からの移行の e2e（m4-t10・migrate.spec.js）。1.1.1 の形の旧 DB を IndexedDB に直接作ってから、SW
+        // 旧 DB からの移行の e2e（migrate.spec.js）。1.1.1 の形の旧 DB を IndexedDB に直接作ってから、SW
         // （offline-sw.js）を登録する。どちらも試験の側から呼ぶ（seed → startSW）。
         // - Weiwudi.mapSetting（keyPath: mapID）: /api/add が保存した MapSetting
         // - Weiwudi_<mapID>.tileCache（keyPath: z_x_y）: { z_x_y, headers, blob, epoch }

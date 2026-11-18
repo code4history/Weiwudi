@@ -3,14 +3,14 @@
 // - GET /__requests: それまでの受信数を { count } で返す
 // - GET /__health: 200・本文 `weiwudi-e2e-tile-server`（workbox を写し終えてから listen するので、返れば揃っている）
 // - GET /workbox/*: 起動時に一時ディレクトリへ写した workbox の一式
-// 実 URL の捕捉の e2e（m2-t9・hook.spec.js）の端点。本体は 1×1 の PNG（<img> で読めるもの）:
+// 実 URL の捕捉の e2e（hook.spec.js）の端点。本体は 1×1 の PNG（<img> で読めるもの）:
 // - GET /png/{z}/{x}/{y}.png: 200・CORS あり
 // - GET /nocors/{z}/{x}/{y}.png: 200・CORS ヘッダなし
 // - GET /sparse/{z}/{x}/{y}.png: x が偶数なら 404・CORS ヘッダなし、奇数なら 200・CORS あり
 // - GET /auth/{z}/{x}/{y}.png: Cookie `weiwudi=1` があれば 200・なければ 401。どちらも CORS あり
 // - GET /html/{z}/{x}/{y}.png: 200・text/html・CORS あり
 // - GET /__log: 上の端点が受けた要求の { path, mode（sec-fetch-mode）, cookie（weiwudi=1 の有無）, ua（user-agent） } の並び
-// スタイルの e2e（m3-t9・style.spec.js）の端点。どれも CORS あり。受けた要求は /__log に積む（path はデコード後）:
+// スタイルの e2e（style.spec.js）の端点。どれも CORS あり。受けた要求は /__log に積む（path はデコード後）:
 // - GET /style/basic.json: スタイル（sources の url の TileJSON・tiles・geojson の data、glyphs・sprite）
 // - GET /style/tiles.json: TileJSON（tiles・bounds・minzoom・maxzoom）
 // - GET /style/tiles/{z}/{x}/{y}.pbf: 本体は `vt:{z}/{x}/{y}`（application/x-protobuf）
@@ -20,12 +20,12 @@
 // - GET /style/data.geojson: GeoJSON（FeatureCollection・点 1 つ）
 // - GET /style/mapbox.json: mapbox:// を含むスタイル（試験が context.route で api.mapbox.com の要求にこれを返す）
 // - GET /style/mapbox-tiles.json: mapbox:// のソースの TileJSON（tiles は api.mapbox.com。同上）
-// 範囲取得の e2e（m4-t10・range.spec.js）の端点:
+// 範囲取得の e2e（range.spec.js）の端点:
 // - GET /slow/{z}/{x}/{y}.png: SLOW_MS 待ってから 200・CORS あり・本体は `slow:{z}/{x}/{y}`（取得の途中で止める・取り消すため）
 // 旧 API を Core の呼び方で確かめる e2e（legacy.spec.js）の端点:
 // - GET /tms/{z}/{x}/{y}.png: 200・CORS あり・本体は `tms:{z}/{x}/{y}`（受けた y をそのまま返す。{-y} の向きを見る）。/__log に積む
 //
-// 一時ディレクトリの片付け（m2-t1・第 1 回 S14・第 2 回 O19）:
+// 一時ディレクトリの片付け:
 // - SIGTERM・SIGINT で一時ディレクトリを消してから process.exit(0)。exit の処理でも消す
 //   （playwright.config.js の gracefulShutdown で SIGTERM が届く。無いと SIGKILL で止まり消えない）
 // - listen に成功した後に、作られてから 1 時間より古い weiwudi-e2e-* を消す（SIGKILL で残った分の保険）
@@ -67,7 +67,7 @@ let count = 0;
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=', 'base64');
 const log = [];
 
-// 実 URL の捕捉の e2e の端点（m2-t9）。応えたら true
+// 実 URL の捕捉の e2e の端点。応えたら true
 function serveHookTile(req, pathname, res) {
     const m = pathname.match(/^\/(png|nocors|sparse|auth|html)\/(\d+)\/(\d+)\/(\d+)\.png$/);
     if (!m) return false;
@@ -99,7 +99,7 @@ function serveHookTile(req, pathname, res) {
     return true;
 }
 
-// スタイルの e2e の端点（m3-t9）
+// スタイルの e2e の端点
 const STYLE_BASE = `http://localhost:${PORT}/style`;
 const STYLE = {
     version: 8,

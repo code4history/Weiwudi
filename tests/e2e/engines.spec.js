@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-// エンジンごとの差を見る（m3-t10・I7 のうち m2 の hook.spec.js に試験が無いもの）。Chromium・WebKit（CI）・
+// エンジンごとの差を見る（hook.spec.js に試験が無いもの）。Chromium・WebKit（CI）・
 // Firefox（CI で 1 回）で走らせる。上流は tile-server.mjs（localhost:5174。ページは localhost:5173 で別オリジン）
 const UPSTREAM = 'http://localhost:5174';
 const PAGE = '/tests/e2e/fixtures/iframe-page.html';
@@ -69,7 +69,7 @@ test.describe('Weiwudi engines', () => {
         const r = await page.evaluate((url) => window.srcdocProbe(url), url);
         expect(r.error ?? null).toBeNull();
         expect(r.href).toBe('about:srcdoc');
-        // 継いだか継がないかを記録する（どちらも仕様の範囲。CI の結果を README と仕様 §2 に書く）
+        // 継いだか継がないかを記録する（どちらも仕様の範囲。CI の結果を README に書く）
         testInfo.annotations.push({ type: 'srcdoc-controlled', description: `${testInfo.project.name}: ${r.controlled}` });
         console.log(`[engines] ${testInfo.project.name}: sandboxed srcdoc iframe controlled=${r.controlled}`);
         if (r.controlled) {

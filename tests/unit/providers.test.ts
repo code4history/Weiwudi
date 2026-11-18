@@ -1,4 +1,4 @@
-// 提供元の登録表と、登録・上流への組み込み（m3-t5・#40・仕様 §8・§10）。実ネットワーク・実トークンは使わない。
+// 提供元の登録表と、登録・上流への組み込み（#40）。実ネットワーク・実トークンは使わない。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { addPlugin, addProvider, getProviders, _resetPluginsForTest, type WeiwudiProvider } from '../../src/plugins';
 import { normalizeSpec } from '../../src/spec';
@@ -231,7 +231,7 @@ describe('SW を通した登録と上流（標準の mapbox）', () => {
     expect(JSON.stringify(sources)).not.toContain(TOKEN);
   });
 
-  it('提供元の Resource でも、差し込み口が別オリジンへ替えたら付かない（t3 の I1）', async () => {
+  it('提供元の Resource でも、差し込み口が別オリジンへ替えたら付かない', async () => {
     const h = createSwHarness();
     h.fetch.mockImplementation(async () => png());
     addPlugin({ requestWillFetch: async ({ request }) => new Request(request.url.replace('https://api.mapbox.com', 'https://mirror.example')) });

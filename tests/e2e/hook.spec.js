@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 
-// 実 URL の捕捉（新 API）を実ブラウザで確かめる（m2-t9・仕様 §4）。外部へ出ない構成で、上流は tile-server.mjs
-// （localhost:5174。ページは localhost:5173 なので別オリジン）。WebKit・Firefox でも走らせる（m3-t10・R14'。
-// Chromium だけで成り立つものは @chromium-only で外し、理由をその試験に書く）
+// 実 URL の捕捉（新 API）を実ブラウザで確かめる。外部へ出ない構成で、上流は tile-server.mjs
+// （localhost:5174。ページは localhost:5173 なので別オリジン）。WebKit・Firefox でも走らせる。
+// Chromium だけで成り立つものは @chromium-only で外し、理由をその試験に書く
 const UPSTREAM = 'http://localhost:5174';
 const PAGE = '/tests/e2e/fixtures/hook-page.html';
 const PSEUDO = 'weiwudi.example.com';
@@ -111,7 +111,7 @@ test.describe('Weiwudi hook (real urls)', () => {
     });
 
     test('reads control responses from a cross-origin page', async ({ page, context }) => {
-        // ページ（localhost:5173）から見て疑似ホストは別オリジン。SW が合成した制御の応答を読めるか（t8 の申し送り 2）
+        // ページ（localhost:5173）から見て疑似ホストは別オリジン。SW が合成した制御の応答を読めるか
         const hits = await countPseudoHits(context);
         await openPage(page);
         const r = await page.evaluate(async (url) => {
@@ -176,7 +176,7 @@ test.describe('Weiwudi hook (real urls)', () => {
         expect((await upstreamLog(request, '/png/2/1/2.png')).map((e) => e.mode)).toEqual(['cors']);
     });
 
-    // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた（仕様 §2 の 7）
+    // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた。
     test('serves hooked tiles offline', { tag: '@chromium-only' }, async ({ page, context }) => {
         await openPage(page);
         await register(page, { kind: 'raster', url: tpl('tiles') });
@@ -236,7 +236,7 @@ test.describe('Weiwudi hook (real urls)', () => {
         expect(await statsCount(page)).toBe(0);
     });
 
-    test('retries cors-less servers with no-cors even with header credentials (m3-t3 L1 M-1)', async ({ page, request }) => {
+    test('retries cors-less servers with no-cors even with header credentials', async ({ page, request }) => {
         await openPage(page);
         await register(page, { kind: 'raster', url: tpl('nocors'), credentials: { headers: { 'x-api-key': 'HKEY' } } });
         const img = await getImg(page, at('nocors', 2, 1, 1));

@@ -1,4 +1,4 @@
-// src/weiwudi.ts のページ側の新 API の試験（m2-t8・仕様 §4.1・§12）。navigator.serviceWorker・fetch・location を差し替える。
+// src/weiwudi.ts のページ側の新 API の試験。navigator.serviceWorker・fetch・location を差し替える。
 // ensureV2 の記憶はモジュール変数なので、試験ごとに vi.resetModules() で読み直す。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -77,7 +77,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('ensureV2（仕様 §4.1）', () => {
+describe('ensureV2', () => {
   it('制御下に無いと fetch を 1 度も呼ばずに sw-not-controlling', async () => {
     const m = await setup(null);
     await rejectsWith(m.default.register({ kind: 'raster', url: TPL }), 'sw-not-controlling', m);
@@ -146,7 +146,7 @@ describe('ensureV2（仕様 §4.1）', () => {
     expect(pings()).toBe(3);
   });
 
-  it('ping の間に controller が替わると 1 回だけ確かめ直す（第 3 回 M2）', async () => {
+  it('ping の間に controller が替わると 1 回だけ確かめ直す', async () => {
     const m = await setup();
     let n = 0;
     pingReply = async () => {
@@ -159,7 +159,7 @@ describe('ensureV2（仕様 §4.1）', () => {
     expect(posts()).toHaveLength(1);
   });
 
-  it('2 回目も替わると sw-not-controlling で、POST を出さない（第 3 回 M2）', async () => {
+  it('2 回目も替わると sw-not-controlling で、POST を出さない', async () => {
     const m = await setup();
     pingReply = async () => {
       container.controller = {};
@@ -267,7 +267,7 @@ describe('ensureV2（仕様 §4.1）', () => {
     ]);
   });
 
-  it('swCheck（旧 API）の結果は新 API の確認に影響されない（第 1 回 C2）', async () => {
+  it('swCheck（旧 API）の結果は新 API の確認に影響されない', async () => {
     const m = await setup();
     pingReply = async () => new Response('Not Found', { status: 404 });
     await rejectsWith(m.default.sources(), 'sw-outdated', m);
@@ -281,7 +281,7 @@ describe('ensureV2（仕様 §4.1）', () => {
   });
 });
 
-describe('POST の形（仕様 §4.1・§12）', () => {
+describe('POST の形', () => {
   it('Content-Type は text/plain;charset=UTF-8 で、本文は JSON 文字列', async () => {
     const m = await setup();
     await m.default.register({ kind: 'raster', url: TPL, minZoom: 2 });
@@ -328,7 +328,7 @@ describe('POST の形（仕様 §4.1・§12）', () => {
   });
 });
 
-describe('WeiwudiSource（仕様 §12）', () => {
+describe('WeiwudiSource', () => {
   it('register は WeiwudiSource（id・url・resources・warnings は写し）', async () => {
     const m = await setup();
     const s = await m.default.register({ kind: 'raster', url: TPL });
@@ -379,7 +379,7 @@ describe('WeiwudiSource（仕様 §12）', () => {
   });
 });
 
-describe('removeResource・usage（m3-t8・R18・R19）', () => {
+describe('removeResource・usage', () => {
   it('removeResource は id と resourceId を本文に POST し、undefined で解決する', async () => {
     const m = await setup();
     const s = await m.default.register({ kind: 'raster', url: TPL });
@@ -433,7 +433,7 @@ describe('removeResource・usage（m3-t8・R18・R19）', () => {
   });
 });
 
-describe('範囲取得（m4-t3・§7.2・R22・R45・R58・R-ratio・I5b）', () => {
+describe('範囲取得', () => {
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -541,7 +541,7 @@ describe('範囲取得（m4-t3・§7.2・R22・R45・R58・R-ratio・I5b）', ()
     expect(await b).toMatchObject({ id: 'g2', status: 'canceled' });
   });
 
-  it('fetchRange が待っている最中に、cancel の応答より先に canceled が届いても cancel() がすぐ解決する（PR #102 M1）', async () => {
+  it('fetchRange が待っている最中に、cancel の応答より先に canceled が届いても cancel() がすぐ解決する（PR #102）', async () => {
     const m = await setup();
     answer({
       fetchRange: () => region(),
@@ -609,7 +609,7 @@ describe('範囲取得（m4-t3・§7.2・R22・R45・R58・R-ratio・I5b）', ()
     await rejectsWith(src.fetchRange(RANGE), 'instance-released', m);
   });
 
-  it('cancel() は canceled のメッセージを受けるまで解決しない。regionId が無ければすぐ解決（第 2 回 M4）', async () => {
+  it('cancel() は canceled のメッセージを受けるまで解決しない。regionId が無ければすぐ解決', async () => {
     const m = await setup();
     let reply: unknown = { regionId: 'g1' };
     answer({ cancel: () => reply });
@@ -645,7 +645,7 @@ describe('範囲取得（m4-t3・§7.2・R22・R45・R58・R-ratio・I5b）', ()
   });
 });
 
-// m4-t5: release and ranged clean preserve the control wire shape.
+// release and ranged clean preserve the control wire shape.
 describe('releaseRange and clean(range, options)', () => {
   it('posts regionId/keep and range/force, keeping no-argument clean compatible', async () => {
     const m = await setup();
@@ -675,8 +675,8 @@ describe('releaseRange and clean(range, options)', () => {
   });
 });
 
-// m4-t6: Weiwudi.setLimits (global cache limit).
-describe('Weiwudi.setLimits（m4-t6）', () => {
+// Weiwudi.setLimits (global cache limit).
+describe('Weiwudi.setLimits', () => {
   it('maxBytes を本文に POST し、undefined で解決する。省略は {}（上限を外す）', async () => {
     const m = await setup();
     postReply = async () => jsonRes({ ok: true, result: null });

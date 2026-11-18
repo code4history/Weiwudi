@@ -14,7 +14,7 @@
     <script type="module">
         import Weiwudi from '/dist/weiwudi.es.js';
 
-        // エンジンごとの差を見る e2e（m3-t10・engines.spec.js・I7）。SW は hook-sw.js（同じスコープ）。登録は試験の側で行う
+        // エンジンごとの差を見る e2e（engines.spec.js）。SW は hook-sw.js（同じスコープ）。登録は試験の側で行う
         window.Weiwudi = Weiwudi;
 
         // 失敗を { code, message } で返す（WeiwudiError の code を試験で見る）

@@ -1,4 +1,4 @@
-// 旧 API の既知の変化（仕様 §9）と、載せ替えで決めた旧 API の扱い（m2-t5・仕様 §13・§8・§11）。
+// 旧 API の既知の変化と、載せ替えで決めた旧 API の扱い。
 // golden（legacy-transcript.test.ts）の筋書きに入れない手を、1 件ずつここで確かめる。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IDBIndex } from 'fake-indexeddb';
@@ -33,7 +33,7 @@ const withDropped = (body: string, init: ResponseInit = {}) => {
   return res;
 };
 
-describe('仕様 §9 の既知の変化', () => {
+describe('旧 API との既知の変化', () => {
   it('差し込み口が受ける request.url は上流のタイルの URL（疑似ホストではない。第 2 回 S-5）', async () => {
     const h = createSwHarness();
     await addTileMap(h);
@@ -44,7 +44,7 @@ describe('仕様 §9 の既知の変化', () => {
     h.fetch.mockImplementation(async () => tileResponse(4));
     await h.request('/api/cache/m/2/1/0');
     expect(seen).toEqual(['https://tile.example/2/1/0.png']);
-    // 差し込み口が要求を替えないときは fetch(URL の文字列) の 1 引数のまま（仕様 §4.5）
+    // 差し込み口が要求を替えないときは fetch(URL の文字列) の 1 引数のまま
     expect(h.fetch.mock.calls).toEqual([['https://tile.example/2/1/0.png']]);
   });
 
@@ -174,7 +174,7 @@ describe('仕様 §9 の既知の変化', () => {
   });
 });
 
-describe('保存の形（仕様 §5.1・§5.3・§13）', () => {
+describe('保存の形', () => {
   it('Source と Resource の id は map:<mapID>、Entry のキーは map:<mapID>\\0<z>_<x>_<y>（tileKeySuffix）', async () => {
     const h = createSwHarness();
     await addTileMap(h);
@@ -230,7 +230,7 @@ describe('現行の癖を保つ（golden の筋書きでは区別できない手
 });
 
 describe('載せ替えで決めた旧 API の扱い（Ruling）', () => {
-  it('Range つきの要求は serve に入れず素通しする: 上流のタイルの URL へ Range を付けて出し、そのまま返し、保存しない（仕様 §11）', async () => {
+  it('Range つきの要求は serve に入れず素通しする: 上流のタイルの URL へ Range を付けて出し、そのまま返し、保存しない', async () => {
     const h = createSwHarness();
     await addTileMap(h);
     h.fetch.mockImplementation(async () => new Response('ab', { status: 206, headers: { 'content-range': 'bytes 0-1/10' } }));
@@ -261,7 +261,7 @@ describe('載せ替えで決めた旧 API の扱い（Ruling）', () => {
     expect(res?.status).toBe(404);
   });
 
-  it('容量の判定の読み出し（evictScopesFor）が失敗しても、取得したタイルを storage で配信する（m4-t1 で直した。I1・仕様 §9）', async () => {
+  it('容量の判定の読み出し（evictScopesFor）が失敗しても、取得したタイルを storage で配信する', async () => {
     const h = createSwHarness();
     await addTileMap(h, TEMPLATE, '&cacheMaxBytes=100');
     h.fetch.mockImplementation(async () => tileResponse(4));
@@ -329,7 +329,7 @@ describe('載せ替えで決めた旧 API の扱い（Ruling）', () => {
   });
 });
 
-describe('NUL を含む mapID（m4-t7・I7c・R19。仕様 §9 の既知の変化）', () => {
+describe('NUL を含む mapID（旧 API との既知の変化）', () => {
   it('add は mapID に NUL を含むと包括の文字列で拒否し、地図を登録しない', async () => {
     const h = createSwHarness();
     const res = await h.request(`/api/add?mapID=a%00b&type=xyz&url=${encodeURIComponent(TEMPLATE)}&width=256&height=256`);

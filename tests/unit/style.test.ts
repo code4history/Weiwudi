@@ -1,4 +1,4 @@
-// スタイルの芋づる登録（m3-t7・仕様 §5.5・§5.6・§10・§12・R1〜R5・R10・R30・R33〜R35・P2・C-S2・C-S5・C-S6・X2・X3・S-N1・C-O11）。
+// スタイルの芋づる登録。
 // ハーネスの SW（標準の mapbox を持つ配線）の制御（/v2/*）と照合ルートを通し、上流は偽の fetch で返す。実ネットワーク・実トークンは使わない。
 // 途中の書き込みの失敗（R30）だけは registerStyle を直接呼ぶ（ハーネスの store を spy できないため）。
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -110,7 +110,7 @@ const setup = async (bodies: Record<string, unknown> = {}) => {
   return { h, up, store };
 };
 
-describe('芋づる（§5.5-2・3）', () => {
+describe('芋づる', () => {
   it('url（TileJSON）・tiles・glyphs・sprite・geojson の data・image が全部 Resource になり、source.resources の型が揃う', async () => {
     const { h } = await setup({ [STYLE]: FULL, [TJ]: TILEJSON });
     const info = await ok(h, 'register', { kind: 'style', id: 'st', url: STYLE });
@@ -182,7 +182,7 @@ describe('芋づる（§5.5-2・3）', () => {
   });
 });
 
-describe('オフラインと update()（§5.5-1・6・R3・R4・C-S5）', () => {
+describe('オフラインと update()', () => {
   it('オフラインで同じ register を繰り返しても成功し、子が変わらない（2 回目はスタイルも TileJSON も hit）', async () => {
     const { h, up, store } = await setup({ [STYLE]: FULL, [TJ]: TILEJSON });
     const first = await ok(h, 'register', { kind: 'style', id: 'st', url: STYLE });
@@ -237,7 +237,7 @@ describe('オフラインと update()（§5.5-1・6・R3・R4・C-S5）', () => 
     expect(h.fetch).not.toHaveBeenCalled();
   });
 
-  it('update() は子の Resource の CORS の判定をやり直す（corsOk・corslessUntil を消す。§4.5）', async () => {
+  it('update() は子の Resource の CORS の判定をやり直す（corsOk・corslessUntil を消す）', async () => {
     const { h, store } = await setup({ [STYLE]: FULL, [TJ]: TILEJSON });
     await ok(h, 'register', { kind: 'style', id: 'st', url: STYLE });
     await store.patchResource(VT, (m) => ({ ...m, corsOk: true, corslessUntil: Date.now() + 1000 }));
@@ -362,13 +362,13 @@ describe('読めないスタイルと巻き戻し（R30・R33）', () => {
     const orphan = await store.getSource(SPRITE_CHILD);
     expect(orphan?.parentId).toBe('st');
     expect(((await store.getSource('st'))!.spec as NormalizedStyle['spec']).children.map((c) => c.id)).not.toContain(SPRITE_CHILD);
-    // 制御の POST は SW と同じオリジンの client からだけ受ける（m3-t8・I6）。この試験はハーネスを使わないので self を置く
+    // 制御の POST は SW と同じオリジンの client からだけ受ける。この試験はハーネスを使わないので self を置く
     vi.stubGlobal('self', { location: new URL(`${SW_SELF_ORIGIN}/weiwudi-sw.js`), clients: { get: async () => PAGE_CLIENT } });
     const control = createControl(ctx);
     const res = await control.post({
       url: new URL('https://weiwudi.example.com/v2/remove'),
       request: new Request('https://weiwudi.example.com/v2/remove', { method: 'POST', body: JSON.stringify({ id: 'st' }) }),
-      // 送り手はハーネスのページの client（m3-t8・I6）
+      // 送り手はハーネスのページの client
       event: { clientId: PAGE_CLIENT_ID },
     } as never);
     expect((await res.json()).ok).toBe(true);
@@ -377,7 +377,7 @@ describe('読めないスタイルと巻き戻し（R30・R33）', () => {
     expect(await store.getCredentials(SPRITE_CHILD)).toBeUndefined();
   });
 
-  describe('L1 Minor-1: update() の途中の失敗で残った孤児（Resource と資格情報を持つ）を、親の単位で扱う', () => {
+  describe('update() の途中の失敗で残った孤児（Resource と資格情報を持つ）を、親の単位で扱う', () => {
     /** スタイルと同じオリジンのタイル（親の資格情報を受け取る。R5） */
     const SAME_A = 'https://s.example/t/a/{z}/{x}/{y}.pbf';
     const SAME_B = 'https://s.example/t/b/{z}/{x}/{y}.pbf';
@@ -492,7 +492,7 @@ describe('読めないスタイルと巻き戻し（R30・R33）', () => {
   });
 });
 
-describe('同じオリジンの検査（§5.5-5・R35・C-S2・C-S6・X3）', () => {
+describe('同じオリジンの検査', () => {
   const SELF = SW_SELF_ORIGIN;
 
   it('別オリジンのスタイルが SW と同じオリジンを指す → その子が無く same-origin-skipped（subject はクエリの無い URL）', async () => {
@@ -562,7 +562,7 @@ describe('同じオリジンの検査（§5.5-5・R35・C-S2・C-S6・X3）', ()
   });
 });
 
-describe('子にできない glyphs・sprite の warnings（仕様 §12 の unsupported-source）', () => {
+describe('子にできない glyphs・sprite の warnings（unsupported-source）', () => {
   it('{range} の無い glyphs と、字句の許可に外れる文字列の sprite → unsupported-source: glyphs・unsupported-source: sprite（subject に URL・トークンを入れない）', async () => {
     const { h } = await setup({
       [STYLE]: styleOf({}, {
@@ -596,7 +596,7 @@ describe('子にできない glyphs・sprite の warnings（仕様 §12 の unsu
   });
 });
 
-describe('資格情報の配り先（R5・X2・S-N1・§10）', () => {
+describe('資格情報の配り先', () => {
   it('第三者のスタイル（a.example）が b.example のタイルを指すとき、b.example への要求に親の access_token が付かず、a.example には付く', async () => {
     const A = 'https://a.example/style.json';
     const { h, up } = await setup({
@@ -646,7 +646,7 @@ describe('資格情報の配り先（R5・X2・S-N1・§10）', () => {
     expect((await store.listResources()).map((r) => r.id).join(' ')).not.toContain(TOKEN);
   });
 
-  it('子のテンプレートに載っていた資格情報の値は、同じ名前の親の値に勝つ（t6 の申し送り）', async () => {
+  it('子のテンプレートに載っていた資格情報の値は、同じ名前の親の値に勝つ', async () => {
     const A = 'https://a.example/style.json';
     const { h, store } = await setup({
       [A]: styleOf({ k: { type: 'raster', tiles: ['https://b.example/{z}/{x}/{y}.png?key=own'] } }),
@@ -666,7 +666,7 @@ describe('資格情報の配り先（R5・X2・S-N1・§10）', () => {
     const { h, store } = await setup({ [A]: styleOf({}), [A2]: body });
     await ok(h, 'register', { kind: 'style', id: 'st', url: A });
     await ok(h, 'register', { kind: 'style', id: 'st', url: A2, credentials: { query: { access_token: TOKEN } } });
-    // 親と違う値は除かれず、テンプレートの pk.PAGE が子のもの（§5.5 R5・§10 R32）
+    // 親と違う値は除かれず、テンプレートの pk.PAGE が子のもの
     expect(await store.getCredentials(childId('st', 'tile:m'))).toEqual({ query: { access_token: 'pk.PAGE' } });
     // 配信する本体も、新しい親の資格情報と同じ値の項目だけが消え、pk.PAGE は残る（照合ルートの stripRuleOf）
     const saved = JSON.parse(await (await get(h, A2)).text());
@@ -687,7 +687,7 @@ describe('資格情報の配り先（R5・X2・S-N1・§10）', () => {
     expect(await store.getCredentials('st')).toEqual({ query: { access_token: TOKEN } });
   });
 
-  /** 親に pk.PARENT・スタイルと同じオリジンの子の URL に pk.CHILD（§5.5 R5「子のテンプレートの値が勝つ」・§10 R32） */
+  /** 親に pk.PARENT・スタイルと同じオリジンの子の URL に pk.CHILD（「子のテンプレートの値が勝つ」） */
   const childTokenSetup = async () => {
     const A = 'https://a.example/style.json';
     const env = await setup({
@@ -720,7 +720,7 @@ describe('資格情報の配り先（R5・X2・S-N1・§10）', () => {
     ]);
   };
 
-  it('親と同じオリジンの子の URL に親と違うトークンがあるとき、その項目は本体に残り、子の資格情報と上流への要求は子の値（§5.5 R5・§10 R32）', async () => {
+  it('親と同じオリジンの子の URL に親と違うトークンがあるとき、その項目は本体に残り、子の資格情報と上流への要求は子の値', async () => {
     const { A, h, up, store } = await childTokenSetup();
     await ok(h, 'register', { kind: 'style', id: 'st', url: A, credentials: { query: { access_token: 'pk.PARENT' } } });
     await expectChildToken(A, h, up, store);
@@ -737,7 +737,7 @@ describe('資格情報の配り先（R5・X2・S-N1・§10）', () => {
     await expectChildToken(A, h, up, store);
   });
 
-  it('組が 1 つでも子にできない source は丸ごと子にしない（url の TileJSON も作らない。本体の除去と同じ組。Minor-3）', async () => {
+  it('組が 1 つでも子にできない source は丸ごと子にしない（url の TileJSON も作らない。本体の除去と同じ組）', async () => {
     const A = 'https://a.example/style.json';
     const tiles = ['https://a.example/m/{z}/{x}/{y}.png?access_token=pk.ONE', 'https://a.example/n/{z}/{x}/{y}.png?access_token=pk.TWO'];
     const { h, store } = await setup({ [A]: styleOf({ m: { type: 'raster', url: 'https://a.example/m.json', tiles } }) });
@@ -867,7 +867,7 @@ describe('衝突（P2・R10・C-O11）', () => {
   });
 });
 
-describe('退避・clean・remove（§7.1・§5.6）', () => {
+describe('退避・clean・remove', () => {
   it('スタイルの cacheMaxBytes が子の Resource を併せて退避する', async () => {
     const { h, store } = await setup({ [STYLE]: styleOf({ a: { type: 'raster', tiles: ['https://a.example/{z}/{x}/{y}.png'] }, b: { type: 'raster', tiles: ['https://b.example/{z}/{x}/{y}.png'] } }) });
     await ok(h, 'register', { kind: 'style', id: 'st', url: STYLE, cacheMaxBytes: 200 });

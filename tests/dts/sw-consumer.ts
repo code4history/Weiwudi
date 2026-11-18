@@ -1,4 +1,4 @@
-// 配布の dist/weiwudi_gw.d.ts（@c4h/weiwudi/sw の型）を利用者の立場で使う（m2-t4・第 2 回 D3）。
+// 配布の dist/weiwudi_gw.d.ts（@c4h/weiwudi/sw の型）を利用者の立場で使う。
 // `node_modules/.bin/tsc -p tests/dts/tsconfig.json` で型検査する（build の後）。
 // 名前があるだけでは通らない: 形が違えば代入や Equals の検査で型エラーになる。
 import {
@@ -80,7 +80,7 @@ assertType<Equals<ReturnType<FDF>, Promise<void>>>();
 const wrong: WeiwudiPlugin = { resourceWillRegister: async () => undefined };
 void wrong;
 
-// ---- 提供元（m3-t5・#40・仕様 §10） ----
+// ---- 提供元（#40） ----
 
 // addProvider は WeiwudiProvider を受けて void
 assertType<Equals<typeof addProvider, (provider: WeiwudiProvider) => void>>();

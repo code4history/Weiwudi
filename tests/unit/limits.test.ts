@@ -1,5 +1,4 @@
-// 全体上限 setLimits と全体の数 totals の試験（m4-t6・仕様 §7.1・R15・R42・第 2 回 M1）。
-// 計画 docs/superpowers/plans/2026-11-07-m4-range-release-migration.md の m4-t6。
+// 全体上限 setLimits と全体の数 totals の試験。
 // store の試験は fake-indexeddb の上の実物の store.ts、setLimits は SW のハーネスの制御 POST で確かめる。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBDatabase, IDBFactory, IDBKeyRange } from 'fake-indexeddb';
@@ -92,7 +91,7 @@ const aggregate = (all: EntryMeta[]) => ({
 const lru = (a: EntryMeta, b: EntryMeta) => a.accessedAt - b.accessedAt || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 
 /**
- * 今の getAll の実装を写した参照の関数（第 2 回 M1）。要素ごとに範囲の全件（全体の要素は [pinned, accessedAt] の全件）を読み、
+ * 今の getAll の実装を写した参照の関数。要素ごとに範囲の全件（全体の要素は [pinned, accessedAt] の全件）を読み、
  * 固定・前の要素が消したもの・保存する同じキーを外して、古い順に予算まで消す。消す Entry のキーの集合を返す
  */
 const referenceVictims = (all: readonly EntryMeta[], meta: EntryMeta, evict: readonly EvictionScope[]): Set<string> => {
@@ -127,7 +126,7 @@ const rng = (seed: number) => {
   };
 };
 
-describe('退避の見積もり（第 2 回 M1・R42）: 参照の関数との突き合わせ', () => {
+describe('退避の見積もり: 参照の関数との突き合わせ', () => {
   beforeEach(useFreshDb);
 
   it('Source の上限と全体上限の両方がある保存と、同じキーの置き換えを含む 100 回で、消す Entry の集合が参照と同じ', async () => {
@@ -210,7 +209,7 @@ describe('全体上限の退避（store）', () => {
   });
 });
 
-describe('全体の数 totals（R15・第 1 回 M13）', () => {
+describe('全体の数 totals', () => {
   beforeEach(useFreshDb);
 
   it('全操作を混ぜた種を固定の 100 回で、totals が全件の集計と一致する', async () => {
@@ -325,7 +324,7 @@ const tileOf = (tpl: string, x: number) => tpl.replace('{z}', '3').replace('{x}'
 type Reply = { ok: boolean; result?: any; error?: { code: string; detail: Record<string, unknown> } };
 const call = async (h: SwHarness, op: string, body: unknown = {}): Promise<Reply> => (await h.post(`/v2/${op}`, body))!.json();
 
-describe('setLimits({ maxBytes })（仕様 §7.1・§12）', () => {
+describe('setLimits({ maxBytes })', () => {
   let h: SwHarness;
   let now: number;
 

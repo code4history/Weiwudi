@@ -1,18 +1,18 @@
 /// <reference lib="webworker" />
-// 範囲取得（仕様 §7.2・§4.5-3・§4.6・m4-t3。R1）。control.ts の op（estimate・fetchRange・regions・cancel・job/resume）が呼ぶ。
-// 値の依存は hook・core・upstream・registry・context・store・spec・url_pattern・tile_math・style_body・constants・errors だけ（仕様 §3）。
+// 範囲取得。control.ts の op（estimate・fetchRange・regions・cancel・job/resume）が呼ぶ。
+// 値の依存は hook・core・upstream・registry・context・store・spec・url_pattern・tile_math・style_body・constants・errors だけ。
 // 持ち主の一覧（ownerIdsOf。スタイルは子の id）は control が作って渡す（style を import しない。R1）。
 //
 // 決まり:
 // - 取得は hook.serveResource だけ（core.serve 1 つ。fetch を直接呼ばない）。no-cors の確かめは upstream.probeNoCors（R4）
 // - URL は url_pattern.expandTemplate で作り、同じテンプレートに matchUrl で照合してキーを entryKey で作る（R2）
 // - 資格情報は hook.credentialsForResource（照合ルートと同じ選び方。R3）。要求は new Request(url)（cors・same-origin）
-// - 固定はバッチの後の store.setPinned 1 本（成功と数えたキー全部・region が有るときだけ。R46・PR #102 M2）。
+// - 固定はバッチの後の store.setPinned 1 本（成功と数えたキー全部・region が有るときだけ。PR #102）。
 //   保存と同じ tx で固定する近道（ServeInput.pin）は使わない（途中で region が消えたとき、どの region にも属さない固定を残す）
 // - region の終わりの書き込みは patchRegion で「有り・running」のときだけ（R5）。終わりの順は region → ctx.job → postMessage（R45）
 // - ジョブは各バッチの前に Source と region の有無を見る（Source が無ければ stop（source-not-found）・region が無ければ canceled。
 //   R13・R57）。バッチの後の setPinned の前にも region を見る
-// - スタイルの非タイル資源（m4-t4・§7.2・§11）: 型の順に style → tilejson・data → sprite（{spriteSuffix} の 4 値）→ tile → glyph。
+// - スタイルの非タイル資源: 型の順に style → tilejson・data → sprite（{spriteSuffix} の 4 値）→ tile → glyph。
 //   style は先に別の runJob で取り（hit でよい）、本体から（style_body.collectFonts） fontstack を集めてから glyph の単位を作る。
 //   glyph は 1 fontstack を 1 単位にし、範囲を順に取って core.createGlyphCollector で 1 回に書く（finally で flush。L4・R-G）。
 //   固定はグリフも onBatch の pinKeys() だけ（flush の後にキーを足す）。total・percent はタイルだけ（R29）
@@ -39,9 +39,9 @@ declare const self: ServiceWorkerGlobalScope;
 
 /** 固定の書き込み（setPinned）の 1 回の件数（R46） */
 const PIN_CHUNK = 200;
-/** 止める連続数（§4.5-3 の jobOpaqueStreak・§4.6 の 401・403・quota） */
+/** 止める連続数（jobOpaqueStreak・401・403・quota） */
 const STREAK_LIMIT = 3;
-/** opaque の連続の後に cors で確かめる枚数（§4.5-3） */
+/** opaque の連続の後に cors で確かめる枚数 */
 const PROBE_TILES = 5;
 
 const emptyErrors = (): Record<TileFailure, number> => ({ network: 0, upstream: 0, quota: 0, storage: 0 });
@@ -166,7 +166,7 @@ const resourcesOf = async (store: Store, owners: readonly string[]): Promise<Res
   for (const id of owners) {
     for (const r of [...await store.resourcesBySource(id), ...await store.resourcesByRangeOnlySource(id)]) {
       if (out.some((o) => o.id === r.id)) continue;
-      // ミラーは持ち主が登録したテンプレートから選ぶ（共有の Resource の他の Source のミラーへ出さない。R-t3-6）。無ければ全部
+      // ミラーは持ち主が登録したテンプレートから選ぶ（共有の Resource の他の Source のミラーへ出さない）。無ければ全部
       const mine = r.templates.filter((t) => own.indexOf(t) >= 0);
       const view: ResourceMeta = { ...r, templates: mine.length > 0 ? mine : r.templates.slice() };
       if (r.type === 'tile' && r.extents) view.extents = r.extents.filter((e) => owners.indexOf(e.sourceId) >= 0);
@@ -176,7 +176,7 @@ const resourcesOf = async (store: Store, owners: readonly string[]): Promise<Res
   return out;
 };
 
-/** 範囲の Source の側。スタイルは子の tile の範囲を並べる（'all' の和。R-t3-2）。box は xyz として読む */
+/** 範囲の Source の側。スタイルは子の tile の範囲を並べる（'all' の和）。box は xyz として読む */
 const rangeSourceOf = async (store: Store, rec: SourceRecord, owners: readonly string[]): Promise<RangeSource> => {
   if (!styleSpecOf(rec)) {
     const spec = storedSpecOf(rec);
@@ -219,12 +219,12 @@ const planOf = async (
     return { range: copy, normalized: assetRange(), resources: resources.filter((r) => r.type !== 'tile'), total: 0 };
   }
   const n = normalized ?? normalizeRange(copy, await rangeSourceOf(store, rec, owners));
-  // スタイルの非タイル資源も取る（m4-t4）。枚数はタイルだけ（§7.2・R29）
+  // スタイルの非タイル資源も取る。枚数はタイルだけ
   const tiles = resources.filter((r) => r.type === 'tile');
   return { range: copy, normalized: n, resources, total: tiles.reduce((t, r) => t + countRange(r, n), 0) };
 };
 
-/** estimate（§7.2・R29）。タイルの枚数だけ（同じ Resource は 1 回）。asset は 0（R52） */
+/** estimate。タイルの枚数だけ（同じ Resource は 1 回）。asset は 0 */
 export async function estimate(store: Store, rec: SourceRecord, range: unknown, owners: readonly string[]): Promise<{ tiles: number }> {
   return { tiles: (await planOf(store, rec, owners, range)).total };
 }
@@ -254,7 +254,7 @@ export const regionInfoOf = (ctx: Context, r: RegionRecord): RegionInfo => {
   return info;
 };
 
-/** regions()（§12） */
+/** regions() */
 export async function listRegionInfos(ctx: Context, store: Store, sourceId: string): Promise<RegionInfo[]> {
   return (await store.listRegions(sourceId)).map((r) => regionInfoOf(ctx, r));
 }
@@ -280,7 +280,7 @@ export interface JobClient {
 }
 
 /**
- * fetchRange（§7.2）。直列の中で呼ぶ（control）。範囲と指定を検査し、同期に ctx.job を確保してから region を書く
+ * fetchRange。直列の中で呼ぶ（control）。範囲と指定を検査し、同期に ctx.job を確保してから region を書く
  * （書き込みが失敗したら外して投げる。R23）。ジョブの Promise は呼び出し側が event.waitUntil に結び付ける
  */
 export async function startFetchRange(
@@ -304,7 +304,7 @@ export async function startFetchRange(
 }
 
 /**
- * job/resume の今の状態（直列の外。§7.2・R45）。region が無い・他の Source なら attribute-invalid。
+ * job/resume の今の状態（直列の外）。region が無い・他の Source なら attribute-invalid。
  * 同じ region のジョブ中なら running の RegionInfo、別の region のジョブ中なら fetch-busy、終わりの status ならその RegionInfo。
  * ジョブを作り直す要るとき（ctx.job が無く running）は undefined（呼び出し側が直列の中で resumeRange を呼ぶ）
  */
@@ -319,7 +319,7 @@ export async function resumeState(ctx: Context, store: Store, sourceId: string, 
 }
 
 /**
- * job/resume のジョブを作り直す分岐（直列の中。R57・第 2 回 M3）。region を読み直し、まだ running なら保存した
+ * job/resume のジョブを作り直す分岐（直列の中）。region を読み直し、まだ running なら保存した
  * normalized・options から fetchRange と同じ手順（同期に確保）でジョブを始める。既に有るタイルは飛ぶので再実行が再開
  */
 export async function resumeRange(
@@ -339,7 +339,7 @@ export async function resumeRange(
   return { info: regionInfoOf(ctx, again), job: runRangeJob(ctx, store, rec, again, plan, job, client) };
 }
 
-/** cancel()（§7.2・R23・R58）。自分の Source のジョブだけ止める。取り消したジョブの regionId を返す（旧 API のジョブなら null） */
+/** cancel()。自分の Source のジョブだけ止める。取り消したジョブの regionId を返す（旧 API のジョブなら null） */
 export function cancelRange(ctx: Context, sourceId: string): { regionId: string | null } {
   const job = ctx.job;
   if (!job || job.sourceId !== sourceId) {
@@ -349,7 +349,7 @@ export function cancelRange(ctx: Context, sourceId: string): { regionId: string 
   return { regionId: job.regionId ?? null };
 }
 
-// ---- 解放と範囲つき clean（m4-t5・R11・R12・R47〜R49） ----
+// ---- 解放と範囲つき clean ----
 
 /** Resource を参照する Source（範囲だけの参照も含む）。子は region を持つ親に読み替える（S1） */
 export async function holdersOf(store: Store, resource: ResourceMeta): Promise<string[]> {
@@ -453,7 +453,7 @@ const rangesOverlap = (a: NormalizedRange, b: NormalizedRange): boolean => {
   return false;
 };
 
-/** 排他のタイルだけ掃除する。固定の再検査は deleteEntries の tx に委ねる（M11・R49） */
+/** 排他のタイルだけ掃除する。固定の再検査は deleteEntries の tx に委ねる */
 export async function cleanRange(
   store: Store, rec: SourceRecord, owners: readonly string[], range: unknown, opts: { force?: boolean } = {},
 ): Promise<void> {
@@ -498,12 +498,12 @@ export const createNotifier = (ctx: Context) => (m: OpaqueNotice): void => {
   })().catch(() => undefined);
 };
 
-// ---- ジョブ（§7.2・§4.5-3・§4.6） ----
+// ---- ジョブ ----
 
 /** 1 単位。tile はタイル、spriteSuffix はスプライトの 4 値の 1 つ、fontstack はグリフ（範囲は単位の中で回す） */
 type Unit = { resource: ResourceMeta; tile?: [number, number, number]; spriteSuffix?: string; fontstack?: string };
 
-/** 型の順（§7.2・m4-t4）。style は別の段で先に取る */
+/** 型の順。style は別の段で先に取る */
 const typeRank = (t: ResourceType): number =>
   t === 'style' ? 0 : t === 'tilejson' ? 1 : t === 'data' ? 2 : t === 'sprite' ? 3 : t === 'tile' ? 4 : 5;
 
@@ -539,7 +539,7 @@ function* unitsOf(plan: RangePlan, phase: 'style' | 'rest', fontstacks: () => re
 
 const experienced = (m: ResourceMeta | undefined): boolean => !!m && (m.count > 0 || m.corsOk === true);
 
-/** ジョブの中で 1 単位の URL と照合の結果を作る（R2）。ミラーは無作為に 1 つ（§4.5 末尾） */
+/** ジョブの中で 1 単位の URL と照合の結果を作る。ミラーは無作為に 1 つ */
 const target = (
   compiled: Map<string, CompiledTemplate>, unit: Unit, ratio: string, range?: string,
 ): { url: URL; m: MatchResult; key: string } | undefined => {
@@ -570,14 +570,14 @@ const target = (
   }
 };
 
-/** 固定分の上限（§7.1・R55）: 要素ごとの Σ pinnedBytes（要素の Resource を読み直す）が maxBytes 以上か */
+/** 固定分の上限: 要素ごとの Σ pinnedBytes（要素の Resource を読み直す）が maxBytes 以上か */
 const overPinnedLimit = async (store: Store, resources: readonly ResourceMeta[]): Promise<boolean> => {
   for (const r of resources) {
     const fresh = await store.getResource(r.id);
     if (!fresh) continue;
     for (const scope of await evictScopesFor(store, fresh)) {
       let pinned = 0;
-      // 全体上限の要素（resourceIds が無い。m4-t6）は全体の固定分（totals.pinnedBytes）で見る
+      // 全体上限の要素（resourceIds が無い）は全体の固定分（totals.pinnedBytes）で見る
       if (scope.resourceIds === undefined) pinned = (await store.getTotals()).pinnedBytes;
       for (const id of scope.resourceIds ?? []) pinned += (await store.getResource(id))?.pinnedBytes ?? 0;
       if (pinned >= scope.maxBytes) return true;
@@ -588,7 +588,7 @@ const overPinnedLimit = async (store: Store, resources: readonly ResourceMeta[])
 
 const stopError = (code: 'opaque' | 'network' | 'upstream' | 'quota', message: string): WeiwudiError => new WeiwudiError(code, message);
 
-/** 範囲取得のジョブ（R13・R24・R46・R55・R57・§4.5-3・§4.6）。投げない（失敗は stop のイベントにする） */
+/** 範囲取得のジョブ。投げない（失敗は stop のイベントにする） */
 const runRangeJob = async (
   ctx: Context, store: Store, rec: SourceRecord, region: RegionRecord, plan: RangePlan, job: JobState, client: JobClient,
 ): Promise<void> => {
@@ -609,7 +609,7 @@ const runRangeJob = async (
   const errors = job.failures;
   /** 失敗と数えたタイルのキーと種類（確かめで取れたら数え直す。PR #102 L2） */
   const failed = new Map<string, TileFailure>();
-  /** グリフの fontstack（opts.fonts ∪ StyleSpec.fonts ∪ collectFonts。重ねない。m4-t4・R53） */
+  /** グリフの fontstack（opts.fonts ∪ StyleSpec.fonts ∪ collectFonts。重ねない） */
   const fontstacks: string[] = [];
   const addFontstack = (f: string) => {
     if (fontstacks.indexOf(f) < 0) fontstacks.push(f);
@@ -634,7 +634,7 @@ const runRangeJob = async (
 
   /**
    * 1 単位を serveResource で取る。結果は x-weiwudi-error と状態コード。text なら本体を文字列で返す（スタイル）。
-   * collect はグリフの束ね書き（m4-t4）
+   * collect はグリフの束ね書き
    */
   const fetchUnit = async (
     unit: Unit, t: { url: URL; m: MatchResult }, extra: { collect?: GlyphCollector; text?: boolean } = {},
@@ -664,13 +664,13 @@ const runRangeJob = async (
   };
 
   /**
-   * 失敗の数え方（§4.5-3・§4.6）。opaque の連続数はタイルだけで数える（確かめはタイルを選ぶ。非タイルの単位は数が少なく、
-   * 範囲の枚数で確かめられない。m4-t4）
+   * 失敗の数え方。opaque の連続数はタイルだけで数える（確かめはタイルを選ぶ。非タイルの単位は数が少なく、
+   * 範囲の枚数で確かめられない）
    */
   const classify = async (unit: Unit, t: { url: URL; key: string }, error: TileFailure, status: number): Promise<void> => {
     quotaStreak = error === 'quota' ? quotaStreak + 1 : 0;
     if (error === 'network') {
-      // §4.5-3: TypeError の単位は no-cors で確かめる。opaque は upstream に数え、実績が無ければ連続数に足す
+      // TypeError の単位は no-cors で確かめる。opaque は upstream に数え、実績が無ければ連続数に足す
       const probe = await probeNoCors(ctx, t.url.href);
       if (probe === 'opaque') {
         fail('upstream', t.key);
@@ -683,7 +683,7 @@ const runRangeJob = async (
       return;
     }
     fail(error, t.key);
-    // §4.6: count === 0 の 401・403 が続いたら止める
+    // count === 0 の 401・403 が続いたら止める
     if (error === 'upstream' && (status === 401 || status === 403)) {
       const fresh = await store.getResource(unit.resource.id);
       authStreak = fresh && fresh.count === 0 ? authStreak + 1 : 0;
@@ -693,7 +693,7 @@ const runRangeJob = async (
   };
 
   /**
-   * スタイル（m4-t4・§7.2 の 1）。hit でよい（hasEntries で飛ばさない）。本体から collectFonts で fontstack を集める。
+   * スタイル。hit でよい（hasEntries で飛ばさない）。本体から collectFonts で fontstack を集める。
    * 読めなければ（invalid-style の形。HTML は core が upstream-error にする）スタイルの単位だけ upstream に数える
    */
   const runStyle = async (unit: Unit, t: { url: URL; m: MatchResult; key: string }): Promise<void> => {
@@ -708,7 +708,7 @@ const runRangeJob = async (
       }
     }
     if (error) {
-      // 読めるスタイルの記録が既に有れば（stale）固定の対象に入れてから失敗を数える（R-t4-5 とそろえる。PR #104 L2）
+      // 読めるスタイルの記録が既に有れば（stale）固定の対象に入れてから失敗を数える（PR #104 とそろえる）
       if (readable && (await store.hasEntries([t.key]))[0]) keys.push(t.key);
       await classify(unit, t, error, status);
       return;
@@ -722,7 +722,7 @@ const runRangeJob = async (
   };
 
   /**
-   * グリフの 1 fontstack（m4-t4・§11・L4・R-G・第 1 回 M15）。既に有る範囲は getEntry の parts で見て飛ばし（1 回）、
+   * グリフの 1 fontstack。既に有る範囲は getEntry の parts で見て飛ばし（1 回）、
    * 無い範囲を順に取って collect に集め、finally で 1 回だけ書く（取り消しで途中まででも捨てない）。
    * 失敗は単位ごとに 1 件: flush の失敗（quota・storage）を先に、無ければ最初の範囲の失敗
    */
@@ -812,7 +812,7 @@ const runRangeJob = async (
     await classify(unit, t, error, status);
   };
 
-  /** §4.5-3: opaque が 3 回続いた Resource を、範囲から無作為に 5 枚 cors で確かめる */
+  /** opaque が 3 回続いた Resource を、範囲から無作為に 5 枚 cors で確かめる */
   const confirm = async (resource: ResourceMeta): Promise<void> => {
     const total = countRange(resource, plan.normalized);
     // 重ならない 5 枚（5 枚未満なら全部）。同じ番号を引いたら次の番号にする
@@ -877,7 +877,7 @@ const runRangeJob = async (
   let result: 'finished' | 'canceled' | 'gone' | 'stopped' = 'finished';
   try {
     if (options.pin && await overPinnedLimit(store, plan.resources)) throw stopError('quota', 'The pinned entries reach cacheMaxBytes');
-    // スタイルの段を先に終えてから残りの単位を作る（グリフの fontstack がスタイルの本体に依る。m4-t4）
+    // スタイルの段を先に終えてから残りの単位を作る（グリフの fontstack がスタイルの本体に依る）
     const spec = {
       batchSize: options.concurrency,
       isAlive: async () => !!(await self.clients.get(client.id)),

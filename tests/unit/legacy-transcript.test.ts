@@ -1,14 +1,14 @@
-// 旧 API の突き合わせ（golden。m2-t5・仕様 §13・計画「突き合わせ」）。
+// 旧 API の突き合わせ（golden）。
 // 旧実装（載せ替えの前）で UPDATE_GOLDEN=1 のときだけ __golden__/legacy-transcript.json を書き出す。
 // UPDATE_GOLDEN が無ければ golden を読んで比べ、golden が無ければ失敗する。golden を直してはならない。
 //
-// 決まり（計画の 1〜9）:
+// 決まり:
 // - 筋書きの URL はすべて絶対 URL
 // - 偽の時計は Date だけ。Math.random は固定の列（ミラーの選択を決める）
 // - 記録: 各手の status・statusText・全ヘッダ（小文字・名前順・同名は結合）・本文（JSON は parse）、
 //   postMessage の列、上流の fetch の呼び出し（URL と引数の数）
 // - 比べないヘッダは x-weiwudi-status と access-control-expose-headers の 2 つだけ
-// - 仕様 §9 の既知の変化に当たる手は入れない（未登録の地図の clean・200 の text/html・落とす 4 ヘッダ・blocked の DB 名）
+// - 旧 API との既知の変化に当たる手は入れない（未登録の地図の clean・200 の text/html・落とす 4 ヘッダ・blocked の DB 名）
 // - 上流の偽の応答には落とす 4 ヘッダ（content-encoding など）と x-weiwudi-* を入れない
 // - ミラーの地図には上流へ出る手（miss）だけを入れる（ミラーの選択は上流へ出るときの 1 回の無作為）
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -330,7 +330,7 @@ const runScenario = async (): Promise<Step[]> => {
   return steps;
 };
 
-describe('旧 API の突き合わせ（golden・m2-t5）', () => {
+describe('旧 API の突き合わせ（golden）', () => {
   it('筋書きの全手が golden と一致する', async () => {
     const steps = await runScenario();
     expect(steps.length).toBeGreaterThanOrEqual(MIN_STEPS);

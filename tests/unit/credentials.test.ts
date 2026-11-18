@@ -1,4 +1,4 @@
-// m3-t3: 資格情報の検査と行き先（I1・I2・I9。仕様 §5.1・§10）。仕様の文 1 つにつき 1 件。
+// 資格情報の検査と行き先。1 つの挙動につき 1 件。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { createSwHarness } from './sw-harness';
@@ -45,7 +45,7 @@ const credentialCount = async (factory: IDBFactory): Promise<number> => {
 const A = 'https://a.t.example/{z}/{x}/{y}.png';
 const B = 'https://b.t.example/{z}/{x}/{y}.png';
 
-describe('I2（R22）: ミラーの間で資格情報の値が違えば attribute-invalid', () => {
+describe('ミラーの間で資格情報の値が違えば attribute-invalid', () => {
   it('access_token の値が違う 2 つのミラー → attribute-invalid。文面に値が無い', () => {
     const e = errorOf({ kind: 'raster', url: [`${A}?access_token=AAA111`, `${B}?access_token=BBB222`] });
     expect(e?.code).toBe('attribute-invalid');
@@ -92,7 +92,7 @@ describe('I2（R22）: ミラーの間で資格情報の値が違えば attribut
   });
 });
 
-describe('I9（R23）: パスの区画は sk.eyJ だけを拒否する', () => {
+describe('パスの区画は sk.eyJ だけを拒否する', () => {
   it('…/sk.osm/{z}/{x}/{y}.png は通る', () => {
     expect(errorOf({ kind: 'raster', url: 'https://t.example/sk.osm/{z}/{x}/{y}.png' })).toBeUndefined();
   });
@@ -109,7 +109,7 @@ describe('I9（R23）: パスの区画は sk.eyJ だけを拒否する', () => {
   });
 });
 
-describe('I9（R23）・X4: キーの残りのクエリから名前か値が sk. で始まる項目を除く', () => {
+describe('キーの残りのクエリから名前か値が sk. で始まる項目を除く', () => {
   const T = 'https://a.example/{z}/{x}/{y}.png';
   const keyOf = (u: string): string => {
     const url = new URL(u);
@@ -139,7 +139,7 @@ describe('I9（R23）・X4: キーの残りのクエリから名前か値が sk.
   });
 });
 
-describe('I1（R21）: 資格情報は差し込み口の後の要求が元と同じオリジンのときだけ足す', () => {
+describe('資格情報は差し込み口の後の要求が元と同じオリジンのときだけ足す', () => {
   const RID = 'https://t.example/{z}/{x}/{y}.png';
   const TILE = 'https://t.example/1/0/0.png';
   const CRED: Credentials = { query: { access_token: 'QTOKEN' }, headers: { 'x-api-key': 'HTOKEN' } };
@@ -207,7 +207,7 @@ describe('I1（R21）: 資格情報は差し込み口の後の要求が元と同
     expect(retry.redirect).toBe('follow');
   });
 
-  it('リダイレクトで fetch が失敗したら network になる（§6 の 6・7）', async () => {
+  it('リダイレクトで fetch が失敗したら network になる', async () => {
     fetchMock.mockImplementation(async (r: Request) => {
       if (r.redirect === 'error') throw new TypeError('redirect');
       return png();
@@ -218,7 +218,7 @@ describe('I1（R21）: 資格情報は差し込み口の後の要求が元と同
   });
 });
 
-describe('m4-t8 L7・L8（R35・R36）', () => {
+describe('秘密トークンの判定と credential-undeclared', () => {
   it('?auth=Bearer%20sk.eyJ… はキーから除かれる（url_pattern.isSecretValue）', () => {
     const T = 'https://a.example/{z}/{x}/{y}.png';
     const url = new URL('https://a.example/3/1/2.png?auth=Bearer%20sk.eyJabc&b=1');

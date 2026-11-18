@@ -1,4 +1,4 @@
-// src/hook.ts の試験（m2-t7・仕様 §4.2・§4.3・§10）。ハーネスの dispatch・flushRoutes・BroadcastChannel で確かめる。
+// src/hook.ts の試験。ハーネスの dispatch・flushRoutes・BroadcastChannel で確かめる。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
 import { createSwHarness, type SwHarness } from './sw-harness';
@@ -52,7 +52,7 @@ const withMode = (url: string, mode: string, destination = '') => {
   return r;
 };
 
-describe('候補の条件（仕様 §4.3）', () => {
+describe('候補の条件', () => {
   it('GET・navigate でない・destination が空か image', () => {
     expect(isCandidate(new Request(TILE))).toBe(true);
     expect(isCandidate(withMode(TILE, 'no-cors', 'image'))).toBe(true);
@@ -64,7 +64,7 @@ describe('候補の条件（仕様 §4.3）', () => {
   });
 });
 
-describe('ルートの登録順（仕様 §4.3）', () => {
+describe('ルートの登録順', () => {
   it('旧 API・制御（POST）・照合・利用者のルート・門番の順。旧 API の GET RegExp ルートはちょうど 1 本', async () => {
     const h = harness();
     const user = vi.fn(async () => new Response('user'));
@@ -126,7 +126,7 @@ describe('門番と照合ルート', () => {
     const { IDBObjectStore } = await import('fake-indexeddb');
     const getAll = vi.spyOn(IDBObjectStore.prototype, 'getAll');
     await h.flushRoutes();
-    // m4-t2: この試験は照合表の読み込みだけを数える。waitUntil の無いイベントで保守の走査を分ける。
+    // この試験は照合表の読み込みだけを数える。waitUntil の無いイベントで保守の走査を分ける。
     await Promise.all([TILE, 'https://t.example/3/1/3.png', 'https://x.example/']
       .map(url => h.dispatch(url, { event: {} })));
     const resourceReads = getAll.mock.instances.filter((s) => (s as unknown as { name: string }).name === 'resources');
@@ -205,7 +205,7 @@ describe('門番と照合ルート', () => {
   });
 });
 
-describe('Range つきの要求（仕様 §11・t4・t5 の申し送り）', () => {
+describe('Range つきの要求', () => {
   it('照合しても serve に入れず、元の Request のまま素通し（保存しない・範囲外の判定より前）', async () => {
     const h = harness();
     const ctx = createContext();
@@ -258,7 +258,7 @@ describe('2 つの SW（同じ factory。第 1 回 S1 の対照）', () => {
     b.bus.disable();
     const a = otherSw();
     await register(a, { url: TPL });
-    // 母線が届けば b の表の作り直しが終わるだけの時間を待ってから見る（待たずに見ると、届いても古い表のまま偽の緑。m2-t7 Minor 1）
+    // 母線が届けば b の表の作り直しが終わるだけの時間を待ってから見る（待たずに見ると、届いても古い表のまま偽の緑）
     await new Promise((r) => setTimeout(r, 100));
     expect(b.bus.delivered).toBe(0);
     for (let i = 0; i < 5; i++) expect(await b.dispatch(TILE)).toBeUndefined();
@@ -360,7 +360,7 @@ describe('照合表の作り方', () => {
   });
 });
 
-describe('資格情報（仕様 §10・I2・t6 の申し送り）', () => {
+describe('資格情報', () => {
   const A = 'https://a.example/{z}/{x}/{y}.png';
   const B = 'https://b.example/{z}/{x}/{y}.png';
 
@@ -418,7 +418,7 @@ describe('資格情報（仕様 §10・I2・t6 の申し送り）', () => {
     expect(sentUrl(h, 0).search).toBe('');
   });
 
-  it('要求の URL の資格情報はキーに残らない（§10・§5.3）', async () => {
+  it('要求の URL の資格情報はキーに残らない', async () => {
     const h = harness();
     const ctx = otherSw();
     await register(ctx, { id: 'A', url: A });
@@ -442,7 +442,7 @@ describe('資格情報（仕様 §10・I2・t6 の申し送り）', () => {
   });
 });
 
-describe('credentialsForResource（m4-t3・R3・第 1 回 M4）', () => {
+describe('credentialsForResource', () => {
   const A = 'https://a.example/{z}/{x}/{y}.png';
   const B = 'https://b.example/{z}/{x}/{y}.png';
 
@@ -475,7 +475,7 @@ describe('credentialsForResource（m4-t3・R3・第 1 回 M4）', () => {
   });
 });
 
-describe('m4-t8 I8b（R34）: tableChanged の通知を 100 ms でまとめる', () => {
+describe('tableChanged の通知を 100 ms でまとめる', () => {
   it('3 回の tableChanged で postMessage は最後の変更から 100 ms 後に 1 回。表はその場で作り直す', async () => {
     harness();
     const ctx = otherSw();

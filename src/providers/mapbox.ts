@@ -1,9 +1,9 @@
-// 標準の提供元 mapbox（#40・仕様 §10。m3-t5）。mapbox:// を登録の時点で https://api.mapbox.com へ解決する。
-// 値の依存は errors だけ（仕様 §3）。WeiwudiProvider・Credentials は import type で使う。
+// 標準の提供元 mapbox（#40）。mapbox:// を登録の時点で https://api.mapbox.com へ解決する。
+// 値の依存は errors だけ。WeiwudiProvider・Credentials は import type で使う。
 //
 // 決まり:
-// - 解決の表は計画 m3-t5 の表（BeatBox 0.1.1 の変換表を写した）。Mapbox GL JS 3.27.0 の normalize*URL との関係は次のとおり:
-//   styles・glyphs（fonts）・source（TileJSON。GL JS と同じく ?secure を付ける。F3）は一致する。
+// - 解決の表は BeatBox 0.1.1 の変換表を写したもの。Mapbox GL JS 3.27.0 の normalize*URL との関係は次のとおり:
+//   styles・glyphs（fonts）・source（TileJSON。GL JS と同じく ?secure を付ける）は一致する。
 //   sprite は基底の URL まで（GL JS はこの後ろに format と拡張子を付ける）。
 //   tiles は字句のまま写す（GL JS の @2x・webp への置き換え・raster の前置は扱わない）。資格情報は足さない
 // - パスの残りは字句のまま写す（{z}・{fontstack} などをそのまま通す）。クエリは解決した URL の後ろへそのまま残す
@@ -30,7 +30,7 @@ const isSegment = (s: string | undefined): s is string => s !== undefined && s !
 const SOURCE_ID = /^[\w-]+\.[\w.-]+$/;
 
 /**
- * mapbox:// の URL を https へ解決する（表は計画 m3-t5）。https の URL はそのまま返す
+ * mapbox:// の URL を https へ解決する。https の URL はそのまま返す
  */
 const resolveMapbox = (url: string): string => {
   if (!SCHEME.test(url)) return url;

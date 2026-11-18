@@ -1,6 +1,6 @@
-// 配信の決定 serve()・退避の範囲・ジョブの進め方（仕様 §6・§7.1・§8。m2-t4）。
+// 配信の決定 serve()・退避の範囲・ジョブの進め方。
 // 全経路（照合ルート・門番・旧 /api/cache・範囲取得）がこの serve() を通る。core は legacy を知らない。
-// 値の依存は context・store・plugins・url_pattern・tile_math・errors だけ（仕様 §3）。
+// 値の依存は context・store・plugins・url_pattern・tile_math・errors だけ。
 //
 // 決まり:
 // - モジュール変数を持たない（同時要求の Map は context が持つ）
@@ -8,9 +8,9 @@
 //   access-control-expose-headers を付ける（上流の同名のヘッダは上書き。R9）。opaque には付けない
 // - 合成した応答と保存する応答から 4 ヘッダ（content-encoding・content-length・transfer-encoding・set-cookie）と
 //   上流の x-weiwudi-* をすべて落とす
-// - 同時要求をまとめるのは storable の要求だけ。Range つきの要求は素通し（仕様 §11）
+// - 同時要求をまとめるのは storable の要求だけ。Range つきの要求は素通し
 // - hit の touch は応答を返す前に呼び、完了は待たない（R8・第 1 回 O-6）
-// - 保存に失敗しても配信は続け、x-weiwudi-error に quota か storage を付ける（#22）。退避の範囲の読み出しの失敗も storage（m4-t1・I1）
+// - 保存に失敗しても配信は続け、x-weiwudi-error に quota か storage を付ける（#22）。退避の範囲の読み出しの失敗も storage
 // - store の読み出しの失敗（接続・Resource・Entry）は reject で返す（呼び出し側が旧 API の文面などへ直す）
 import type { Context } from './context';
 import { KV_LIMITS, isChildRecord, storedSpecOf, styleSpecOf, toResourceInfo, type EntryBody, type EntryMeta, type EvictionScope, type ResourceInfo, type ResourceMeta, type SourceRecord, type Store } from './store';
@@ -34,7 +34,7 @@ export interface ServeInput {
   /** タイルの座標（範囲外の判定と Entry の z・x・y）。タイル以外は無し */
   coord?: { z: number; x: number; y: number };
   /**
-   * 差し込み口へ渡す要求。`Range` ヘッダつきの要求は呼び出し側が serve に入れないのが契約（仕様 §11）。
+   * 差し込み口へ渡す要求。`Range` ヘッダつきの要求は呼び出し側が serve に入れないのが契約。
    * 入ってきたときは守りとして素通しする（上流の応答をそのまま返し、保存・まとめ・差し込み口を使わない）
    */
   request: Request;
@@ -43,30 +43,30 @@ export interface ServeInput {
    * （旧 API はこれで fetch(URL の文字列) から fetch(Request) に切り替える。第 1 回 S8）
    */
   upstream: (request: Request, ctx: { hasEntry: boolean; requestChanged: boolean }) => Promise<UpstreamResult>;
-  /** 仕様 §4.6 の判定（認証付きの要求は偽）。偽の要求は同時要求をまとめない（他の要求と応答を共有しない） */
+  /** 認証付きかどうかの判定（認証付きの要求は偽）。偽の要求は同時要求をまとめない（他の要求と応答を共有しない） */
   storable: boolean;
   /** style・tilejson は 200 の text/html を失敗にしない */
   isStyleLike?: boolean;
   /**
-   * グリフの範囲（'0-255' など。仕様 §11）。あれば key（fontstack まで）のレコードの中の、この範囲の部分を Entry として扱う。
+   * グリフの範囲（'0-255' など）。あれば key（fontstack まで）のレコードの中の、この範囲の部分を Entry として扱う。
    * 鮮度と削除期限は部分の fetchedAt で見て、保存は store.putGlyphPart で部分を足す
    */
   part?: string;
   /**
-   * 本体の書き換え（m3-t6・R28。style・tilejson の提供元の rewriteStyle と資格情報の除去）。上流が成功したとき（§6 の 3）、
+   * 本体の書き換え（style・tilejson の提供元の rewriteStyle と資格情報の除去）。上流が成功したとき、
    * 差し込み口の fetchDidSucceed の後・cacheWillUpdate の前に 1 度だけ当て、保存も配信も変えた本体を使う。
-   * 投げたら上流の失敗（HTTP）として扱い（Entry があれば §6 の 4、無ければ 5）、保存しない（C-S4・C-S1）
+   * 投げたら上流の失敗（HTTP）として扱い（Entry があれば古い本体を返し、無ければ合成応答）、保存しない
    */
   transform?: (blob: Blob) => Promise<Blob>;
-  /** 真なら §6 の 2（hit）を飛ばして上流へ出す。失敗したら表の 4・6 で古い本体（m3-t6・R4。update() の取り直し） */
+  /** 真なら hit を飛ばして上流へ出す。失敗したら古い本体を返す（update() の取り直し） */
   revalidate?: boolean;
   /**
-   * 真なら保存と同じ tx で固定する（pinned = 1。m4-t1・R6）。範囲取得の近道で、固定の正本はジョブ側の store.setPinned
+   * 真なら保存と同じ tx で固定する（pinned = 1）。範囲取得の近道で、固定の正本はジョブ側の store.setPinned
    * （同時要求のまとめと hit は save を通らない。R46）。偽・無しは pinned = 0 で書き、保存済みの固定は commitEntry が保つ
    */
   pin?: boolean;
   /**
-   * グリフの束ね書き（m4-t4・L4・R-G）。part と共にあれば、save は putGlyphPart も evictScopesFor も呼ばずに部分を
+   * グリフの束ね書き。part と共にあれば、save は putGlyphPart も evictScopesFor も呼ばずに部分を
    * collect.add へ渡す（配信・cacheWillUpdate・まとめは通常どおり）。書き込みは collect.flush の 1 回
    */
   collect?: GlyphCollector;
@@ -80,18 +80,18 @@ export interface GlyphCollectedPart {
   headers: Record<string, string>;
 }
 
-/** 1 fontstack のレコードの部分を集め、1 回の putGlyphParts で書く（m4-t4・L4・R-G。range が 1 単位ごとに作る） */
+/** 1 fontstack のレコードの部分を集め、1 回の putGlyphParts で書く（range が 1 単位ごとに作る） */
 export interface GlyphCollector {
   add(p: GlyphCollectedPart): void;
   /**
    * 集めた部分を書く（evictScopesFor を 1 回・putGlyphParts を 1 回）。集めた部分は渡した時点で手放す（2 回目は何もしない）。
    * 投げない: 失敗は 'quota'・'storage'、書いた（部分が無い・Resource が消えたも含む）ときは undefined。
-   * 容量超過のときは全体の 10% を退避して putGlyphParts を 1 回だけ再試行する（m4-t6・R16）
+   * 容量超過のときは全体の 10% を退避して putGlyphParts を 1 回だけ再試行する
    */
   flush(): Promise<'quota' | 'storage' | undefined>;
 }
 
-/** x-weiwudi-status の値（公開の契約。仕様 §6） */
+/** x-weiwudi-status の値（公開の契約） */
 export type ServeStatus = 'out-of-range' | 'hit' | 'miss' | 'refresh' | 'stale' | 'upstream-error' | 'offline-miss';
 
 // ---- 定数 ----
@@ -104,7 +104,7 @@ export const TRANSPARENT_PNG: Uint8Array = Uint8Array.from(atob(
   'r+4ICgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' +
   'AAAAAAAAAAAAABgBDwABHHIJwwAAAABJRU5ErkJggg=='), (c) => c.charCodeAt(0));
 
-/** ベクタの空本体の content-type（登録時に分からないときの既定。仕様 §6） */
+/** ベクタの空本体の content-type（登録時に分からないときの既定） */
 const VECTOR_TILE_TYPE = 'application/vnd.mapbox-vector-tile';
 
 const H_STATUS = 'x-weiwudi-status';
@@ -200,7 +200,7 @@ const runRequestWillFetch = async (h: Hooks, request: Request): Promise<Request>
 
 /**
  * 本体を読んだまま何も返さない（または読み終えた Response を返す）プラグインがあっても配信を止めないよう、
- * 呼ぶ前の写しを持ち、使えない本体になったら写しへ戻して console.error に残す（PR #75 L1 m1）
+ * 呼ぶ前の写しを持ち、使えない本体になったら写しへ戻して console.error に残す（PR #75）
  */
 const runFetchDidSucceed = async (h: Hooks, request: Request, response: Response): Promise<Response> => {
   let current = response;
@@ -287,9 +287,9 @@ const sourceMaxBytes = (rec: SourceRecord): number | undefined => {
 };
 
 /**
- * putEntry の退避の範囲（仕様 §7.1・第 1 回 S4）。その Resource を sourceIds に持ち cacheMaxBytes を持つ
+ * putEntry の退避の範囲。その Resource を sourceIds に持ち cacheMaxBytes を持つ
  * Source ごとに 1 要素（その Source の Resource 群）。rangeOnlySourceIds の Source は数えない。
- * 子 Source（m3-t2）は親に読み替え、親ごとに 1 要素にする（maxBytes は親の cacheMaxBytes、resourceIds は
+ * 子 Source は親に読み替え、親ごとに 1 要素にする（maxBytes は親の cacheMaxBytes、resourceIds は
  * 親の全子（StyleSpec.children）の Resource）。子自身は cacheMaxBytes を持たない
  */
 export async function evictScopesFor(store: Store, resource: ResourceMeta): Promise<EvictionScope[]> {
@@ -322,7 +322,7 @@ export async function evictScopesFor(store: Store, resource: ResourceMeta): Prom
     if (resourceIds.indexOf(resource.id) < 0) resourceIds.push(resource.id);
     scopes.push({ resourceIds, maxBytes });
   }
-  // 全体上限（setLimits。m4-t6）: resourceIds を持たない要素を最後に 1 つ（Source の要素が先に消した分を数えてから見積もる）
+  // 全体上限（setLimits）: resourceIds を持たない要素を最後に 1 つ（Source の要素が先に消した分を数えてから見積もる）
   const maxBytes = limitsMaxBytes(await store.kvGet(KV_LIMITS));
   if (maxBytes !== undefined) scopes.push({ maxBytes });
   return scopes;
@@ -334,12 +334,12 @@ const limitsMaxBytes = (v: unknown): number | undefined => {
   return typeof m === 'number' && Number.isInteger(m) && m >= 0 ? m : undefined;
 };
 
-/** 容量超過の再試行で退避する割合（固定以外の全体の 10%。m4-t6・R16） */
+/** 容量超過の再試行で退避する割合（固定以外の全体の 10%） */
 const QUOTA_RETRY_RATIO = 0.1;
 
 /**
  * 保存の書き込み write を行い、quota（QuotaExceededError）で失敗したら、固定以外を全体 LRU で
- * ceil((totals.bytes − totals.pinnedBytes) × 0.1) だけ退避して 1 回だけ再試行する（m4-t6・R16・仕様 §7.1）。
+ * ceil((totals.bytes − totals.pinnedBytes) × 0.1) だけ退避して 1 回だけ再試行する。
  * 投げない: 失敗は 'quota'・'storage'。退避（totals の読み出しを含む）が失敗したときは再試行せず 'quota'
  */
 const writeWithQuotaRetry = async (store: Store, write: () => Promise<unknown>): Promise<'quota' | 'storage' | undefined> => {
@@ -367,17 +367,17 @@ const writeWithQuotaRetry = async (store: Store, write: () => Promise<unknown>):
 // ---- serve ----
 
 /**
- * 配信の決定（仕様 §6 の表の 1〜7 をこの順に）。同じ key の同時要求は ctx.inflight で 1 本にまとめ、
+ * 配信の決定（次の順に条件を見る）。同じ key の同時要求は ctx.inflight で 1 本にまとめ、
  * 各呼び出し側へ clone() を返す。差し込み口は呼び出しの始めの登録の写しで進める
  */
 export function serve(ctx: Context, input: ServeInput, now: () => number): Promise<Response> {
-  // Range つきは素通し（仕様 §11。206 を全体として保存すると壊れる）
+  // Range つきは素通し（206 を全体として保存すると壊れる）
   if (input.request.headers.has('range')) return passServeInput(input);
   const plugins = getPlugins();
-  // 認証付き（保存しない）要求はまとめない。匿名の要求と応答を共有しない（PR #75 L1 M1）
+  // 認証付き（保存しない）要求はまとめない。匿名の要求と応答を共有しない（PR #75）
   if (!input.storable) return serveOnce(ctx, input, now(), plugins);
-  // グリフは範囲ごとにまとめる（同じ fontstack の別の範囲を 1 本にしない。仕様 §11）
-  // revalidate は hit を返す通常の要求にまとめない（印を足して別の 1 本にする。L1 Minor-1）
+  // グリフは範囲ごとにまとめる（同じ fontstack の別の範囲を 1 本にしない）
+  // revalidate は hit を返す通常の要求にまとめない（印を足して別の 1 本にする）
   const base = input.part === undefined ? input.key : `${input.key}\0${input.part}`;
   const flightKey = input.revalidate === true ? `${base}\0revalidate` : base;
   const shared = ctx.inflight.get(flightKey);
@@ -392,7 +392,7 @@ export function serve(ctx: Context, input: ServeInput, now: () => number): Promi
 }
 
 /**
- * 素通し（Range つきの要求。仕様 §11）の唯一の実装。新旧どちらの経路もこれを使う（hook・legacy・serve の守り）。
+ * 素通し（Range つきの要求）の唯一の実装。新旧どちらの経路もこれを使う（hook・legacy・serve の守り）。
  * 上流の応答をそのまま返し、保存・まとめ・差し込み口を使わない。ネットワーク失敗（fetcher の reject）だけは
  * 表の 7 の形（404・offline-miss・x-weiwudi-error: network・access-control-expose-headers）で返す
  */
@@ -420,7 +420,7 @@ interface LiveEntry {
 
 /**
  * 保存済みのレコードを配信の Entry として見る。グリフの範囲（part）があれば、その範囲の部分だけを Entry とし
- * （無ければ Entry 無し）、fetchedAt は部分の値・本体は blob.slice（仕様 §11）
+ * （無ければ Entry 無し）、fetchedAt は部分の値・本体は blob.slice
  */
 const liveEntryOf = (meta: EntryMeta, body: EntryBody, part: string | undefined): LiveEntry | undefined => {
   if (part === undefined) return { meta, blob: body.blob, headers: body.headers };
@@ -447,8 +447,8 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
     if (kind) return outOfRangeResponse(resource, kind);
   }
 
-  // Entry（削除期限を過ぎたものは無いもの。固定は対象外。R21）。保存し直すときの固定の引き継ぎ（PR #75 L1 m2）は
-  // store.commitEntry が tx の中で読んだ値で行う（上流を待つ間の setPinned も戻さない。m4-t1・R6）
+  // Entry（削除期限を過ぎたものは無いもの。固定は対象外）。保存し直すときの固定の引き継ぎ（PR #75）は
+  // store.commitEntry が tx の中で読んだ値で行う（上流を待つ間の setPinned も戻さない）
   let entry: LiveEntry | undefined;
   if (resource) {
     const got = await store.getEntry(input.key);
@@ -469,8 +469,8 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
     return r === cached ? parts : partsOf(r);
   };
 
-  // 2 新しい Entry。認証付き（storable が偽）は hit を飛ばして必ず上流へ出し、上流の失敗のときだけ表の 4 以降で Entry を使う（§4.6。Ruling）
-  // revalidate（m3-t6・R4）も hit を飛ばす
+  // 2 新しい Entry。認証付き（storable が偽）は hit を飛ばして必ず上流へ出し、上流の失敗のときだけ古い本体を返す経路で Entry を使う
+  // revalidate も hit を飛ばす
   if (resource && entry && input.storable && input.revalidate !== true && t - entry.meta.fetchedAt <= resource.policy.cacheTtl) {
     // touch は返す前に呼ぶ（tx はその場で同期に作られる）。完了は待たない（R8）
     store.touch(input.key, t).catch(() => undefined);
@@ -503,14 +503,14 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
   }
 
   const response = hooks ? await runFetchDidSucceed(hooks, request, result.response) : result.response;
-  // opaque（仕様 §4.5-3）: Entry があれば §6 の 4（古い本体・stale・upstream）。無ければ SW が合成した応答では
+  // opaque: Entry があれば古い本体（stale）を返す。無ければ SW が合成した応答では
   // ないので、そのまま返す（保存せず、ヘッダも付けない）
   if (result.kind === 'opaque' || response.type === 'opaque') {
     return (await stale('upstream')) ?? response;
   }
 
   let up = await partsOf(response);
-  // 4・5 上流が失敗（HTTP）。!ok と、スタイル・TileJSON 以外の 200 の text/html（§4.6）
+  // 上流が失敗（HTTP）。!ok と、スタイル・TileJSON 以外の 200 の text/html
   if (!response.ok || (!input.isStyleLike && response.status === 200 && isHtml(up.headers))) {
     return (await stale('upstream')) ?? synthesize(up, 'upstream-error', 'upstream');
   }
@@ -557,7 +557,7 @@ const save = async (
   const meta: EntryMeta = {
     key: input.key,
     resourceId: resource.id,
-    // putEntry は meta.size で数えるので、保存する本体の大きさと揃える（t2 の申し送り）
+    // putEntry は meta.size で数えるので、保存する本体の大きさと揃える
     size: blob.size,
     fetchedAt: t,
     accessedAt: t,
@@ -569,10 +569,10 @@ const save = async (
     meta.y = input.coord.y;
   }
   if (headers['content-type'] !== undefined) meta.contentType = headers['content-type'];
-  // 退避の範囲の読み出しの失敗も保存の失敗として storage を返し、配信を続ける（m4-t1・I1a・I1b・R-I1。仕様 §9）。
+  // 退避の範囲の読み出しの失敗も保存の失敗として storage を返し、配信を続ける。
   // reject にすると照合ルートの serveHit が素通しして上流へ 2 回出る
   let evict: EvictionScope[];
-  // 束ね書き（m4-t4・L4）: 退避の範囲も読まずに集める（flush が 1 回だけ読む）
+  // 束ね書き: 退避の範囲も読まずに集める（flush が 1 回だけ読む）
   if (input.part !== undefined && input.collect) {
     input.collect.add({ part: input.part, body: blob, fetchedAt: t, headers });
     return undefined;
@@ -582,14 +582,14 @@ const save = async (
   } catch (_e) {
     return 'storage';
   }
-  // 容量超過は全体の 10% を退避して 1 回だけ再試行する（m4-t6・R16。旧 API も serve を通るので同じ）
+  // 容量超過は全体の 10% を退避して 1 回だけ再試行する（旧 API も serve を通るので同じ）
   return writeWithQuotaRetry(store, () => (input.part === undefined
     ? store.putEntry(meta, { key: input.key, blob, headers }, evict)
     : store.putGlyphPart(meta, input.part, blob, headers, evict)));
 };
 
 /**
- * 束ね書きの集め手（m4-t4・L4・R-G・第 1 回 M15）。key は fontstack までのレコードのキー。flush は Resource を読み直して
+ * 束ね書きの集め手。key は fontstack までのレコードのキー。flush は Resource を読み直して
  * 退避の範囲を 1 回だけ作り、store.putGlyphParts を 1 回呼ぶ（同じ範囲は後勝ち。fetchedAt は部分ごと）
  */
 export function createGlyphCollector(ctx: Context, resource: ResourceMeta, key: string): GlyphCollector {
@@ -612,7 +612,7 @@ export function createGlyphCollector(ctx: Context, resource: ResourceMeta, key: 
           key, resourceId: resource.id, size: batch.reduce((n, p) => n + p.body.size, 0), fetchedAt: t, accessedAt: t, pinned: 0,
         };
         if (last.headers['content-type'] !== undefined) meta.contentType = last.headers['content-type'];
-        // 容量超過の再試行（m4-t6・R16）は save と同じ
+        // 容量超過の再試行は save と同じ
         return await writeWithQuotaRetry(store, () =>
           store.putGlyphParts(meta, batch.map((p) => ({ part: p.part, blob: p.body, fetchedAt: p.fetchedAt })), last.headers, evict));
       } catch (err) {
@@ -675,7 +675,7 @@ export async function runJob<T>(job: JobSpec<T>): Promise<'finished' | 'canceled
 }
 
 /**
- * 保持期間の掃除（仕様 §7.1・m4 R8〜R10）。1 回は訪問するメタ 2,000 件まで。
+ * 保持期間の掃除。1 回は訪問するメタ 2,000 件まで。
  * 未完の走査は時刻・方針・cursor をメモリに残し、次の契機（force も含む）で続ける。
  * 失敗は呼び出し側が記録する。ページの完了前には cursor を進めないので、次回やり直せる。
  */

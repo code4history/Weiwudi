@@ -1,24 +1,24 @@
 /// <reference lib="webworker" />
-// 制御（https://weiwudi.example.com/v2/*。仕様 §4.1・§5.6・§12。m2-t8）。ページ側の Weiwudi.register などの相手。
-// 値の依存は hook・registry・spec・context・store・tile_math・constants・errors だけ（仕様 §3 の許可は core も含む）。
+// 制御（https://weiwudi.example.com/v2/*）。ページ側の Weiwudi.register などの相手。
+// 値の依存は hook・registry・spec・context・store・tile_math・constants・errors だけ（core も含めてよい）。
 //
 // 決まり:
-// - POST の本文は text/plain;charset=UTF-8 の JSON 文字列（第 1 回 C1）。応答は HTTP 200 の
+// - POST の本文は text/plain;charset=UTF-8 の JSON 文字列。応答は HTTP 200 の
 //   { ok: true, result } か { ok: false, error: { code, message, detail } }。GET は /v2/ping だけ（{ api: 2, version }）
-// - 範囲取得（m4-t3・range.ts）: fetchRange の ctx.job の確保と region の書き込み、job/resume のジョブを作り直す分岐は直列の中。
-//   estimate・regions・cancel と job/resume の今の RegionInfo を返す分岐は直列の外（第 2 回 M3）。ジョブは event.waitUntil に結ぶ
+// - 範囲取得（range.ts）: fetchRange の ctx.job の確保と region の書き込み、job/resume のジョブを作り直す分岐は直列の中。
+//   estimate・regions・cancel と job/resume の今の RegionInfo を返す分岐は直列の外。ジョブは event.waitUntil に結ぶ
 // - register・update・clean・remove・releaseRange は 1 本の直列の待ち行列に通す（registry の apply は複数の tx に分かれるので、
-//   同時の register で createResource が 2 回走り得る。m2-t6 の申し送り）。待ち行列は createControl の呼び出しごと
-// - 旧 API の記録（kind: 'legacy'・id が map:）は見せない・触らない（source-not-found。第 1 回 S6）
+//   同時の register で createResource が 2 回走り得る）。待ち行列は createControl の呼び出しごと
+// - 旧 API の記録（kind: 'legacy'・id が map:）は見せない・触らない（source-not-found）
 // - register・update・remove の後に照合表を作り直す（hook.tableChanged）。作り直しが失敗しても登録は成功させ、
-//   表を捨てて門番に読み直させる（古い表のまま固まらない。Ruling）
+//   表を捨てて門番に読み直させる（古い表のまま固まらない）
 // - 照合表の影（template-shadowed）は、その Source が参照する Resource のものだけを warnings に足して保存する
 // - スタイル（kind: 'style'）の register・update は style.ts。Resource の絞り込みは「持ち主の id の一覧」（ownerIdsOf）で行う。
 //   スタイルは親の単位（親の children の子と、parentId が親の id の孤児。remove() が外す範囲と同じ。style.styleChildIds）、
-//   ほかは自分（style.ownersOf）。source()・stats()・clean()・removeResource()・照合表の影で同じ単位を使う（m3-t7・m3-t8・L1 Minor-1）
-// - removeResource は Entry だけを消す（Resource の記録と捕捉は残す。共有・範囲だけの参照でも消す。R18）。
-//   スタイルの子の Resource は親の id で名指す（m3-t8）
-// - usage は全 Resource（旧 API の map: も）を 1 つずつ数える。子の Resource も 1 回だけ（Source ごとに数えない。R19）
+//   ほかは自分（style.ownersOf）。source()・stats()・clean()・removeResource()・照合表の影で同じ単位を使う
+// - removeResource は Entry だけを消す（Resource の記録と捕捉は残す。共有・範囲だけの参照でも消す）。
+//   スタイルの子の Resource は親の id で名指す
+// - usage は全 Resource（旧 API の map: も）を 1 つずつ数える。子の Resource も 1 回だけ（Source ごとに数えない）
 // - POST は送り手（event.clientId の client）の URL のオリジン（blob: は中のオリジン）が SW と同じときだけ受ける。
 //   違う・見つからないときは sw-not-controlling で何もしない（I6・R25）。URL が about:srcdoc・about:blank の client は受ける。
 //   GET の /v2/ping は見ない
@@ -42,7 +42,7 @@ declare const self: ServiceWorkerGlobalScope;
 /** package.json の版（vite の define と vitest の define で埋める。第 1 回 S13） */
 declare const __WEIWUDI_VERSION__: string;
 
-/** /v2/ping の api の値（仕様 §4.1） */
+/** /v2/ping の api の値 */
 export const CONTROL_API = 2;
 
 const json = (value: unknown): Response =>
@@ -51,9 +51,9 @@ const json = (value: unknown): Response =>
 const success = (result: unknown): Response => json({ ok: true, result: result ?? null });
 
 /**
- * 失敗の形（仕様 §9）。WeiwudiError でない例外（IndexedDB など）は from で分類する。
+ * 失敗の形。WeiwudiError でない例外（IndexedDB など）は from で分類する。
  * from が internal にする DOMException（IndexedDB の例外）だけを storage（detail: { name }）にする。quota・db-blocked は from のまま、
- * DOMException でない例外（TypeError など。Weiwudi の不具合）は internal のまま（m4-t8・I4a・R39）
+ * DOMException でない例外（TypeError など。Weiwudi の不具合）は internal のまま
  */
 const failure = (e: unknown): Response => {
   let err = WeiwudiError.from(e);
@@ -66,7 +66,7 @@ const failure = (e: unknown): Response => {
 const notFound = (id: string): WeiwudiError =>
   new WeiwudiError('source-not-found', `Source "${id}" not found`, { sourceId: id });
 
-/** 利用者が見る記録か（旧 API の記録とスタイルの子 Source は見せない。m3-t2） */
+/** 利用者が見る記録か（旧 API の記録とスタイルの子 Source は見せない） */
 const isVisible = (rec: SourceRecord): boolean => !isLegacyRecord(rec) && !isChildRecord(rec);
 
 /** 新 API の Source。無い・旧 API の記録・子 Source なら source-not-found */
@@ -119,9 +119,9 @@ const resourcesOf = async (store: Store, owners: readonly string[]): Promise<Res
 const isRangeOnlyFor = (m: ResourceMeta, owners: readonly string[]): boolean =>
   !owners.some((id) => m.sourceIds.indexOf(id) >= 0) && owners.some((id) => (m.rangeOnlySourceIds ?? []).indexOf(id) >= 0);
 
-/** SourceInfo（仕様 §12）。resources は toResourceInfo の射影に、持ち主の一覧で決めた rangeOnly を付ける（第 3 回 O7） */
+/** SourceInfo。resources は toResourceInfo の射影に、持ち主の一覧で決めた rangeOnly を付ける */
 const infoOf = async (store: Store, rec: SourceRecord): Promise<SourceInfo> => {
-  // 読み方は store の補助だけ（m2 の記録の type を補う。L1 M1）
+  // 読み方は store の補助だけ（旧い版の記録の type を補う）
   const spec = storedSpecOf(rec) ?? styleSpecOf(rec);
   if (!spec) throw notFound(rec.id);
   const now = Date.now();
@@ -144,8 +144,8 @@ const infoOf = async (store: Store, rec: SourceRecord): Promise<SourceInfo> => {
 type BoxRange = { box: TileBox; minZoom: number; maxZoom: number };
 
 /**
- * Resource の Entry のうち、範囲のどれかの中にあるものの数。z ごとに entriesAtZoom を読む（共有・範囲だけの Resource だけ。m4-t8・I3）。
- * 範囲は Resource の座標のもの（ResourceMeta.extents。registry.extentOf が scheme の違いを直した値。PR #106 M1）
+ * Resource の Entry のうち、範囲のどれかの中にあるものの数。z ごとに entriesAtZoom を読む（共有・範囲だけの Resource だけ）。
+ * 範囲は Resource の座標のもの（ResourceMeta.extents。registry.extentOf が scheme の違いを直した値。PR #106）
  */
 const countInBox = async (store: Store, resourceId: string, ranges: readonly BoxRange[]): Promise<number> => {
   let n = 0;
@@ -168,7 +168,7 @@ const rangesOf = (m: ResourceMeta, owners: readonly string[], fallback: BoxRange
   return own.length > 0 ? own : [fallback];
 };
 
-/** SourceStats（仕様 §12）。byResource は null プロトタイプ（id が __proto__ などでも壊れない。第 3 回 推奨） */
+/** SourceStats。byResource は null プロトタイプ（id が __proto__ などでも壊れない） */
 const statsOf = async (store: Store, rec: SourceRecord): Promise<SourceStats> => {
   const byResource: Record<string, { count: number; bytes: number }> = Object.create(null);
   let count = 0;
@@ -185,9 +185,9 @@ const statsOf = async (store: Store, rec: SourceRecord): Promise<SourceStats> =>
   const extent = storedSpecOf(rec)?.extent;
   const box = extent?.box;
   if (extent && box) {
-    // 範囲が決まるときだけ（仕様 §12）。count は box の中の Entry（m4-t8・I3・R41）。その Source だけが参照する Resource は
-    // 範囲外を保存しない（§6 の 1）ので Resource の count を使い、共有・範囲だけの Resource だけ z ごとに数える（2 秒ごとの stats() で
-    // 全 Entry のメタを読まない。第 1 回 M14）。byResource と size は Resource の数のまま
+    // 範囲が決まるときだけ。count は box の中の Entry。その Source だけが参照する Resource は
+    // 範囲外は保存しないので Resource の count を使い、共有・範囲だけの Resource だけ z ごとに数える（2 秒ごとの stats() で
+    // 全 Entry のメタを読まない）。byResource と size は Resource の数のまま
     let inBox = 0;
     for (const m of resources) {
       inBox += isExclusiveTo(m, owners) && !isRangeOnlyFor(m, owners)
@@ -208,7 +208,7 @@ const statsOf = async (store: Store, rec: SourceRecord): Promise<SourceStats> =>
 const refreshTable = async (ctx: Context, resourceIds: readonly string[]): Promise<string[]> => {
   let warnings: string[];
   try {
-    // 上限は門番と同じ GATE_WAIT_MS。超えたら失敗と同じ扱い（登録は成功。m4-t8・I2b・R38）
+    // 上限は門番と同じ GATE_WAIT_MS。超えたら失敗と同じ扱い（登録は成功）
     warnings = await withTimeout(tableChanged(ctx), GATE_WAIT_MS);
   } catch (_e) {
     ctx.table.current = undefined;
@@ -233,7 +233,7 @@ const withShadows = async (store: Store, rec: SourceRecord, shadows: readonly st
   return next;
 };
 
-/** SW のオリジン（同じオリジンの検査。§5.5-5）。SW の外（単体試験）で読めなければ undefined */
+/** SW のオリジン（同じオリジンの検査）。SW の外（単体試験）で読めなければ undefined */
 const swOrigin = (): string | undefined => {
   try {
     const o = self.location.origin;
@@ -309,7 +309,7 @@ const fromOwnOrigin = async (event: unknown): Promise<boolean> => {
   }
   if (!client) return false;
   // 同じオリジンの srcdoc・about:blank の iframe は URL に origin を持たない（clients.get が返すのは SW の制御下の client だけで、
-  // sandbox の opaque な iframe は制御下に入らない。レビュー担当が Chromium で確認。m3-t8 L1 m-1）。ほかの null の origin は受けない
+  // sandbox の opaque な iframe は制御下に入らない。Chromium で確認済み）。ほかの null の origin は受けない
   if (client.url === 'about:srcdoc' || client.url === 'about:blank') return true;
   return originOf(client.url) === own;
 };
@@ -332,7 +332,7 @@ export function createControl(ctx: Context): Control {
   };
 
   /**
-   * 書き換えの op を直列に通し、途中で例外が出たら照合表を 1 回作り直してから投げ直す（表を古いまま固めない。m4-t8・I4b・R40）
+   * 書き換えの op を直列に通し、途中で例外が出たら照合表を 1 回作り直してから投げ直す（表を古いまま固めない）
    */
   const serialRefresh = <T>(fn: () => Promise<T>): Promise<T> => serial(async () => {
     try {
@@ -345,7 +345,7 @@ export function createControl(ctx: Context): Control {
 
   /**
    * 保存の後: 照合表を作り直し、持ち主の Resource の影を warnings に足して SourceInfo を返す。
-   * extra は正規化の warnings（credential-undeclared。m4-t8・L8）で、影の前に足す
+   * extra は正規化の warnings（credential-undeclared）で、影の前に足す
    */
   const finish = async (store: Store, rec: SourceRecord, extra: readonly string[] = []): Promise<SourceInfo> => {
     const ids = (await resourcesOf(store, await ownerIdsOf(store, rec))).map((m) => m.id);
@@ -353,7 +353,7 @@ export function createControl(ctx: Context): Control {
   };
 
   const register = (body: unknown) => serialRefresh(async () => {
-    // 提供元の評価の順（利用者が先・標準の mapbox が後）で解決してから検査する（m3-t5・X8）
+    // 提供元の評価の順（利用者が先・標準の mapbox が後）で解決してから検査する
     const spec = normalizeSpec(body, ctx.providers());
     const store = await ctx.store();
     if (isNormalizedStyle(spec)) return finish(store, await registerStyle(ctx, spec, { mode: 'register', swOrigin: swOrigin() }), spec.warnings);
@@ -375,14 +375,14 @@ export function createControl(ctx: Context): Control {
       return finish(store, out, undeclaredCredentialWarnings([style.url], style.policy.credentialParams));
     }
     // 保存した登録内容で合流と方針を作り直す（資格情報は credentials ストアのものを持ち越す）
-    // 保存した登録内容は storedSpecOf で読む（m2 の記録は type が無く、生のまま渡すと型違いの衝突になる。L1 M1）
+    // 保存した登録内容は storedSpecOf で読む（旧い版の記録は type が無く、生のまま渡すと型違いの衝突になる）
     const stored = storedSpecOf(rec);
     if (!stored) throw notFound(id);
     const spec: NormalizedSpec = credentials ? { spec: stored, credentials } : { spec: stored };
     const r = await applyUpdate(store, id, spec);
-    // CORS の判定をやり直す（仕様 §4.5。corsOk・corslessUntil は registry が消す）
+    // CORS の判定をやり直す（corsOk・corslessUntil は registry が消す）
     for (const m of r.resources) ctx.corslessStreak.delete(m.id);
-    // 正規化の warnings（credential-undeclared）は保存した登録内容から作り直す（applyUpdate が warnings を書き直すため。m4-t8・L8）
+    // 正規化の warnings（credential-undeclared）は保存した登録内容から作り直す（applyUpdate が warnings を書き直すため）
     return finish(store, r.source, undeclaredCredentialWarnings(Array.isArray(stored.url) ? stored.url : [stored.url], stored.policy.credentialParams));
   });
 
@@ -397,7 +397,7 @@ export function createControl(ctx: Context): Control {
       await cleanRange(store, rec, owners, range, { force: field(field(body, 'options'), 'force') === true });
     } else {
       await releaseAllOf(store, id, owners, { keep: true });
-      // 共有の Entry は残す（範囲だけの参照を含めて排他を判定。R47・M12）
+      // 共有の Entry は残す（範囲だけの参照を含めて排他を判定）
       for (const resource of await resourcesOf(store, owners)) {
         if (isExclusiveTo(resource, owners)) await store.clearEntries(resource.id);
       }
@@ -438,7 +438,7 @@ export function createControl(ctx: Context): Control {
     const resourceId = resourceIdOf(body);
     const store = await ctx.store();
     const rec = await getOwn(store, id);
-    // スタイルは親の単位（子と孤児の子。remove() が外す範囲と同じ）で、ほかは自分で判定する（m3-t8）
+    // スタイルは親の単位（子と孤児の子。remove() が外す範囲と同じ）で、ほかは自分で判定する
     const owners = await ownerIdsOf(store, rec);
     const m = await store.getResource(resourceId);
     // sourceIds か rangeOnlySourceIds にあれば、共有でも範囲だけの参照でも消す（利用者が名指ししたため。R18・C-O13）
@@ -491,7 +491,7 @@ export function createControl(ctx: Context): Control {
     const rec = await getOwn(store, id);
     const { client, waitUntil } = await jobClientOf(event);
     const started = await startFetchRange(ctx, store, rec, await ownerIdsOf(store, rec), client, field(body, 'range'), field(body, 'options'));
-    // 応答を先に返し、ジョブは開始の FetchEvent に結び付ける（SW が止まっても黙って消えない。F7・§7.2）
+    // 応答を先に返し、ジョブは開始の FetchEvent に結び付ける（SW が止まっても黙って消えない）
     waitUntil(started.job);
     return started.info;
   });
@@ -516,7 +516,7 @@ export function createControl(ctx: Context): Control {
     await getOwn(store, id);
     const now = await resumeState(ctx, store, id, regionId);
     if (now) return now;
-    // ジョブを作り直す分岐だけは直列の中（clean()・remove() と並ばない。R57・第 2 回 M3）
+    // ジョブを作り直す分岐だけは直列の中（clean()・remove() と並ばない）
     return serial(async () => {
       const rec = await getOwn(store, id);
       const { client, waitUntil } = await jobClientOf(event);
@@ -528,7 +528,7 @@ export function createControl(ctx: Context): Control {
 
   const usage = async () => usageOf(await ctx.store());
 
-  // 全体上限（m4-t6・仕様 §7.1）。kv の limits に保存し、maxBytes が無ければ外す。次の保存から効く（今あるものはすぐには消さない）
+  // 全体上限。kv の limits に保存し、maxBytes が無ければ外す。次の保存から効く（今あるものはすぐには消さない）
   const setLimits = async (body: unknown) => {
     if (body === null || typeof body !== 'object' || Array.isArray(body)) {
       throw new WeiwudiError('attribute-invalid', 'Request body must be an object', { attribute: 'limits' });

@@ -1,4 +1,4 @@
-// m2「新コア」の区切りのレビューの指摘の試験（全体レビュー M1・セキュリティ M-1・L-1・L-2）。
+// コア入れ替えの区切りのレビューの指摘の試験。
 // 再現は区切りのレビューの scratchpad（m2review/tms-bounds.test.ts・m2sec/sec.test.ts の F1〜F3）から移した。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSwHarness } from './sw-harness';
@@ -43,7 +43,7 @@ const allKeys = async (factory: IDBFactory): Promise<string[]> => {
   return out;
 };
 
-describe('M1: scheme が tms のときの bounds（box は Source の scheme の座標）', () => {
+describe('scheme が tms のときの bounds（box は Source の scheme の座標）', () => {
   const TOKYO = [139, 35, 140, 36];
   const run = async (scheme: 'xyz' | 'tms', y: number) => {
     const h = createSwHarness();
@@ -85,7 +85,7 @@ describe('M1: scheme が tms のときの bounds（box は Source の scheme の
   });
 });
 
-describe('M-1: 明示の credentials.query の名前は credentialParams に入る', () => {
+describe('明示の credentials.query の名前は credentialParams に入る', () => {
   it('テンプレートの ?myKey=SECRET1 が id・templates・url に残らない', () => {
     const n = normalizeSpec({
       kind: 'raster',
@@ -125,7 +125,7 @@ describe('M-1: 明示の credentials.query の名前は credentialParams に入�
   });
 });
 
-describe('L-1: 合流でテンプレートの和を合成した credentialParams で正規化し直す', () => {
+describe('合流でテンプレートの和を合成した credentialParams で正規化し直す', () => {
   it('B が宣言しなくても、A が宣言した foo の値は Resource の templates と A の resources に出ない', async () => {
     const h = createSwHarness();
     h.fetch.mockImplementation(async () => png());
@@ -145,7 +145,7 @@ describe('L-1: 合流でテンプレートの和を合成した credentialParams
   });
 });
 
-describe('L-2: パスの区画の sk.eyJ は credential-rejected（m3-t3 I9 で sk.eyJ に絞った）', () => {
+describe('パスの区画の sk.eyJ は credential-rejected', () => {
   const codeOf = (url: string): string | undefined => {
     try {
       normalizeSpec({ kind: 'raster', url });

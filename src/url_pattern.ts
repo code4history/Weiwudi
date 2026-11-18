@@ -1,15 +1,15 @@
-// テンプレートの解析・照合・正規化・キー（仕様 §4.2・§5.1・§5.3。m2-t3）。
-// 値の依存は tile_math と errors だけ（仕様 §3）。タイルの字句の展開は tile_math.expandTileTemplate が唯一（R6）で、
-// expandTemplate（範囲取得。m4-t3・R2）はタイルの字句をそれに任せ、グリフ・スプライトの字句だけを足す。
+// テンプレートの解析・照合・正規化・キー。
+// 値の依存は tile_math と errors だけ。タイルの字句の展開は tile_math.expandTileTemplate が唯一で、
+// expandTemplate（範囲取得）はタイルの字句をそれに任せ、グリフ・スプライトの字句だけを足す。
 //
 // 決まり:
 // - モジュール変数を持たない。正規表現は関数の中で作る（/g の lastIndex を共有しない）
-// - 拒否の文面にテンプレートの URL を入れない（クエリの資格情報や userinfo を文面へ出さない。仕様 §10）
+// - 拒否の文面にテンプレートの URL を入れない（クエリの資格情報や userinfo を文面へ出さない）
 import type { ResourceType } from './store';
 import { WeiwudiError } from './errors';
 import { expandTileTemplate, tileKeySuffix, tilePrefix } from './tile_math';
 
-/** 既定の資格情報のクエリ項目（仕様 §5.3）。登録の credentialParams で足せる */
+/** 既定の資格情報のクエリ項目。登録の credentialParams で足せる */
 export const DEFAULT_CREDENTIAL_PARAMS: readonly string[] = Object.freeze([
   'access_token', 'token', 'key', 'api_key', 'apikey', 'sku',
 ]);
@@ -18,12 +18,12 @@ export const DEFAULT_CREDENTIAL_PARAMS: readonly string[] = Object.freeze([
 export const MAX_TILE_ZOOM = 30;
 
 /**
- * テンプレートの字句（仕様 §4.2 の公開の 9 つ ＋ 内部の spriteSuffix）。spriteSuffix はスタイルのスプライトの子だけが使い
+ * テンプレートの字句（公開の 9 つ ＋ 内部の spriteSuffix）。spriteSuffix はスタイルのスプライトの子だけが使い
  * （`(@2x)?.json|png`。R6）、利用者の登録では spec.ts が拒否する（tile の字句でない）
  */
 export type TokenName = 'z' | 'x' | 'y' | '-y' | 'quadkey' | 'ratio' | 'prefix' | 'fontstack' | 'range' | 'spriteSuffix';
 
-/** スプライトの内部の字句（m3-t6・R6） */
+/** スプライトの内部の字句 */
 export const SPRITE_SUFFIX_TOKEN = '{spriteSuffix}';
 
 /** タイルの字句（raster・vector のテンプレートに使えるもの） */
@@ -46,7 +46,7 @@ const isTokenName = (s: string): s is TokenName =>
   || s === 'prefix' || s === 'fontstack' || s === 'range' || s === 'spriteSuffix';
 
 /**
- * 型ごとの字句の許可（m3-t2・m3-t6。spec.ts の登録の検査と style_body の「子として受けられるか」が共有する唯一の表。L1 Major-1）。
+ * 型ごとの字句の許可（spec.ts の登録の検査と style_body の「子として受けられるか」が共有する唯一の表）。
  * tile は TILE_TOKENS で座標が要る。glyph は {fontstack}・{range} の両方が要る。sprite は内部の {spriteSuffix} を受ける。
  * style・tilejson・data は字句なし。受けられなければ理由（文面。URL を入れない）、受けられれば undefined
  */
@@ -88,7 +88,7 @@ export interface MatchResult {
   /** percent-decode した値（崩れた % はそのまま） */
   fontstack?: string;
   range?: string;
-  /** {spriteSuffix} があるときだけ。'.json'・'.png'・'@2x.json'・'@2x.png'（m3-t6） */
+  /** {spriteSuffix} があるときだけ。'.json'・'.png'・'@2x.json'・'@2x.png' */
   suffix?: string;
   /** 照合に使ったクエリ項目の名前（キーから除く） */
   queryParams: readonly string[];
@@ -97,7 +97,7 @@ export interface MatchResult {
 const unsupported = (reason: string): WeiwudiError =>
   new WeiwudiError('unsupported-template', `Unsupported URL template: ${reason}`);
 
-// ---- 字句の退避（仕様 §4.2: 字句を退避名にして new URL で解決し戻す） ----
+// ---- 字句の退避（字句を退避名にして new URL で解決し戻す） ----
 
 interface Held { text: string; tokens: string[] }
 
@@ -158,7 +158,7 @@ const dropQueryPieces = (query: string, drop: Set<string>): string[] =>
   query.split('&').filter((p) => p !== '' && !drop.has(pieceName(p).toLowerCase()));
 
 /**
- * id の唯一の作り方（仕様 §5.1）。規則は 4 つだけ: 絶対化済みであること（でなければ unsupported-template）・
+ * id の唯一の作り方。規則は 4 つだけ: 絶対化済みであること（でなければ unsupported-template）・
  * credentialParams の項目を除く（名前の大文字小文字を問わない）・残りのクエリを名前順（同名は元の順）・
  * スキームとホストを小文字。パスとクエリの符号化は変えない
  */
@@ -180,7 +180,7 @@ export function normalizeTemplate(t: string, credentialParams: readonly string[]
 }
 
 /**
- * スプライトのテンプレート（m3-t6・R6）: スタイルの sprite の基底の URL のパスの末尾（クエリの前）に {spriteSuffix} を入れる。
+ * スプライトのテンプレート: スタイルの sprite の基底の URL のパスの末尾（クエリの前）に {spriteSuffix} を入れる。
  * MapLibre はクエリの前に `@2x`・拡張子を入れて要求する（F3）。字句は文字列のまま扱う（new URL を通さない）
  */
 export function spriteTemplateOf(base: string): string {
@@ -190,9 +190,9 @@ export function spriteTemplateOf(base: string): string {
 
 /**
  * 文字列のテンプレートから資格情報の項目を除く（並びは変えない・字句はそのまま）。spec.ts が url の返却に、
- * style_body.ts が本体の除去に使う。相対 URL（スタイルの中の `tiles/{z}/{x}/{y}.pbf?key=k`）も相対の形のまま扱う（m3-t6）。
+ * style_body.ts が本体の除去に使う。相対 URL（スタイルの中の `tiles/{z}/{x}/{y}.pbf?key=k`）も相対の形のまま扱う。
  * values（登録した資格情報の値）を渡すと、values と同じ値の項目だけを除く（違う値・values に無い名前＝子の固有の値は
- * 残す。§10 R32。本体の除去の唯一の判定）。values を渡さなければ名前だけで除く（url の返却）
+ * 残す。本体の除去の唯一の判定）。values を渡さなければ名前だけで除く（url の返却）
  */
 export function stripTemplateParams(t: string, params: readonly string[], values?: Readonly<Record<string, string>>): string {
   const held = hold(t);
@@ -217,7 +217,7 @@ export function stripTemplateParams(t: string, params: readonly string[], values
 /**
  * 照合の形（compileTemplate の origin・パスの正規表現と字句の並び・クエリの字句と固定値）。compile できなければ undefined。
  * 文字列の正規化では別の形でも同じ要求に当たるもの（既定ポート・`..`・名前の percent-encode・`+` と `%20`・IDN・
- * `https:H.example`）が同じ値になる（m2-t3 の申し送り M4）
+ * `https:H.example`）が同じ値になる
  */
 const matchShape = (t: string, credentialParams: readonly string[]): string | undefined => {
   let c: CompiledTemplate;
@@ -404,7 +404,7 @@ const derive = (values: readonly (readonly [TokenName, string])[]): Omit<MatchRe
   return out;
 };
 
-/** expandTemplate の字句の値（範囲取得。m4-t3） */
+/** expandTemplate の字句の値（範囲取得） */
 export interface ExpandValues {
   z?: number;
   x?: number;
@@ -441,7 +441,7 @@ export function matchUrl(c: CompiledTemplate, url: URL): MatchResult | null {
   if (!pm) return null;
   const values: [TokenName, string][] = c.pathTokens.map((t, i) => [t, pm[i + 1] ?? '']);
   const params = url.searchParams;
-  // 同じ名前の項目が要求に余分にあると、キーから除いた値の違いで別の応答が同じキーになる（M5）。
+  // 同じ名前の項目が要求に余分にあると、キーから除いた値の違いで別の応答が同じキーになる。
   // 座標の項目はちょうど 1 つ、固定値の項目は値の組（並びは問わない）がテンプレートと同じであることを求める
   for (const q of c.queryTokens) {
     const vs = params.getAll(q.name);
@@ -474,7 +474,7 @@ export function stripParams(url: URL, params: readonly string[]): URL {
 }
 
 /**
- * 秘密トークンの値か（仕様 §10。判定の唯一の出どころ。spec.isSecretToken と isSecretPair が使う。m4-t8・L7・R35）:
+ * 秘密トークンの値か（判定の唯一の出どころ。spec.isSecretToken と isSecretPair が使う）:
  * 先頭の Bearer ・Token ・Basic （大文字小文字を問わない）と空白を剥がしてから sk. で始まる。decode した値も見るのは呼び出し側
  */
 export const isSecretValue = (v: string): boolean => /^sk\./i.test(v.replace(/^\s*(?:(?:bearer|token|basic)\s+)?\s*/i, ''));
@@ -495,9 +495,9 @@ const restQuery = (url: URL, used: readonly string[], credentialParams: readonly
 };
 
 /**
- * Entry のキー（仕様 §5.3）: `<resourceId>\0<suffix>`。
+ * Entry のキー: `<resourceId>\0<suffix>`。
  * tile は tile_math.tileKeySuffix ＋残りのクエリ・glyph は fontstack・sprite は {spriteSuffix} の値 ＋残りのクエリ
- * （仕様 §5.3 の「残りのパス」。m3-t6・R6）・それ以外は残りのクエリ（無ければ空）
+ * （「残りのパス」）・それ以外は残りのクエリ（無ければ空）
  */
 export function entryKey(resourceId: string, type: ResourceType, m: MatchResult, url: URL, credentialParams: readonly string[]): string {
   if (type === 'glyph') return `${resourceId}\0${m.fontstack ?? ''}`;
@@ -519,7 +519,7 @@ export interface MatchRule {
 }
 
 /**
- * 照合表（仕様 §4.2）: Map<origin, 規則[]>。無関係なオリジンでは Map を 1 回引くだけで、正規表現を実行しない。
+ * 照合表: Map<origin, 規則[]>。無関係なオリジンでは Map を 1 回引くだけで、正規表現を実行しない。
  * 同じオリジンの規則は登録順に評価し、最初に一致したものを返す
  */
 export class MatchTable {

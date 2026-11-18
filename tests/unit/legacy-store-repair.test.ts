@@ -1,9 +1,9 @@
-// 旧 DB が残っている・壊れているときの旧 API（m2-t5。weiwudi-gw-logic.test.ts の :500〜:585 を仕様 §13 の表どおりに移した）。
+// 旧 DB が残っている・壊れているときの旧 API（weiwudi-gw-logic.test.ts から移した）。
 // 載せ替えの後の旧 API は単一 DB WeiwudiStore だけを使い、旧 DB（Weiwudi・Weiwudi_<mapID>）を開かない。
-// - :526・:535 → 旧 Weiwudi が store を持たなくても add・info が通る（版の検査は退役。旧 DB を修復しない）
-// - :544 → 未登録の clean は map-not-found（仕様 §9）。add の後に保存できる
-// - :575 → 旧 Weiwudi_x を開いたままの接続があっても delete は Deleted: x
-// - :553・:563 → t2 の store.test.ts（別の接続）
+// - 旧 Weiwudi が store を持たなくても add・info が通る（版の検査は退役。旧 DB を修復しない）
+// - 未登録の clean は map-not-found。add の後に保存できる
+// - 旧 Weiwudi_x を開いたままの接続があっても delete は Deleted: x
+// - store.test.ts に別の接続の試験がある
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
 import { createSwHarness, tileResponse } from './sw-harness';
@@ -39,8 +39,8 @@ const versionOf = async (factory: IDBFactory, dbname: string): Promise<number> =
   return list.find(d => d.name === dbname)?.version ?? 0;
 };
 
-describe('旧 DB が残っているときの旧 API（仕様 §13・§14.2）', () => {
-  it('fetchAll は Blob を持つ古い形のレコードを飛ばし（m4-t1・I12・R43）、表示の要求が取り直して今の形で保存し直す', async () => {
+describe('旧 DB が残っているときの旧 API', () => {
+  it('fetchAll は Blob を持つ古い形のレコードを飛ばし、表示の要求が取り直して今の形で保存し直す', async () => {
     const h = createSwHarness();
     await h.request(ADD);
     h.fetch.mockImplementation(async () => tileResponse(3));
@@ -117,7 +117,7 @@ describe('旧 DB が残っているときの旧 API（仕様 §13・§14.2）', 
     connection.close();
   });
 
-  it('未登録の地図の clean は map-not-found で、その後の add でタイルを保存できる（仕様 §9）', async () => {
+  it('未登録の地図の clean は map-not-found で、その後の add でタイルを保存できる', async () => {
     const h = createSwHarness();
     expect(await (await h.request('/api/clean?mapID=x')).text()).toBe('Error: MapID "x" not found');
     await h.request(ADD);
@@ -137,9 +137,9 @@ describe('旧 DB が残っているときの旧 API（仕様 §13・§14.2）', 
   });
 });
 
-// 仕様 §13 の表の「移す」（m4-t7）。:526・:535 → 旧 Weiwudi が store を持たなくても移行が空で完了して add が通る。
+// 「移す」の手順: 旧 Weiwudi が store を持たなくても移行が空で完了して add が通る。
 // :575 → 旧 DB が blocked でも delete は成功し、旧 DB の削除は次の起動へ回る
-describe('旧 DB の移行（m4-t7・仕様 §13 の「移す」・§14.2）', () => {
+describe('旧 DB の移行（「移す」）', () => {
   const client = { id: 'client-1', postMessage: vi.fn() };
   const migrationOf = async () => {
     const store = await openStore();

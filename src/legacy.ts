@@ -1,8 +1,8 @@
 /// <reference lib="webworker" />
-// 旧 API（https://weiwudi.example.com/api/*）の翻訳（仕様 §13）。現行の apiFunc の分岐と検査の順をそのまま移し、
+// 旧 API（https://weiwudi.example.com/api/*）の翻訳。現行の apiFunc の分岐と検査の順をそのまま移し、
 // 保存と取得を store・core に置き換えた。キャッシュの処理（範囲外・鮮度・上流・保存・退避）は core.serve() だけが持つ。
-// 値の依存は core・context・store・tile_math・constants・errors だけ（仕様 §3。m4 で migrate）。
-// 旧 DB（1.1.x）の移行は migrate.ts が持つ（m4-t7）。ここは IndexedDB を直接触らず、第 1 段の待ち・読み通し・
+// 値の依存は core・context・store・tile_math・constants・errors だけ（migrate も可）。
+// 旧 DB（1.1.x）の移行は migrate.ts が持つ。ここは IndexedDB を直接触らず、第 1 段の待ち・読み通し・
 // clean／delete の旧 DB の始末を migrate の関数で呼ぶだけ。地図の登録と退避の範囲は migrationDeps で渡す（R50）。
 //
 // 決まり:
@@ -11,10 +11,10 @@
 // - 上流は fetch(URL の文字列) の 1 引数。差し込み口が別の Request を返したときだけ fetch(その Request)（第 1 回 S8）。
 //   どちらも ctx.upstreamFetch を通す（同じオリジンの要求にだけ User-Agent を足し、それ以外は引数のまま fetch）
 // - 差し込み口へは選んだミラーを展開した URL の Request を渡す（疑似ホストの URL を渡さない。第 2 回 S-5）
-// - Range つきの要求は serve() に入れず、上流のタイルの URL へそのまま素通しする（仕様 §11）
+// - Range つきの要求は serve() に入れず、上流のタイルの URL へそのまま素通しする
 // - fetchAll のジョブは開始の FetchEvent の waitUntil に渡す（R11・第 1 回 S11）。1 度に 1 ジョブ（context.job）
 // - serve() の reject（store の読み出しの失敗。容量の判定の evictScopesFor を含む）は、包括の `Error: ${e}` の文にする。
-//   現行の getImage の読み出し（設定と Entry）の失敗と同じ経路・同じ形（m2-t5 の Ruling）
+//   現行の getImage の読み出し（設定と Entry）の失敗と同じ経路・同じ形
 import type { RouteHandlerCallbackOptions } from 'workbox-core';
 import type { Context, JobState } from './context';
 import { evictScopesFor, passThrough, runJob, serve, sweepOnce } from './core';
@@ -50,7 +50,7 @@ const json = (value: unknown): Response =>
 
 /**
  * 登録した地図の設定。無ければ undefined。移行の第 1 段が済んでいない（失敗した）間は、sources に無ければ
- * 旧 Weiwudi.mapSetting も見る（m4-t7。次の契機で第 1 段をやり直す）
+ * 旧 Weiwudi.mapSetting も見る（次の契機で第 1 段をやり直す）
  */
 const getSetting = async (ctx: Context, store: Store, mapID: unknown): Promise<MapSetting | undefined> => {
   const rec = await store.getSource(sourceIdOf(mapID));
@@ -62,7 +62,7 @@ const getSetting = async (ctx: Context, store: Store, mapID: unknown): Promise<M
 /** maxZoom での範囲（現行の範囲外の判定と fetchAll の列挙と同じ `|| 0` の既定） */
 const boxOf = (s: MapSetting): TileBox => ({ minX: s.minX || 0, maxX: s.maxX || 0, minY: s.minY || 0, maxY: s.maxY || 0 });
 
-/** MapSetting → Resource（仕様 §13。範囲外の方針は固定、cacheTtl は登録値か 24 時間、storable は常に真） */
+/** MapSetting → Resource（範囲外の方針は固定、cacheTtl は登録値か 24 時間、storable は常に真） */
 const resourceOf = (s: MapSetting): ResourceMeta => {
   const id = sourceIdOf(s.mapID);
   // 現行の判定: z < (minZoom || 0) か z > (maxZoom ?? Infinity) がズームの外。範囲は maxZoom と 4 辺が揃うときだけ
@@ -102,7 +102,7 @@ const registerMap = async (store: Store, s: MapSetting, t: number): Promise<void
   await store.putSource({ id, kind: 'legacy', spec: {}, order, warnings: [], createdAt: existing?.createdAt ?? t, legacy: s });
 };
 
-/** 移行が使う地図の登録と退避の範囲（m4-t7・R50）。legacy の中の呼び出しと配線（weiwudi_gw_logic）が同じものを渡す */
+/** 移行が使う地図の登録と退避の範囲。legacy の中の呼び出しと配線（weiwudi_gw_logic）が同じものを渡す */
 export const migrationDeps: Readonly<MigrateDeps> = Object.freeze({ registerMap, evictScopesFor });
 
 /** 現行どおりミラーから無作為に 1 つ選んで展開する */
@@ -139,7 +139,7 @@ const serveTile = (ctx: Context, s: MapSetting, z: number, x: number, y: number)
 
 /**
  * Range つきの要求の素通し（serve に入れない。保存しない）。core.passThrough を使うので、ネットワーク失敗は
- * 新 API と同じ 404・offline-miss・x-weiwudi-error: network（m2-t7。素通しを 1 か所にまとめた）
+ * 新 API と同じ 404・offline-miss・x-weiwudi-error: network（素通しを 1 か所にまとめた）
  */
 const passRange = (ctx: Context, s: MapSetting, z: number, x: number, y: number, range: string): Promise<Response> =>
   passThrough(() => ctx.upstreamFetch(requestOf(tileUrl(s, z, x, y), { headers: { range } })));
@@ -177,7 +177,7 @@ const fetchAll = async (ctx: Context, job: JobState, client: Client, setting: Ma
           job.error++;
           job.failures[failure]++;
         }
-        await res.arrayBuffer(); // noOutput: 配信しない本体も読み切る（t4 の申し送り）
+        await res.arrayBuffer(); // noOutput: 配信しない本体も読み切る
       },
       onBatch: (n) => {
         processed = n;
@@ -260,7 +260,7 @@ const apiFunc = async (
       case 'add': {
         const store = await ctx.store();
         retVal = checkAttributes(query, ['mapID', 'type', 'url']);
-        // Entry のキーの区切り（\0）を含む mapID は受けない（m4-t7・I7c・R19。仕様 §9 の既知の変化）
+        // Entry のキーの区切り（\0）を含む mapID は受けない（旧 API との既知の変化）
         if (!retVal && String(query.mapID).indexOf('\0') >= 0) retVal = 'Error: MapID must not contain a NUL character';
         if (!retVal) {
           query.tileSize = parseInt(query.tileSize || 256);
@@ -326,11 +326,11 @@ const apiFunc = async (
           retVal = legacyMessage('map-busy', { mapID: query.mapID });
         } else if (!retVal) {
           const store = await ctx.store();
-          // 未登録の地図は stats と同じ文面（仕様 §9 の既知の変化）
+          // 未登録の地図は stats と同じ文面（旧 API との既知の変化）
           if (!(await getSetting(ctx, store, query.mapID))) {
             retVal = legacyMessage('map-not-found', { mapID: query.mapID });
           } else {
-            // 移行の途中のバッチ・読み通しを待ってから消し、旧 Weiwudi_<mapID> も消す（m4-t7・第 2 回 M2）
+            // 移行の途中のバッチ・読み通しを待ってから消し、旧 Weiwudi_<mapID> も消す
             await forgetLegacyTiles(ctx, String(query.mapID));
             retVal = `Cleaned: ${query.mapID}`;
           }
@@ -342,7 +342,7 @@ const apiFunc = async (
           retVal = legacyMessage('map-busy', { mapID: query.mapID });
         } else if (!retVal) {
           const store = await ctx.store();
-          // 移行の途中のバッチ・読み通しを待ち、旧 Weiwudi_<mapID> を消して maps から外す（m4-t7・F13）
+          // 移行の途中のバッチ・読み通しを待ち、旧 Weiwudi_<mapID> を消して maps から外す
           await forgetLegacyTiles(ctx, String(query.mapID), { remove: true });
           await store.deleteResource(sourceIdOf(query.mapID));
           await store.deleteSource(sourceIdOf(query.mapID));
@@ -404,7 +404,7 @@ const apiFunc = async (
               cancel: false,
             };
             ctx.job = job;
-            // 応答を先に返し、ジョブは開始の FetchEvent に結び付ける（SW が止まっても黙って消えない。仕様 §7.2）
+            // 応答を先に返し、ジョブは開始の FetchEvent に結び付ける（SW が止まっても黙って消えない）
             event.waitUntil(fetchAll(ctx, job, client, setting));
             retVal = `Fetching task start: ${query.mapID}`;
           }
@@ -427,7 +427,7 @@ export const handleLegacy = async (ctx: Context, { url, request, event }: RouteH
   const matched = url.pathname.match(/^\/api\/([\w\d]+)(?:\/(.+))?$/);
   if (matched) {
     if (matched[1] !== 'ping' && matched[1] !== 'fetchAll') ctx.maintain?.(event);
-    // 移行の第 1 段を待つ（SW の更新直後の最初の要求でも地図が sources にあり、読み通しが効く。m4-t7・R51）
+    // 移行の第 1 段を待つ（SW の更新直後の最初の要求でも地図が sources にあり、読み通しが効く）
     if (matched[1] !== 'ping') await waitForSettings(ctx, migrationDeps);
     const query = [...url.searchParams.entries()].reduce((obj: Query, e) => {
       const values = url.searchParams.getAll(e[0]);

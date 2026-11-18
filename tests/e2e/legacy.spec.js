@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { PAGE_HOST } from './fixtures/page-origin.mjs';
 
 // 旧 API（registerMap・Weiwudi のインスタンス）を、MaplatCore が実際に使う呼び方のまま実の Service Worker で確かめる。
-// Core の試験は Weiwudi を mock しているので、旧 API の実挙動はここで見る（12 月トレインの依頼）。
+// Core の試験は Weiwudi を mock しているので、旧 API の実挙動はここで見る。
 // 写した呼び方: MaplatCore src/source_ex.ts の registerMapToSW、src/source/mixin.ts の stats・fetchAll・cancel・clean。
 // - setting.type は base・overlay なら 'wmts'、ほかは 'xyz'。url は文字列か配列（tms は '{-y}'）
 // - width・height・maxZoom・minZoom はそのまま（undefined なら送られない）。cacheTtl はあるときだけ。cacheMaxBytes は渡さない

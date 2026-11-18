@@ -1,5 +1,4 @@
-// グリフの結合保存の試験（m3-t4・#39・仕様 §11）。fake-indexeddb の上の実物の store.ts・core.ts で確かめる。
-// 計画 docs/superpowers/plans/2026-11-04-m3-vector.md の m3-t4。
+// グリフの結合保存の試験（#39）。fake-indexeddb の上の実物の store.ts・core.ts で確かめる。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { createContext, type Context } from '../../src/context';
@@ -133,7 +132,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('グリフの結合保存（仕様 §11）', () => {
+describe('グリフの結合保存', () => {
   it('範囲 2 つを順に取ると Entry が 1 つ・parts が 2 つ・それぞれの再生が上流の本体と同じバイト列', async () => {
     const a = glyphBytes('0-255', 30);
     const b = glyphBytes('256-511', 17);
@@ -388,9 +387,9 @@ describe('照合ルートからグリフの範囲を渡す（hook）', () => {
   });
 });
 
-// ---- m4-t1（計画 docs/superpowers/plans/2026-11-07-m4-range-release-migration.md の m4-t1）。追記のみ ----
+// ---- 追記のみ ----
 
-describe('固定の競合のグリフ版（m4-t1・L1・R6）', () => {
+describe('固定の競合のグリフ版', () => {
   it('上流を待つ間に固定されたレコードは、putGlyphParts の後も固定のまま（old.pinned を保つ）', async () => {
     await serve(ctx, glyphInput('Noto', '0-255', vi.fn<Up>(async () => okBody(glyphBytes('0-255', 10)))), () => T);
     let release!: () => void;
@@ -423,11 +422,11 @@ describe('固定の競合のグリフ版（m4-t1・L1・R6）', () => {
   });
 });
 
-// ---- m4-t4（計画 docs/superpowers/plans/2026-11-07-m4-range-release-migration.md の m4-t4・L4・R-G）。追記のみ ----
+// ---- 追記のみ ----
 
 import { createGlyphCollector } from '../../src/core';
 
-describe('グリフの束ね書き（m4-t4・L4・R-G・第 1 回 M15）', () => {
+describe('グリフの束ね書き', () => {
   it('collect のある serve は putGlyphPart も evictScopesFor も呼ばず（配信は通常どおり）、flush で 1 回書く', async () => {
     await store.putSource(sourceRecord('s1', 10_000));
     const resource = (await store.getResource(GID))!;
@@ -481,7 +480,7 @@ describe('グリフの束ね書き（m4-t4・L4・R-G・第 1 回 M15）', () =>
 
     const failing = createGlyphCollector(ctx, resource, gkey('Other'));
     await serve(ctx, glyphInput('Other', '0-255', vi.fn<Up>(async () => okBody(glyphBytes('0-255', 3))), { collect: failing }), () => T);
-    // m4-t6: 容量超過は 1 回だけ再試行するので、再試行も失敗させる（R16）
+    // 容量超過は 1 回だけ再試行するので、再試行も失敗させる
     vi.spyOn(store, 'putGlyphParts').mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError')).mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
     expect(await failing.flush()).toBe('quota');
     const broken = createGlyphCollector(ctx, resource, gkey('Broken'));

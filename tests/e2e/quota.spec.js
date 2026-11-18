@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 // 実ブラウザの容量超過で x-weiwudi-error: quota になることを確かめる（#33）。
-// 単体の再現（put の成功後の abort）が実物からずれていないかを見る。t1 のページと上流サーバを使う。
+// 単体の再現（put の成功後の abort）が実物からずれていないかを見る。offline-page.html と上流サーバを使う。
 //
 // Storage.overrideQuotaForOrigin について 2026-11-02 に Chromium 1248 で実測したこと:
 // - その起動でオリジンの保存を一度でも使った後に掛けると、接続を開き直しても、別の DB でも、
@@ -27,7 +27,7 @@ async function openPage(page) {
     expect(await page.evaluate(() => window.swError ?? null)).toBeNull();
 }
 
-// CDP の Storage.overrideQuotaForOrigin と playwright.chromium の永続コンテキストを使うので Chromium だけ（m3-t10）
+// CDP の Storage.overrideQuotaForOrigin と playwright.chromium の永続コンテキストを使うので Chromium だけ
 test.describe('Weiwudi quota', { tag: '@chromium-only' }, () => {
     let userDataDir;
     let context;

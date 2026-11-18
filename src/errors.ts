@@ -1,5 +1,5 @@
 // エラーの具体化（#33）。依存を持たない。ページと Service Worker の両方が import する。
-// 旧 API は文字列で reject し続ける（仕様 §9）。WeiwudiError.from(e) でその文字列から code を得る。
+// 旧 API は文字列で reject し続ける。WeiwudiError.from(e) でその文字列から code を得る。
 
 const LEGACY_CODES = [
   'sw-unsupported', 'sw-register-failed', 'sw-not-controlling', 'sw-not-implemented',
@@ -9,21 +9,21 @@ const LEGACY_CODES = [
   'cannot-fetch-all', 'fetch-busy', 'api-not-found',
 ] as const;
 const OTHER_CODES = ['db-blocked', 'quota', 'network', 'upstream', 'storage', 'internal'] as const;
-// 新 API（仕様 §9）で使うコード。公開の後に union を広げると exhaustive な switch を書いた利用者が
-// 壊れるので、先に型へ入れておく。m1 の時点では作られない
+// 新 API で使うコード。公開の後に union を広げると exhaustive な switch を書いた利用者が
+// 壊れるので、先に型へ入れておく。初期の版では作られない
 const NEW_API_CODES = [
   'unsupported-template', 'invalid-style', 'opaque', 'sw-outdated',
   'credential-rejected', 'source-not-found', 'resource-conflict',
-  // その版がまだ扱わない kind（m2 では style・asset。仕様 §9）
+  // その版がまだ扱わない kind（旧い版では style・asset）
   'unsupported-kind',
-  // WeiwudiSource.removeResource の id がその Source の Resource でない（m3-t8・R18）
+  // WeiwudiSource.removeResource の id がその Source の Resource でない
   'resource-not-found',
 ] as const;
 
 /** 旧 API に文面があるコード（16 件） */
 export type LegacyErrorCode = typeof LEGACY_CODES[number];
 
-/** 新 API（仕様 §9）で使うコード */
+/** 新 API で使うコード */
 export type NewApiErrorCode = typeof NEW_API_CODES[number];
 
 /** code は今後の minor で増えることがある。switch には default を置くこと */
@@ -34,10 +34,10 @@ export type WeiwudiErrorCode =
 
 const KNOWN_CODES: ReadonlySet<string> = new Set<string>([...LEGACY_CODES, ...OTHER_CODES, ...NEW_API_CODES]);
 
-/** 印のある WeiwudiError が持ってよい code の書式（新しい SW の未知の code を消さない。m3-t8・I4・R24） */
+/** 印のある WeiwudiError が持ってよい code の書式（新しい SW の未知の code を消さない） */
 const CODE_FORMAT = /^[a-z][a-z0-9-]*$/;
 
-/** code の書式に合うか（ページ側の postV2 も SW の答えの code をこれで確かめる。m3-t8 i-1） */
+/** code の書式に合うか（ページ側の postV2 も SW の答えの code をこれで確かめる） */
 export const isCodeFormat = (code: unknown): code is string => typeof code === 'string' && CODE_FORMAT.test(code);
 
 // 別のバンドル・別のコピーの errors.ts で作られた WeiwudiError も見分けるための印（#33）
@@ -48,7 +48,7 @@ export type TileFailure = 'network' | 'upstream' | 'quota' | 'storage';
 
 /**
  * 旧 API の文面の表（唯一の出どころ）。`${name}` は差し込み値。
- * 文面は 1 字も変えない（仕様 §9）。from は上から照合する。
+ * 文面は 1 字も変えない。from は上から照合する。
  */
 const LEGACY_TABLE: readonly (readonly [LegacyErrorCode, string])[] = [
   ['sw-unsupported', 'Error: Service worker is not supported'],
@@ -198,7 +198,7 @@ const ownDataValue = (value: object, key: string | symbol): { value: unknown; en
  * **そのまま返すのは、本物の Error で、code を自前の文字列として持つものだけ。**
  * そのうえで次のどちらかを求める。
  * - 印（Symbol.for('@c4h/weiwudi/error')）を、列挙されない自前のデータプロパティとして持ち、code が CODE_FORMAT に合う
- *   （未知の code も保つ。新しい SW・新しい版のコピーが増やした code を internal に潰さない。m3-t8・I4・R24）
+ *   （未知の code も保つ。新しい SW・新しい版のコピーが増やした code を internal に潰さない）
  * - name が 'WeiwudiError' で、code が既知（印を付けない別の作り方の救済。どちらの環境でも認める。未知の code は救わない）
  * 素の object・Proxy・toStringTag の偽装は、本物の Error の判定（isErrorLike）で落ちる。
  * ただし Error.isError の無い環境では本物の Error かどうかを instanceof でしか見られないので、

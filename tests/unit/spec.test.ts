@@ -1,4 +1,4 @@
-// src/spec.ts の試験（m2-t3・第 1 回 S6・C3・C6、第 2 回 D1・D5、第 3 回 M5）。仕様 §5.1・§10・§12、計画の m2-t3。
+// src/spec.ts の試験。
 import { describe, expect, it } from 'vitest';
 import { copyRange, normalizeFetchOptions, normalizeMember, normalizeRange, normalizeSpec, type NormalizedSpec } from '../../src/spec';
 import { WeiwudiError } from '../../src/errors';
@@ -31,7 +31,7 @@ describe('kind', () => {
     expect(normalizeSpec({ kind, url: T }).spec.kind).toBe(kind);
   });
 
-  // m3-t7 で style・asset を受けるようになった（unsupported-kind はどの kind にも出ない。コードは union に残す）
+  // style・asset も受ける（unsupported-kind はどの kind にも出ない。コードは union に残す）
   it('style を受ける: StyleSpec（url 1 つ・fonts・children は空・資格情報は spec に入れない）', () => {
     const n = normalizeSpec({
       kind: 'style', url: 'https://s.example/style.json?access_token=pk.T', fonts: ['Noto Sans'], cacheMaxBytes: 10,
@@ -66,7 +66,7 @@ describe('kind', () => {
     expect((n.spec as NormalizedSpec['spec']).extent).toBeUndefined();
   });
 
-  it('kind と資源の型の組が合わなければ internal（asset は data・raster・vector は tile だけ。t2 の申し送り）', () => {
+  it('kind と資源の型の組が合わなければ internal（asset は data・raster・vector は tile だけ）', () => {
     expect(() => normalizeMember('tile', [T], {}, { kind: 'asset' })).toThrow(/cannot hold/);
     expect(() => normalizeMember('data', ['https://d.example/a.json'], {}, { kind: 'raster' })).toThrow(/cannot hold/);
   });
@@ -88,7 +88,7 @@ describe('id', () => {
       .toBe('https://b.example/{z}/{x}/{y}.png?a=2&b=1');
   });
 
-  it('既定の id が資格情報を含まない（第 1 回 C3）', () => {
+  it('既定の id が資格情報を含まない', () => {
     const n = normalizeSpec({ kind: 'raster', url: `${T}?access_token=pk.secret&v=1` });
     expect(n.spec.id).toBe(`${T}?v=1`);
     expect(n.spec.id).not.toContain('access_token');
@@ -101,8 +101,8 @@ describe('id', () => {
 
   it.each([
     ['map: から始まる（第 1 回 S6）', 'map:x'],
-    ['空文字（第 3 回 M5）', ''],
-    ['\\0 を含む（第 3 回 M5）', 'a\0b'],
+    ['空文字', ''],
+    ['\\0 を含む', 'a\0b'],
     ['文字列でない', 3],
   ])('%s は attribute-invalid', (_l, id) => {
     expect(codeOf({ kind: 'raster', id, url: T })).toBe('attribute-invalid');
@@ -198,7 +198,7 @@ describe('sk. の拒否（第 1 回 C6・第 2 回 D5・第 3 回 推奨）', ()
   });
 });
 
-describe('資格情報の分離（仕様 §10）', () => {
+describe('資格情報の分離', () => {
   it('credentials は spec に入らず、別の項目に分けて持つ', () => {
     const n = normalizeSpec({
       kind: 'raster', url: T, credentials: { query: { access_token: 'pk.q' }, headers: { 'X-Api-Key': 'h1' } },
@@ -240,7 +240,7 @@ describe('資格情報の分離（仕様 §10）', () => {
   });
 });
 
-describe('方針の既定（仕様 §5.2・§6）', () => {
+describe('方針の既定', () => {
   it('raster: cacheTtl 24 時間・outOfRange は transparent・store false・credentialParams は既定', () => {
     const { spec } = normalizeSpec({ kind: 'raster', url: T });
     expect(spec.policy).toEqual({
@@ -336,36 +336,36 @@ describe('範囲（bounds は tile_math で extent にする）', () => {
   });
 });
 
-describe('m2-t3 水準 1 の指摘', () => {
+describe('テンプレートとクエリの検査', () => {
   it.each([
     ['# の後ろに ?key=', `${T}#frag?key=SECRET`],
     ['# の後ろに access_token=sk.', `${T}#access_token=sk.SECRET`],
     ['# だけ', `${T}#`],
-  ])('M1: # を含むテンプレート（%s）は unsupported-template で、文面に値を出さない', (_l, url) => {
+  ])('# を含むテンプレート（%s）は unsupported-template で、文面に値を出さない', (_l, url) => {
     expect(codeOf({ kind: 'raster', url })).toBe('unsupported-template');
     expectNotLeaked({ kind: 'raster', url }, 'SECRET');
   });
 
-  it('M2: テンプレートの ?KEY= と明示の key は小文字で 1 つにし、明示が勝つ', () => {
+  it('テンプレートの ?KEY= と明示の key は小文字で 1 つにし、明示が勝つ', () => {
     const n = normalizeSpec({ kind: 'raster', url: `${T}?KEY=FROMURL`, credentials: { query: { key: 'EXPL' } } });
     expect(n.credentials).toEqual({ query: { key: 'EXPL' } });
   });
 
-  it('M2: 明示の側が大文字（KEY）でテンプレートが小文字（?key=）でも 1 つにし、明示の綴りと値が勝つ', () => {
+  it('明示の側が大文字（KEY）でテンプレートが小文字（?key=）でも 1 つにし、明示の綴りと値が勝つ', () => {
     const n = normalizeSpec({ kind: 'raster', url: `${T}?key=FROMURL`, credentials: { query: { KEY: 'EXPL' } } });
     expect(n.credentials).toEqual({ query: { KEY: 'EXPL' } });
   });
 
-  it('M2: テンプレートの ?key=A&KEY=B は先の 1 つだけ', () => {
+  it('テンプレートの ?key=A&KEY=B は先の 1 つだけ', () => {
     const n = normalizeSpec({ kind: 'raster', url: `${T}?key=A&KEY=B` });
     expect(n.credentials).toEqual({ query: { key: 'A' } });
   });
 
-  it('M2: 明示の credentials.query に小文字で同じ名前が 2 つあれば attribute-invalid', () => {
+  it('明示の credentials.query に小文字で同じ名前が 2 つあれば attribute-invalid', () => {
     expect(codeOf({ kind: 'raster', url: T, credentials: { query: { key: 'a', KEY: 'b' } } })).toBe('attribute-invalid');
   });
 
-  it('M3: ?ACCESS_TOKEN=x は credentials.query へ移り、spec に残らない', () => {
+  it('?ACCESS_TOKEN=x は credentials.query へ移り、spec に残らない', () => {
     const n = normalizeSpec({ kind: 'raster', url: `${T}?ACCESS_TOKEN=pk.upper&v=1` });
     expect(n.credentials).toEqual({ query: { ACCESS_TOKEN: 'pk.upper' } });
     expect(JSON.stringify(n.spec)).not.toContain('pk.upper');
@@ -381,7 +381,7 @@ describe('m2-t3 水準 1 の指摘', () => {
   });
 });
 
-describe('normalizeMember: 型ごとの字句の許可（m3-t2）', () => {
+describe('normalizeMember: 型ごとの字句の許可', () => {
   const member = (type: Parameters<typeof normalizeMember>[0], url: string) =>
     normalizeMember(type, [url], {}, { kind: 'child', internalId: 'p\u0000x', single: true });
   const memberCode = (type: Parameters<typeof normalizeMember>[0], url: string): string => {
@@ -430,7 +430,7 @@ describe('normalizeMember: 型ごとの字句の許可（m3-t2）', () => {
     expect(n.spec.encoding).toBeUndefined();
   });
 
-  it('normalizeSpec の raster・vector は type: tile のまま（style・asset は m3-t7 で受ける）', () => {
+  it('normalizeSpec の raster・vector は type: tile のまま（style・asset も受ける）', () => {
     expect(normalizeSpec({ kind: 'raster', url: T }).spec).toMatchObject({ kind: 'raster', type: 'tile', scheme: 'xyz' });
     expect((normalizeSpec({ kind: 'raster', url: T }).spec as NormalizedSpec['spec']).encoding).toBeUndefined();
     expect(normalizeSpec({ kind: 'style', url: 'https://s.example/style.json' }).spec.kind).toBe('style');
@@ -438,7 +438,7 @@ describe('normalizeMember: 型ごとの字句の許可（m3-t2）', () => {
   });
 });
 
-describe('normalizeRange・copyRange・normalizeFetchOptions（m4-t3・§7.2・R28・R30・R-tms）', () => {
+describe('normalizeRange・copyRange・normalizeFetchOptions', () => {
   const rangeError = (fn: () => unknown): WeiwudiError => {
     try {
       fn();
@@ -468,7 +468,7 @@ describe('normalizeRange・copyRange・normalizeFetchOptions（m4-t3・§7.2・R
     expect(n.boxes[0].minX).toBeGreaterThan(n.boxes[1].maxX);
   });
 
-  it('{ box } は Source の scheme の座標として読み、tms なら XYZ に直す（第 1 回 M9）', () => {
+  it('{ box } は Source の scheme の座標として読み、tms なら XYZ に直す', () => {
     const box = { minX: 1, maxX: 2, minY: 0, maxY: 1 };
     expect(normalizeRange({ box, minZoom: 0, maxZoom: 2 }, XYZ).boxes).toEqual([box]);
     expect(normalizeRange({ box, minZoom: 0, maxZoom: 2 }, { scheme: 'tms' }).boxes).toEqual([{ minX: 1, maxX: 2, minY: 2, maxY: 3 }]);
@@ -482,7 +482,7 @@ describe('normalizeRange・copyRange・normalizeFetchOptions（m4-t3・§7.2・R
     expect(rangeError(() => normalizeRange('all', { extent: { minZoom: 0, maxZoom: 3, sourceId: 's' } })).code).toBe('cannot-fetch-all');
   });
 
-  it("'all' に複数の範囲（スタイルの子）を渡すと、最大の maxZoom で和にする（R-t3-2）", () => {
+  it("'all' に複数の範囲（スタイルの子）を渡すと、最大の maxZoom で和にする", () => {
     const a = { extent: { minZoom: 0, maxZoom: 1, box: { minX: 0, maxX: 0, minY: 0, maxY: 0 }, sourceId: 'a' } };
     const b = { extent: { minZoom: 2, maxZoom: 2, box: { minX: 3, maxX: 3, minY: 3, maxY: 3 }, sourceId: 'b' }, scheme: 'tms' as const };
     expect(normalizeRange('all', { all: [a, b] })).toEqual({
@@ -534,7 +534,7 @@ describe('normalizeRange・copyRange・normalizeFetchOptions（m4-t3・§7.2・R
   });
 });
 
-describe('m4-t8 L8（R36）: 宣言の無い資格情報らしい値は warnings に credential-undeclared', () => {
+describe('宣言の無い資格情報らしい値は warnings に credential-undeclared', () => {
   const U = 'https://a.example/{z}/{x}/{y}.png';
 
   it('?mytoken=pk.abc は credential-undeclared: mytoken を warnings に足し、値は書かない。登録は成功', () => {
@@ -567,7 +567,7 @@ describe('m4-t8 L8（R36）: 宣言の無い資格情報らしい値は warnings
   });
 });
 
-describe('m4-t8 PR #106 L1: 名前そのものがトークンの形なら warnings に書かない', () => {
+describe('PR #106: 名前そのものがトークンの形なら warnings に書かない', () => {
   it('?pk.SECRETNAME=pk.x は名前を warnings に出さない', () => {
     const n = normalizeSpec({ kind: 'raster', url: 'https://a.example/{z}/{x}/{y}.png?pk.SECRETNAME=pk.x&tk.N=1' }) as NormalizedSpec & { warnings?: string[] };
     expect(JSON.stringify(n.warnings ?? [])).not.toContain('SECRETNAME');

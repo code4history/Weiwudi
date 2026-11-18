@@ -1,5 +1,4 @@
-// src/core.ts の試験（m2-t4・仕様 §6・§7.1・§4.6）。fake-indexeddb の上の実物の store.ts で確かめる。
-// 計画 docs/superpowers/plans/2026-11-03-m2-core.md の m2-t4。
+// src/core.ts の試験。fake-indexeddb の上の実物の store.ts で確かめる。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { createContext, type Context } from '../../src/context';
@@ -12,7 +11,7 @@ import type { StoredSpec } from '../../src/spec';
 import { opaqueResponse } from './sw-harness';
 import { addPlugin, _resetPluginsForTest } from '../../src/plugins';
 
-// ---- 公開の契約（仕様 §6）。値を増やすときは minor で文書に足す ----
+// ---- 公開の契約。値を増やすときは minor で文書に足す ----
 const STATUSES = ['out-of-range', 'hit', 'miss', 'refresh', 'stale', 'upstream-error', 'offline-miss'];
 const ERRORS = ['network', 'upstream', 'quota', 'storage'];
 const EXPOSE = 'x-weiwudi-status, x-weiwudi-error';
@@ -127,7 +126,7 @@ describe('context', () => {
   });
 });
 
-describe('serve: 仕様 §6 の表の 1〜7', () => {
+describe('serve: 配信の決定', () => {
   it('1 範囲外: x-weiwudi-status: out-of-range・上流へ出ない', async () => {
     await store.patchResource(RID, (m) => ({ ...m, extents: [{ minZoom: 0, maxZoom: 2, sourceId: 's1' }] }));
     const upstream = vi.fn<Up>(async () => ok());
@@ -222,7 +221,7 @@ describe('serve: 仕様 §6 の表の 1〜7', () => {
 
   it('保存の失敗でも配信を続け、x-weiwudi-error に quota・storage を付ける', async () => {
     const spy = vi.spyOn(store, 'putEntry');
-    // m4-t6: 容量超過は 1 回だけ再試行するので、再試行も失敗させる（R16）
+    // 容量超過は 1 回だけ再試行するので、再試行も失敗させる
     spy.mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError')).mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
     const q = await run();
     expect(q.status).toBe(200);
@@ -252,7 +251,7 @@ describe('serve: 仕様 §6 の表の 1〜7', () => {
     note(await run({ key: k('2_0_0'), coord: { z: 2, x: 0, y: 0 }, upstream: async () => ({ kind: 'response', response: new Response('', { status: 500 }) }) }));
     note(await run({ key: k('2_0_1'), coord: { z: 2, x: 0, y: 1 }, upstream: async () => ({ kind: 'network', error: 1 }) }));
     const spy = vi.spyOn(store, 'putEntry');
-    // m4-t6: 容量超過は 1 回だけ再試行するので、再試行も失敗させる（R16）
+    // 容量超過は 1 回だけ再試行するので、再試行も失敗させる
     spy.mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError')).mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
     note(await run({ key: k('2_1_0'), coord: { z: 2, x: 1, y: 0 } }));
     spy.mockRejectedValueOnce(new Error('x'));
@@ -353,7 +352,7 @@ describe('serve: 鮮度と削除期限', () => {
   });
 });
 
-describe('serve: text/html（仕様 §4.6）', () => {
+describe('serve: text/html', () => {
   const html = (): UpstreamResult => ({
     kind: 'response',
     response: new Response('<html>login</html>', { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }),
@@ -416,7 +415,7 @@ describe('serve: ヘッダ', () => {
     for (const h of DROPPED) expect(hit.headers.get(h)).toBeNull();
   });
 
-  it('表の 5: 上流 500（4 ヘッダつき）・Entry なしの合成応答に 4 ヘッダが残らず、upstream が付き、expose は上書き（第 4 回 S-1）', async () => {
+  it('上流 500（4 ヘッダつき）・Entry なしの合成応答に 4 ヘッダが残らず、upstream が付き、expose は上書き', async () => {
     const res = await run({ upstream: async () => withDropped(500) });
     expect(res.status).toBe(500);
     for (const h of DROPPED) expect(res.headers.get(h)).toBeNull();
@@ -450,7 +449,7 @@ describe('serve: ヘッダ', () => {
 });
 
 describe('serve: 上流の口と同時要求', () => {
-  it('upstream に hasEntry が渡る（Entry あり・なし。第 1 回 S3）', async () => {
+  it('upstream に hasEntry が渡る（Entry あり・なし）', async () => {
     const none = vi.fn<Up>(async () => ok());
     await run({ upstream: none });
     expect(none.mock.calls[0][1]).toEqual({ hasEntry: false, requestChanged: false });
@@ -491,7 +490,7 @@ describe('serve: 上流の口と同時要求', () => {
   });
 });
 
-describe('退避（evictScopesFor・仕様 §7.1・第 1 回 S4）', () => {
+describe('退避（evictScopesFor）', () => {
   it('上限を持つ Source ごとに 1 要素。rangeOnly の Source と上限の無い Source は数えない', async () => {
     const OTHER = 'https://o.example/{z}/{x}/{y}.png';
     // r は範囲だけの Source。sourceIds に紛れても数えない（守り）
@@ -536,7 +535,7 @@ describe('退避（evictScopesFor・仕様 §7.1・第 1 回 S4）', () => {
     expect(await store.hasEntries([k('0_0_0'), k('0_0_1'), k('1_0_0')])).toEqual([true, false, true]);
   });
 
-  it('serve() が解決する前に store.touch が呼ばれている（hit・第 3 回 S-C）', async () => {
+  it('serve() が解決する前に store.touch が呼ばれている（hit）', async () => {
     await seed('1_0_0', { fetchedAt: T - 10, accessedAt: T - 10 });
     const order: string[] = [];
     const real = store.touch.bind(store);
@@ -600,7 +599,7 @@ describe('runJob（現行の fetchAll の進め方）', () => {
     expect(isCanceled).not.toHaveBeenCalled();
   });
 
-  it('isAlive の例外は捕まえずに reject で返す（第 1 回 O-4）', async () => {
+  it('isAlive の例外は捕まえずに reject で返す', async () => {
     const err = new Error('alive failed');
     await expect(runJob({ tasks, isAlive: async () => { throw err; }, isCanceled: () => false, run: async () => undefined })).rejects.toBe(err);
   });
@@ -630,7 +629,7 @@ describe('レビューの指摘（PR #75）', () => {
     return { gate, release };
   };
 
-  it('認証付き（storable が偽）の要求はまとめず、Map にも登録しない（L1 M1）', async () => {
+  it('認証付き（storable が偽）の要求はまとめず、Map にも登録しない', async () => {
     const { gate, release } = gated();
     const upstream = vi.fn<Up>(async (req) => {
       await gate;
@@ -665,7 +664,7 @@ describe('レビューの指摘（PR #75）', () => {
     expect(await bytesOf(priv)).toEqual(bodyOf(10, 7));
   });
 
-  it('退避の範囲の読み出しの失敗は storage として配信を続ける（m4-t1 で L2・R3 の reject を改めた。I1a・R-I1）', async () => {
+  it('退避の範囲の読み出しの失敗は storage として配信を続ける', async () => {
     const err = new DOMException('read failed', 'UnknownError');
     vi.spyOn(store, 'getSource').mockRejectedValue(err);
     const upstream = vi.fn<Up>(async () => ok(10));
@@ -706,7 +705,7 @@ describe('レビューの指摘（PR #75）', () => {
     expect(hit.headers.get('x-weiwudi-status')).toBe('hit');
   });
 
-  it('opaque: Entry があれば §6 の 4（古い本体・stale・upstream）、無ければ opaque をそのまま（L2・仕様 §4.5-3）', async () => {
+  it('opaque: Entry があれば古い本体（stale）、無ければ opaque をそのまま', async () => {
     await seed('1_0_0', { fetchedAt: T - TTL - 1 });
     const res = await run({ upstream: async () => ({ kind: 'opaque', response: opaqueResponse() }) });
     expect(res.headers.get('x-weiwudi-status')).toBe('stale');
@@ -715,7 +714,7 @@ describe('レビューの指摘（PR #75）', () => {
     expect((await store.getEntry(k('1_0_0')))?.meta.fetchedAt).toBe(T - TTL - 1);
   });
 
-  it('opaque の判定は kind でも見る（L1 m3。response.type が opaque でなくても保存せず、ヘッダを付けない）', async () => {
+  it('opaque の判定は kind でも見る（response.type が opaque でなくても保存せず、ヘッダを付けない）', async () => {
     const res = await run({ upstream: async () => ({ kind: 'opaque', response: new Response('o') }) });
     expect(res.headers.get('x-weiwudi-status')).toBeNull();
     expect(await store.getEntry(k('1_0_0'))).toBeUndefined();
@@ -728,7 +727,7 @@ describe('レビューの指摘（PR #75）', () => {
     expect(res.headers.get('x-weiwudi-status')).toBe('miss');
   });
 
-  it('Range つきの要求は素通し: 上流の応答をそのまま返し、保存もまとめもせず、差し込み口も呼ばない（仕様 §11）', async () => {
+  it('Range つきの要求は素通し: 上流の応答をそのまま返し、保存もまとめもせず、差し込み口も呼ばない', async () => {
     await seed('1_0_0', { fetchedAt: T });
     const hook = vi.fn(async () => undefined);
     addPlugin({ requestWillFetch: hook, cachedResponseWillBeUsed: hook });
@@ -772,7 +771,7 @@ describe('レビューの指摘（PR #75）', () => {
   });
 });
 
-describe('認証付きの要求と保存済みの Entry（仕様 §4.6・PR #75 追加）', () => {
+describe('認証付きの要求と保存済みの Entry（PR #75 追加）', () => {
   it('storable が偽なら新鮮な Entry があっても上流へ出し、上流の本体を返す（hit にしない・touch しない）', async () => {
     await seed('1_0_0', { fetchedAt: T - 10, accessedAt: T - 10 });
     const touch = vi.spyOn(store, 'touch');
@@ -803,7 +802,7 @@ describe('認証付きの要求と保存済みの Entry（仕様 §4.6・PR #75 
   });
 });
 
-describe('退避の範囲: 子 Source は親ごとに 1 要素（m3-t2）', () => {
+describe('退避の範囲: 子 Source は親ごとに 1 要素', () => {
   const OTHER = 'https://o.example/{z}/{x}/{y}.png';
   const childRecord = (id: string, parentId?: string): SourceRecord => ({
     id,
@@ -863,7 +862,7 @@ describe('退避の範囲: 子 Source は親ごとに 1 要素（m3-t2）', () =
   });
 });
 
-describe('グリフの範囲（m3-t4・仕様 §11）', () => {
+describe('グリフの範囲', () => {
   it('part の無い要求は putEntry、part のある要求は putGlyphPart で保存する', async () => {
     const entrySpy = vi.spyOn(store, 'putEntry');
     const glyphSpy = vi.spyOn(store, 'putGlyphPart');
@@ -888,7 +887,7 @@ describe('グリフの範囲（m3-t4・仕様 §11）', () => {
   });
 });
 
-describe('ServeInput.transform・revalidate（m3-t6・R28・R4・C-S4・C-S1）', () => {
+describe('ServeInput.transform・revalidate', () => {
   const upper = async (b: Blob) => new Blob([(await b.text()).toUpperCase()], { type: b.type });
   const textOk = (s: string, type = 'application/json'): UpstreamResult => ({
     kind: 'response', response: new Response(s, { status: 200, headers: { 'content-type': type } }),
@@ -979,7 +978,7 @@ describe('ServeInput.transform・revalidate（m3-t6・R28・R4・C-S4・C-S1）'
   });
 });
 
-describe('revalidate と同時要求のまとめ（L1 Minor-1）', () => {
+describe('revalidate と同時要求のまとめ', () => {
   it('通常の要求と revalidate を同時に出しても、revalidate は通常の要求の hit にまとめられず上流へ出る', async () => {
     await seed('1_0_0', { fetchedAt: T - 10 });
     const upstream = vi.fn<Up>(async () => ok());
@@ -990,12 +989,12 @@ describe('revalidate と同時要求のまとめ（L1 Minor-1）', () => {
   });
 });
 
-// ---- m4-t1（計画 docs/superpowers/plans/2026-11-07-m4-range-release-migration.md の m4-t1）。追記のみ ----
+// ---- 追記のみ ----
 // 既存の行を変えないため、import はここに足す（import 宣言は巻き上げられる）
 import { IDBObjectStore } from 'fake-indexeddb';
 import { createSwHarness } from './sw-harness';
 
-describe('保存の土台（m4-t1）', () => {
+describe('保存の土台', () => {
   it('照合ルート: 退避の範囲の読み出し（sources の get）が失敗しても storage で配信し、上流の fetch は 1 回（I1a）', async () => {
     const h = createSwHarness();
     h.fetch.mockImplementation(async () => new Response(bodyOf(6, 4), { status: 200, headers: { 'content-type': 'image/png' } }));
@@ -1046,12 +1045,12 @@ describe('保存の土台（m4-t1）', () => {
   });
 });
 
-// ---- m4-t6: 容量超過の再試行（R16・仕様 §7.1）（追記のみ） ----
+// ---- 容量超過の再試行（追記のみ） ----
 // 既存の行を変えないため、import はここに足す（import 宣言は巻き上げられる）
 import { IDBObjectStore as FakeObjectStore } from 'fake-indexeddb';
 import { createGlyphCollector } from '../../src/core';
 
-describe('容量超過の再試行（m4-t6・R16）', () => {
+describe('容量超過の再試行', () => {
   // entries の put の成功の後に tx を QuotaExceededError で abort する（実物の容量超過と同じ順）。times 回まで
   const abortEntryPuts = (times: number) => {
     const original = FakeObjectStore.prototype.put;
@@ -1134,7 +1133,7 @@ describe('容量超過の再試行（m4-t6・R16）', () => {
   });
 });
 
-// ---- m4-t6 PR #107 レビュー L1・L2（追記のみ） ----
+// ---- PR #107（追記のみ） ----
 describe('容量超過の再試行の境界（PR #107 L1・L2）', () => {
   it('固定でない分が 5 byte のとき、退避の量は ceil(0.5) = 1（切り上げ）', async () => {
     await seed('a', { accessedAt: T - 1, size: 5 });

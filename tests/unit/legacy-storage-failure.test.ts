@@ -1,4 +1,4 @@
-// 保存の失敗と x-weiwudi-error・fetchAll の errors と stop の code（m2-t5。weiwudi-gw-logic.test.ts の :597〜:865 を移した）。
+// 保存の失敗と x-weiwudi-error・fetchAll の errors と stop の code（weiwudi-gw-logic.test.ts から移した）。
 // 入出力の expect は変えない。変えてよいのは仕掛け（失敗させる要求の種類と expect(spy) の回数）だけ（計画「試験の振り分け」）。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSwHarness, tileResponse } from './sw-harness';
@@ -33,7 +33,7 @@ const abortPutAfterSuccess = (name: string) => {
   });
 };
 
-// m4-t6（R16）: 容量超過は全体の 10% を退避して 1 回だけ再試行する。保存の 1 回ごとに entries の put は 1 回なので、
+// 容量超過は全体の 10% を退避して 1 回だけ再試行する。保存の 1 回ごとに entries の put は 1 回なので、
 // entries の put だけを times 回まで abort する（再試行の put も数える）。他のストアの put はそのまま通す
 const abortEntryPutsAfterSuccess = (name: string, times: number) => {
   const original = IDBObjectStore.prototype.put;
@@ -114,7 +114,7 @@ describe('getImage の x-weiwudi-error（#33）', () => {
     const h = createSwHarness();
     await addTileMap(h, 'https://tile.example/{z}/{x}/{y}.png');
     h.fetch.mockImplementation(async () => new Response('tile', { headers: { 'content-type': 'image/png' } }));
-    // m4-t6: abort が 2 回続く形（再試行も失敗する）。結果の quota は変わらない（R16・m2 R15）
+    // abort が 2 回続く形（再試行も失敗する）。結果の quota は変わらない
     const spy = abortEntryPutsAfterSuccess('QuotaExceededError', 2);
     try {
       const res = await h.request('/api/cache/m/2/1/0');
@@ -129,7 +129,7 @@ describe('getImage の x-weiwudi-error（#33）', () => {
     expect(await (await h.request('/api/stats?mapID=m')).json()).toMatchObject({ count: 0 });
   });
 
-  it('保存の abort（QuotaExceededError）が 1 回なら、全体の 10% を退避した再試行で保存される（m4-t6・R16）', async () => {
+  it('保存の abort（QuotaExceededError）が 1 回なら、全体の 10% を退避した再試行で保存される', async () => {
     const h = createSwHarness();
     await addTileMap(h, 'https://tile.example/{z}/{x}/{y}.png');
     h.fetch.mockImplementation(async () => tileResponse(10));
@@ -198,7 +198,7 @@ describe('fetchAll の errors（#33）', () => {
 
 // ---- #33 レビュー: 保存の失敗が Event ではなく例外で届くこと・stop の code（追記のみ） ----
 
-// put・delete の要求を、指定の名前の例外で失敗させる（m2-t5 で仕掛けを替えた）。
+// put・delete の要求を、指定の名前の例外で失敗させる（仕掛けを替えた）。
 // store.ts は個々の put・delete の要求に onerror を置かず、要求の失敗は tx の abort で受ける。偽の要求を返す旧の仕掛けは
 // tx に届かないので、要求を出す呼び出しそのものを DOMException で失敗させる（store は tx を abort してその例外で reject する）
 const failRequest = (method: 'put' | 'delete', name: string) =>
@@ -206,7 +206,7 @@ const failRequest = (method: 'put' | 'delete', name: string) =>
     throw new DOMException('simulated', name);
   });
 
-// m4-t6: entries の put だけを times 回まで同期の例外で失敗させる（再試行の put も数える。R16）
+// entries の put だけを times 回まで同期の例外で失敗させる（再試行の put も数える）
 const failEntryPut = (name: string, times: number) => {
   const original = IDBObjectStore.prototype.put;
   let left = times;
@@ -224,7 +224,7 @@ describe('保存の失敗の分類（#33 レビュー）', () => {
     const h = createSwHarness();
     await addTileMap(h, 'https://tile.example/{z}/{x}/{y}.png');
     h.fetch.mockImplementation(async () => tileResponse(4));
-    // m4-t6: 再試行の put も失敗させる（結果の quota は変わらない。R16）
+    // 再試行の put も失敗させる（結果の quota は変わらない）
     const spy = failEntryPut('QuotaExceededError', 2);
     try {
       const res = await h.request('/api/cache/m/2/1/0');
@@ -240,7 +240,7 @@ describe('保存の失敗の分類（#33 レビュー）', () => {
     const h = createSwHarness();
     await addTileMap(h, 'https://tile.example/{z}/{x}/{y}.png', '&cacheMaxBytes=100');
     h.fetch.mockImplementation(async () => tileResponse(4));
-    // m4-t6: 再試行の put も失敗させる（結果の quota は変わらない。R16）
+    // 再試行の put も失敗させる（結果の quota は変わらない）
     const spy = failEntryPut('QuotaExceededError', 2);
     try {
       const res = await h.request('/api/cache/m/2/1/0');
@@ -273,7 +273,7 @@ describe('保存の失敗の分類（#33 レビュー）', () => {
     const h = createSwHarness();
     await addTileMap(h, 'https://tile.example/{z}/{x}/{y}.png', '&cacheMaxBytes=100');
     h.fetch.mockImplementation(async () => tileResponse(4));
-    // m4-t6: abort が 2 回続く形（再試行も失敗する。R16）
+    // abort が 2 回続く形（再試行も失敗する）
     const spy = abortEntryPutsAfterSuccess('QuotaExceededError', 2);
     try {
       const res = await h.request('/api/cache/m/2/1/0');

@@ -190,7 +190,7 @@ test.describe.serial('Weiwudi Cache Operations', () => {
             await fetchTile(1, 0); // 合計 1000 bytes
             await fetchTile(0, 1); // 1500 > 1000 → 最古 (1_0_0) を退避
             const stats = await map.stats();
-            // 残ったタイルを公開の応答ヘッダ x-weiwudi-status で確かめる（内部の保存の形は公開の約束ではない。仕様 §13）。
+            // 残ったタイルを公開の応答ヘッダ x-weiwudi-status で確かめる（内部の保存の形は公開の約束ではない）。
             // hit は accessedAt を進めるだけで退避しない。退避された 1_0_0 は最後に見る（取り直しで別のタイルが退避される）
             const statusOf = async (x, y) => {
                 const u = map.url.replace('{z}', '1').replace('{x}', String(x)).replace('{y}', String(y));

@@ -1,6 +1,6 @@
-// 旧 DB（1.1.x の Weiwudi・Weiwudi_<mapID>）からの移行（仕様 §14.2・m4-t7・R17〜R19・R50・R51・R59・R60）。
+// 旧 DB（1.1.x の Weiwudi・Weiwudi_<mapID>）からの移行。
 // 旧 DB を触るのはこのファイルだけ（legacy.ts は IndexedDB を直接触らない）。値の依存は store・constants・errors だけ
-// （仕様 §3。legacy・core は import できない。F27）。地図の登録と退避の範囲は MigrateDeps で受ける（R50）。
+// （legacy・core は import できない）。地図の登録と退避の範囲は MigrateDeps で受ける。
 //
 // 1.1.x の形:
 // - Weiwudi.mapSetting（keyPath: mapID）: /api/add の MapSetting
@@ -63,7 +63,7 @@ const STATUSES: readonly MigrationMapStatus[] = ['pending', 'copying', 'done', '
 
 const mapDbName = (mapID: string): string => `${MAP_DB_PREFIX}${mapID}`;
 const resourceIdOf = (mapID: string): string => `${LEGACY_PREFIX}${mapID}`;
-/** 新 DB の Entry のキー（legacy.keyOf と同じ形。旧キー z_x_y は新 DB のタイルのキーの suffix と同じ形なので、そのまま使う。仕様 §5.3） */
+/** 新 DB の Entry のキー（legacy.keyOf と同じ形。旧キー z_x_y は新 DB のタイルのキーの suffix と同じ形なので、そのまま使う） */
 const entryKeyOf = (mapID: string, oldKey: string): string => `${resourceIdOf(mapID)}\0${oldKey}`;
 const isLegacyDbName = (name: string): boolean => name === SETTINGS_DB || name.startsWith(MAP_DB_PREFIX);
 const isActive = (m: MigrationMap): boolean => m.status === 'pending' || m.status === 'copying';
@@ -415,7 +415,7 @@ const copySettings = async (ctx: Context, deps: MigrateDeps): Promise<void> => {
   }
 
   // 旧 DB が 1 つも無ければ（新しく入れた利用者）、kv に書かずにメモリだけで完了する（消すものが無い。次の SW も
-  // databases() を 1 回見るだけ。R-t7-3）
+  // databases() を 1 回見るだけ）
   if (!hadSettingsDb && maps.length === 0 && blocked.length === 0 && prev.pendingDelete.length === 0) {
     remember(ctx, { ...prev, stage: 'done' });
     return;
@@ -568,14 +568,14 @@ const copyBatch = async (
         failures++;
         continue;
       }
-      // 変換を待つ間に clean・delete が来たら書かない（第 2 回 M2）
+      // 変換を待つ間に clean・delete が来たら書かない
       if (isForgotten(ctx, mapID)) return { done: false };
       let saved: boolean;
       try {
         ({ saved } = await store.putEntry(entry.meta, entry.body, evict));
       } catch (e) {
         // 書き込みの例外（QuotaExceededError など）はバッチの失敗: そこで止め、lastKey を進めず旧レコードを残す
-        // （レコードの失敗として飛ばすと、読み尽くしたときに旧 DB ごと消えて移っていないタイルを失う。PR #103 M1）
+        // （レコードの失敗として飛ばすと、読み尽くしたときに旧 DB ごと消えて移っていないタイルを失う。PR #103）
         console.error(e);
         putFailed = true;
         break;
@@ -708,7 +708,7 @@ const stepOnce = async (ctx: Context, deps: MigrateDeps): Promise<void> => {
 };
 
 /**
- * 移行の契機（runMaintenance の中。仕様 §14.2）。第 1 段が終わっていなければ第 1 段、終わっていれば 1 バッチ（200 件）
+ * 移行の契機（runMaintenance の中）。第 1 段が終わっていなければ第 1 段、終わっていれば 1 バッチ（200 件）
  * だけ進める。進行中の Promise は 1 つ（ctx.maintenance.migrating。同時の契機で 2 バッチ走らせない）
  */
 export function migrateStep(ctx: Context, deps: MigrateDeps): Promise<void> {
@@ -773,7 +773,7 @@ export async function pullTile(ctx: Context, deps: MigrateDeps, mapID: string, z
   }
 }
 
-// ---- 旧 API の clean・delete（第 1 回 M6・第 2 回 M2） ----
+// ---- 旧 API の clean・delete ----
 
 /**
  * 旧 API の clean（remove: false）・delete（remove: true）の前に呼ぶ。(1) 忘れた地図に入れて kv を done にする

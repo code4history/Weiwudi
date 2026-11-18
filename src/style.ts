@@ -1,16 +1,16 @@
-// スタイルの芋づる登録（仕様 §5.5・§5.6・§10。m3-t7・R1〜R5・R10・R30・R33〜R35）。control の直列の待ち行列の中で呼ぶ。
-// 値の依存は hook・registry・spec・style_body・url_pattern・store・errors だけ（仕様 §3 の許可は core・context・constants も含む）。
+// スタイルの芋づる登録。control の直列の待ち行列の中で呼ぶ。
+// 値の依存は hook・registry・spec・style_body・url_pattern・store・errors だけ（core・context・constants も含む）。
 //
 // 決まり:
 // - モジュール変数を持たない
 // - 取得は hook.serveResource だけ（core.serve → upstream。fetch を直に呼ばない。C-O12）
 // - 子は registry.apply（{ throwOnConflict: false }。update は resetCors: true）。親の記録は子を 1 つ書くたびに書き直す
-//   （途中で止まっても、作った子が親の children に載り、remove() で外せる。t2 の申し送り「子を書いてから children を
+//   （途中で止まっても、作った子が親の children に載り、remove() で外せる。「子を書いてから children を
 //   更新するまでの間、その子は退避の範囲に入らない」を 1 子分に縮める）
 // - 資格情報は親（スタイルの id）と子（子の id）の両方に持つ。親のものは登録の正本（update() で配り直す）、子のものは捕捉で
 //   照合表が使う。子には、子の全テンプレートが credentialTargetOf で真のときだけ親のものを配る（R5・X2）。
-//   子のテンプレートに載っていた同じ名前の値は、子のものが勝つ（t6 の申し送り。上流がその URL に付けた値を上書きしない）
-// - 子にする組の判定は spec.acceptsMember（本体の除去の組と同じ。t6 の申し送り）
+//   子のテンプレートに載っていた同じ名前の値は、子のものが勝つ（上流がその URL に付けた値を上書きしない）
+// - 子にする組の判定は spec.acceptsMember（本体の除去の組と同じ）
 // - warnings に資格情報を出さない（subject は Resource.id・クエリを落とした URL・sources.<名前>）
 import type { Context } from './context';
 import { serveResource } from './hook';
@@ -27,7 +27,7 @@ import { WeiwudiError } from './errors';
 /** 取れたものとして本体を使う x-weiwudi-status（C-S5。stale の古い本体も使う） */
 const USABLE: readonly string[] = ['hit', 'miss', 'refresh', 'stale'];
 
-/** warnings の書式（仕様 §12 の "<code>: <subject>"。R20） */
+/** warnings の書式（"<code>: <subject>"） */
 export const fetchFailedWarning = (subject: string): string => `fetch-failed: ${subject}`;
 export const sameOriginSkippedWarning = (subject: string): string => `same-origin-skipped: ${subject}`;
 export const unsupportedSourceWarning = (subject: string): string => `unsupported-source: ${subject}`;
@@ -72,7 +72,7 @@ const subjectOf = (url: string, label: string): string => {
 };
 
 /**
- * 子の資格情報（R5・X2・t6 の申し送り）: given（親のもの。配る相手でなければ undefined）に、子のテンプレートに載っていた値
+ * 子の資格情報: given（親のもの。配る相手でなければ undefined）に、子のテンプレートに載っていた値
  * （own）を重ねる。同じ名前（大文字小文字を問わない）は own が勝つ
  */
 const mergeCredentials = (given: Credentials | undefined, own: Credentials | undefined): Credentials | undefined => {
@@ -153,7 +153,7 @@ const TILE_ENCODING: Readonly<Record<string, 'raster' | 'vector'>> = Object.free
 export interface StyleRegisterOptions {
   /** 'register' は通常の順の取得、'update' は revalidate と resetCors（R4） */
   mode: 'register' | 'update';
-  /** SW のオリジン（self.location.origin）。無ければ同じオリジンの検査をしない（§5.5-5） */
+  /** SW のオリジン（self.location.origin）。無ければ同じオリジンの検査をしない */
   swOrigin?: string;
 }
 
@@ -204,7 +204,7 @@ const fetchBody = async (
 };
 
 /**
- * スタイルの登録・再登録・update()（仕様 §5.5・R1〜R5・R10・R30・R33〜R35）。保存した親の記録を返す
+ * スタイルの登録・再登録・update()。保存した親の記録を返す
  * （照合表の作り直しと template-shadowed の追記は control が行う）。
  * - 新しい登録: 段 A〜C のどこかで失敗したら、作った子を外してから親を外して、元の例外で reject する（R30）
  * - 既存の登録: 段 A（スタイルの取得と解析）が成功するまで何も書かない。段 A の後の失敗は巻き戻さない（R33）
@@ -286,7 +286,7 @@ export async function registerStyle(ctx: Context, input: NormalizedStyle, o: Sty
     const sources = isObj(style) && isObj(style.sources) ? style.sources : {};
     const refs = collectStyleRefs(style, styleUrl, accepts);
 
-    /** 同じオリジンの検査（§5.5-5・R35）。crossOrigin が真なら SW と同じオリジンの URL を子にしない */
+    /** 同じオリジンの検査。crossOrigin が真なら SW と同じオリジンの URL を子にしない */
     const sameOriginHit = (urls: readonly string[], crossOrigin: boolean): string | undefined =>
       swOrigin !== undefined && crossOrigin ? urls.find((u) => originOf(u) === swOrigin) : undefined;
     const styleIsCross = swOrigin !== undefined && styleOrigin !== swOrigin;
@@ -364,11 +364,11 @@ export async function registerStyle(ctx: Context, input: NormalizedStyle, o: Sty
       await makeChild('data', 'data', d.name, [d.url], {}, `sources.${d.name}`, styleIsCross);
     }
     for (const s of refs.skipped) warnings.push(unsupportedSourceWarning(`sources.${s.name}`));
-    // 子にできなかった glyphs・sprite（subject は論理名だけ。URL・トークンを入れない。仕様 §12）
+    // 子にできなかった glyphs・sprite（subject は論理名だけ。URL・トークンを入れない）
     for (const d of refs.dropped) {
       warnings.push(unsupportedSourceWarning(d.slot === 'glyphs' ? 'glyphs' : d.spriteId === undefined ? 'sprite' : `sprite.${d.spriteId}`));
     }
-    // Mapbox の imports（Standard スタイル）は辿らない（MapLibre は扱わない。台帳の t5 の申し送り）
+    // Mapbox の imports（Standard スタイル）は辿らない（MapLibre は扱わない）
     if (isObj(style) && Array.isArray(style.imports) && style.imports.length > 0) warnings.push(unsupportedSourceWarning('imports'));
 
     // 取れなかった TileJSON から前回作った子は残す（R3）
@@ -376,7 +376,7 @@ export async function registerStyle(ctx: Context, input: NormalizedStyle, o: Sty
       if (c.from !== undefined && failedTileJson.indexOf(c.from) >= 0 && !next.some((n) => n.id === c.id)) next.push(c);
     }
     // 前の子のうち今回の子に無いものを外す。親の children だけでなく、parentId が親の id の孤児（前の update() が段 A の後で
-    // 止まって残した子。R33）も同じ単位で外す（照合表と資格情報を持ったまま残らない。L1 Minor-1）
+    // 止まって残した子）も同じ単位で外す（照合表と資格情報を持ったまま残らない）
     for (const cid of await styleChildIds(store, id, prevChildren.map((c) => c.id))) {
       if (next.some((n) => n.id === cid)) continue;
       try {
@@ -469,7 +469,7 @@ const invalidStyle = (): WeiwudiError => new WeiwudiError('invalid-style', 'The 
 
 /**
  * removeStyleChildren が外す子の id（ids と、listSources() のうち parentId が親の id の孤児。重ねない・ids を先に）。
- * control の removeResource も、親の単位の持ち主の一覧としてこれを使う（remove() が外す範囲の Resource を名指しできる。m3-t8）。
+ * control の removeResource も、親の単位の持ち主の一覧としてこれを使う（remove() が外す範囲の Resource を名指しできる）。
  * listSources() の失敗はそのまま投げる
  */
 export async function styleChildIds(store: Store, parentId: string, ids: readonly string[]): Promise<string[]> {

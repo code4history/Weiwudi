@@ -1,15 +1,15 @@
-// IndexedDB の全操作と、保存の型の正本（#37・仕様 §5.2・§5.4）。
-// 単一 DB WeiwudiStore（version 1）。旧 DB には触らない（移行は m4 の migrate.ts）。
+// IndexedDB の全操作と、保存の型の正本（#37）。
+// 単一 DB WeiwudiStore（version 1）。旧 DB には触らない（移行は migrate.ts）。
 //
 // 決まり:
 // - モジュール変数を持たない。接続などの状態は openStore() が返す Store の中に閉じる（context が 1 つ持つ）
-// - reject する値は tx.error・req.error・投げられた DOMException（Event を reject しない。仕様 §9）
+// - reject する値は tx.error・req.error・投げられた DOMException（Event を reject しない）
 // - Entry の増減と同じ tx で Resource の count・bytes・pinnedBytes を直す
 // - 本体は ArrayBuffer で保存し、型は type に分けて持つ（StoredBody）。WebKit の非永続の保存領域（Safari の
-//   プライベートブラウズと Playwright の WebKit）は IndexedDB に Blob を put できない（UnknownError。m3-t10）。
+//   プライベートブラウズと Playwright の WebKit）は IndexedDB に Blob を put できない（UnknownError）。
 //   Blob との変換はここに閉じる（Blob → ArrayBuffer の入口は readBlob 1 つで、toStoredBody と putGlyphParts の
 //   部分の変換が使う。読み戻しは fromStoredBody）。Store の呼び出し側は Blob のまま使う。
-//   Blob を持つ古いレコード（開発の途中の形）は読めないものとして miss にする（t4 の parts の無いレコードと同じ考え方）
+//   Blob を持つ古いレコード（開発の途中の形）は読めないものとして miss にする（parts の無いレコードと同じ考え方）
 import type { TileBox } from './tile_math';
 import type { NormalizedFetchOptions, NormalizedRange, RegionInfo, StoredSpec, StyleSpec } from './spec';
 import { LEGACY_PREFIX } from './constants';
@@ -17,11 +17,11 @@ import { LEGACY_PREFIX } from './constants';
 export const STORE_DB_NAME = 'WeiwudiStore';
 export const STORE_DB_VERSION = 1;
 
-// ---- 型（仕様 §5.2） ----
+// ---- 型 ----
 
 export type ResourceType = 'style' | 'tilejson' | 'tile' | 'glyph' | 'sprite' | 'data';
 
-/** 範囲外の応答（仕様 §6） */
+/** 範囲外の応答 */
 export type OutOfRange = 'transparent' | 'empty' | 'not-found';
 
 export interface TileExtent {
@@ -51,17 +51,17 @@ export interface ResourceMeta {
   sourceIds: string[];
   /** 'mapbox' など。#38 の提供元別集計の鍵（無ければ origin） */
   provider?: string;
-  /** type === 'tile' のときの範囲。Source ごとの和（§5.6） */
+  /** type === 'tile' のときの範囲。Source ごとの和 */
   extents?: TileExtent[];
   scheme?: 'xyz' | 'tms';
   encoding?: 'raster' | 'vector';
-  /** 実効方針（§5.6） */
+  /** 実効方針 */
   policy: ResourcePolicy;
-  /** §4.5 */
+  /** CORS 非対応として扱う期間の終わり（この間は組み替えず元の要求を出す） */
   corslessUntil?: number;
-  /** §4.5。CORS を通った応答を 1 度でも受けた印（状態コードは問わない） */
+  /** CORS を通った応答を 1 度でも受けた印（状態コードは問わない） */
   corsOk?: boolean;
-  /** §5.6。合流を拒否したが範囲だけ足した Source */
+  /** 合流を拒否したが範囲だけ足した Source */
   rangeOnlySourceIds?: string[];
   /** Entry の件数（Entry の増減と同じ tx で直す。store だけが書く） */
   count: number;
@@ -87,7 +87,7 @@ export interface EntryMeta {
   contentType?: string;
 }
 
-/** §11 の結合保存の部分の索引（範囲 → 連結した本体の中の位置） */
+/** 結合保存の部分の索引（範囲 → 連結した本体の中の位置） */
 export type GlyphPartIndex = Record<string, { offset: number; length: number; fetchedAt: number }>;
 
 /** putGlyphParts の 1 要素（範囲・本体・取得の時刻） */
@@ -101,11 +101,11 @@ export interface EntryBody {
   key: string;
   blob: Blob;
   headers: Record<string, string>;
-  /** §11 の結合保存 */
+  /** 結合保存 */
   parts?: GlyphPartIndex;
 }
 
-/** bodies に置く形（m3-t10）。本体は ArrayBuffer、Blob の型は type。EntryBody との変換は toStoredBody・fromStoredBody */
+/** bodies に置く形。本体は ArrayBuffer、Blob の型は type。EntryBody との変換は toStoredBody・fromStoredBody */
 export interface StoredBody {
   key: string;
   data: ArrayBuffer;
@@ -155,13 +155,13 @@ export interface ResourceInfo {
   templates: string[];
   count: number;
   bytes: number;
-  /** §5.6 */
+  /** 実効方針の項目 */
   rangeOnly?: true;
-  /** corslessUntil が今より先のとき（§4.5） */
+  /** corslessUntil が今より先のとき */
   corsless?: true;
 }
 
-/** 資格情報（§10）。credentials ストアだけに入れる */
+/** 資格情報。credentials ストアだけに入れる */
 export interface Credentials {
   query?: Record<string, string>;
   headers?: Record<string, string>;
@@ -194,20 +194,20 @@ export interface MapSetting {
   [key: string]: any;
 }
 
-/** child はスタイルの下位資源ごとの内部の Source（m3-t2。利用者には見せない） */
+/** child はスタイルの下位資源ごとの内部の Source（利用者には見せない） */
 export type SourceKind = 'style' | 'raster' | 'vector' | 'asset' | 'legacy' | 'child';
 
 export interface SourceRecord {
   id: string;
   kind: SourceKind;
   /**
-   * 登録内容（資格情報を除く）。raster・vector・asset・child は spec.ts の normalizeMember が作る StoredSpec（m2-t2 の R8）、
+   * 登録内容（資格情報を除く）。raster・vector・asset・child は spec.ts の normalizeMember が作る StoredSpec、
    * style は StyleSpec。旧 API（kind === 'legacy'）は空の object（設定は legacy に持つ）。読むのは storedSpecOf・styleSpecOf だけ
    */
   spec: StoredSpec | StyleSpec | Record<string, never>;
   /** 登録順の連番（呼び出し側が振る） */
   order: number;
-  /** §12 */
+  /** 登録の警告 */
   warnings: string[];
   createdAt: number;
   /** 旧 API の MapSetting（kind === 'legacy'） */
@@ -216,7 +216,7 @@ export interface SourceRecord {
   parentId?: string;
 }
 
-// ---- SourceRecord を読む補助（唯一の置き場。m3-t1・I5・R27） ----
+// ---- SourceRecord を読む補助（唯一の置き場） ----
 
 /** 旧 API の記録（kind: 'legacy' か id が map: で始まる） */
 export const isLegacyRecord = (rec: SourceRecord): boolean => rec.kind === 'legacy' || rec.id.startsWith(LEGACY_PREFIX);
@@ -225,8 +225,8 @@ export const isLegacyRecord = (rec: SourceRecord): boolean => rec.kind === 'lega
 export const isChildRecord = (rec: SourceRecord): boolean => rec.kind === 'child' || rec.parentId !== undefined;
 
 /**
- * raster・vector・asset・child の Source の登録内容。旧 API（spec: {}）と style（StyleSpec）は undefined（m3-t2 の Ruling）。
- * m2 で作った記録は type を持たないので 'tile' として読む（開発中のブラウザの DB を壊さない）
+ * raster・vector・asset・child の Source の登録内容。旧 API（spec: {}）と style（StyleSpec）は undefined。
+ * 旧い版で作った記録は type を持たないので 'tile' として読む（開発中のブラウザの DB を壊さない）
  */
 export const storedSpecOf = (rec: SourceRecord): StoredSpec | undefined => {
   if (rec.kind === 'legacy' || rec.kind === 'style' || !('templates' in rec.spec)) return undefined;
@@ -268,9 +268,9 @@ export const toResourceInfo = (meta: ResourceMeta, now: number, sourceId?: strin
 // ---- Store ----
 
 /**
- * 範囲取得の region（regions ストア。keyPath id・索引 sourceId）。deleteSource が同じ tx で sourceId の region を消す（m4-t1）。
+ * 範囲取得の region（regions ストア。keyPath id・索引 sourceId）。deleteSource が同じ tx で sourceId の region を消す。
  * 項目は RegionInfo（公開の形）に、取得のときの範囲（normalized。'all' も固める）と検査済みの指定（options。再開で使う）を
- * 足したもの（m4-t3・R5・R-t3-3）。進捗の位置は持たない
+ * 足したもの。進捗の位置は持たない
  */
 export interface RegionRecord extends RegionInfo {
   normalized: NormalizedRange;
@@ -278,15 +278,15 @@ export interface RegionRecord extends RegionInfo {
 }
 
 /**
- * putEntry の退避の 1 要素。cacheMaxBytes を持つ Source 1 つ分（§7.1）。resourceIds の無い要素は全体上限
- * （setLimits。m4-t6）で、全 Resource の固定でない Entry を [pinned, accessedAt] の索引で古い順に消す
+ * putEntry の退避の 1 要素。cacheMaxBytes を持つ Source 1 つ分。resourceIds の無い要素は全体上限
+ * （setLimits）で、全 Resource の固定でない Entry を [pinned, accessedAt] の索引で古い順に消す
  */
 export interface EvictionScope {
   resourceIds?: string[];
   maxBytes: number;
 }
 
-/** kv の totals（全 Resource の count・bytes・pinnedBytes の和。Entry の増減と同じ tx で直す。m4-t6・R15） */
+/** kv の totals（全 Resource の count・bytes・pinnedBytes の和。Entry の増減と同じ tx で直す） */
 export interface Totals {
   bytes: number;
   pinnedBytes: number;
@@ -295,7 +295,7 @@ export interface Totals {
 
 /** kv の鍵: 全体の数（Totals） */
 export const KV_TOTALS = 'totals';
-/** kv の鍵: 全体上限（{ maxBytes?: number }。setLimits が書き、core の evictScopesFor が読む。m4-t6） */
+/** kv の鍵: 全体上限（{ maxBytes?: number }。setLimits が書き、core の evictScopesFor が読む） */
 export const KV_LIMITS = 'limits';
 /** kv の鍵: ページ（registerSW）が指定した User-Agent（{ userAgent?: string }。control の setUserAgent が書き、context が読む） */
 export const KV_USER_AGENT = 'userAgent';
@@ -333,7 +333,7 @@ export interface Store {
 
   getEntry(key: string): Promise<{ meta: EntryMeta; body: EntryBody } | undefined>;
   /**
-   * メタ（entries）があるものを true。本体は読まない（m4-t1・I12・R43）。古い形（Blob を持つ）の本体のキーも true で、
+   * メタ（entries）があるものを true。本体は読まない。古い形（Blob を持つ）の本体のキーも true で、
    * 範囲取得・fetchAll は「有る」として飛ばし、表示の要求で getEntry が miss にして取り直す
    */
   hasEntries(keys: string[]): Promise<boolean[]>;
@@ -341,15 +341,15 @@ export interface Store {
   touch(key: string, accessedAt: number): Promise<void>;
   putEntry(meta: EntryMeta, body: EntryBody, evict: EvictionScope[]): Promise<{ saved: boolean }>;
   /**
-   * グリフの範囲 1 つを fontstack のレコードへ足す（仕様 §11）。1 つの readwrite tx で既存の本体を読み、
+   * グリフの範囲 1 つを fontstack のレコードへ足す。1 つの readwrite tx で既存の本体を読み、
    * 残す部分の slice と新しい部分から本体と parts を作り直して書く。同じ範囲の古い部分は落とす。
    * meta の size は使わず新しい本体の大きさにし、fetchedAt は最も新しい部分の値にする（meta.fetchedAt はこの部分の値）。
    * 退避と Resource の数の更新は putEntry と同じ
    */
   putGlyphPart(meta: EntryMeta, part: string, blob: Blob, headers: Record<string, string>, evict: EvictionScope[]): Promise<{ saved: boolean }>;
   /**
-   * グリフの範囲を複数まとめて fontstack のレコードへ足す（仕様 §11 の「1 fontstack 分を溜めてから 1 回で書く」。m3-t7。
-   * 範囲取得（m4）が使う）。putGlyphPart はこれに 1 つだけ渡す形（実装は 1 つ）。同じ範囲が並びに 2 つあれば後のものが勝つ。
+   * グリフの範囲を複数まとめて fontstack のレコードへ足す（「1 fontstack 分を溜めてから 1 回で書く」。
+   * 範囲取得が使う）。putGlyphPart はこれに 1 つだけ渡す形（実装は 1 つ）。同じ範囲が並びに 2 つあれば後のものが勝つ。
    * 部分ごとの fetchedAt は parts のもの。meta.fetchedAt は使わない（最も新しい部分の値にする）。parts が空なら何も書かない
    */
   putGlyphParts(
@@ -358,29 +358,29 @@ export interface Store {
 
   /**
    * 複数の Entry を同じ tx で消し、Resource の数を直す（呼び出し側が 200 件ずつ呼ぶ）。tx の中で読んだメタで条件を見直してから消す
-   * （unpinnedOnly: pinned === 1 なら残す。fetchedBefore: fetchedAt >= fetchedBefore なら残す）。消した数を返す（m4-t1）
+   * （unpinnedOnly: pinned === 1 なら残す。fetchedBefore: fetchedAt >= fetchedBefore なら残す）。消した数を返す
    */
   deleteEntries(keys: readonly string[], opts?: { unpinnedOnly?: boolean; fetchedBefore?: number }): Promise<number>;
-  /** 固定を付ける・外す（同じ tx で pinnedBytes を直す）。無いキーと既にその値のキーは飛ばす。付けた・外した数を返す（m4-t1） */
+  /** 固定を付ける・外す（同じ tx で pinnedBytes を直す）。無いキーと既にその値のキーは飛ばす。付けた・外した数を返す */
   setPinned(keys: readonly string[], pinned: 0 | 1): Promise<number>;
   /**
    * [pinned, fetchedAt] の索引を pinned = 0・fetchedAt < before で古い順（同値はキー昇順）に最大 limit 件読む（メタだけ。cursor）。
-   * next は limit 件読めたときの続きの位置（[fetchedAt, key]）で、after に渡すとその次から読む（m4-t1。t2 の掃除）
+   * next は limit 件読めたときの続きの位置（[fetchedAt, key]）で、after に渡すとその次から読む（掃除）
    */
   listUnpinnedBefore(before: number, limit: number, after?: IDBValidKey): Promise<{ metas: EntryMeta[]; next?: IDBValidKey }>;
-  /** Resource のキーの範囲のメタをキー昇順に最大 limit 件読む。next は limit 件読めたときの最後のキーで、after はその次から（m4-t1。t2 のグリフの掃除） */
+  /** Resource のキーの範囲のメタをキー昇順に最大 limit 件読む。next は limit 件読めたときの最後のキーで、after はその次から（グリフの掃除） */
   entriesOf(resourceId: string, limit: number, after?: string): Promise<{ metas: EntryMeta[]; next?: string }>;
-  /** [resourceId, z] の索引で z の Entry のメタを読む（stats の範囲の数え上げ・解放の幾何。m4-t1） */
+  /** [resourceId, z] の索引で z の Entry のメタを読む（stats の範囲の数え上げ・解放の幾何） */
   entriesAtZoom(resourceId: string, z: number): Promise<EntryMeta[]>;
   /**
    * グリフのレコードから fetchedAt < before の部分を tx の中で落として書き直す（空になれば消す。固定のレコード・部分の索引の無い
-   * レコード・古い形の本体は触らない）。詰め直しは putGlyphParts と共有する。落とした部分の数を返す（m4-t1。t2 の掃除）
+   * レコード・古い形の本体は触らない）。詰め直しは putGlyphParts と共有する。落とした部分の数を返す（掃除）
    */
   pruneGlyphParts(key: string, before: number): Promise<number>;
 
   getRegion(id: string): Promise<RegionRecord | undefined>;
   putRegion(r: RegionRecord): Promise<void>;
-  /** 1 tx で読み・直し・書き。無ければ fn を呼ばず undefined。fn が undefined を返せば書かずに undefined。書いた値を返す（m4-t1） */
+  /** 1 tx で読み・直し・書き。無ければ fn を呼ばず undefined。fn が undefined を返せば書かずに undefined。書いた値を返す */
   patchRegion(id: string, fn: (r: RegionRecord) => RegionRecord | undefined): Promise<RegionRecord | undefined>;
   listRegions(sourceId: string): Promise<RegionRecord[]>;
   deleteRegion(id: string): Promise<void>;
@@ -391,11 +391,11 @@ export interface Store {
   kvGet(key: string): Promise<unknown>;
   kvPut(key: string, value: unknown): Promise<void>;
 
-  /** 全体の数（kv の totals）。無ければ resources の和を返す（読むだけ。書かない。m4-t6） */
+  /** 全体の数（kv の totals）。無ければ resources の和を返す（読むだけ。書かない） */
   getTotals(): Promise<Totals>;
   /**
    * 固定でない Entry を全体 LRU（[pinned, accessedAt] の索引。同値はキー昇順）で古い順に、消した大きさが bytes 以上になるまで
-   * 消す（1 つの tx。Resource の数と totals も直す）。bytes が 0 以下なら何もしない。消した数を返す（m4-t6・R16）
+   * 消す（1 つの tx。Resource の数と totals も直す）。bytes が 0 以下なら何もしない。消した数を返す
    */
   evictGlobal(bytes: number): Promise<number>;
 
@@ -457,7 +457,7 @@ const req2p = <T>(req: IDBRequest<T>): Promise<T> =>
   });
 
 /**
- * cursor の要求の次の success を待つ（m4-t1）。req2p は 1 回で解決するので、cursor は continue() の前にこれを呼んで
+ * cursor の要求の次の success を待つ。req2p は 1 回で解決するので、cursor は continue() の前にこれを呼んで
  * 同じ要求の次の結果を待つ。tx の中で IDB の要求以外を待たない
  */
 const cursorStep = <C extends IDBCursor>(req: IDBRequest<C | null>): Promise<C | null> =>
@@ -470,7 +470,7 @@ const cursorStep = <C extends IDBCursor>(req: IDBRequest<C | null>): Promise<C |
 const lruOrder = (a: EntryMeta, b: EntryMeta): number =>
   a.accessedAt - b.accessedAt || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 
-/** 部分の索引を作り直した結合の本体（putGlyphParts と pruneGlyphParts が共有する。m4-t1） */
+/** 部分の索引を作り直した結合の本体（putGlyphParts と pruneGlyphParts が共有する） */
 interface PackedGlyph { data: ArrayBuffer; parts: GlyphPartIndex }
 
 /**
@@ -513,7 +513,7 @@ const entryRange = (resourceId: string): IDBKeyRange =>
   IDBKeyRange.bound(`${resourceId}\0`, `${resourceId}\x01`, false, true);
 
 /**
- * putEntry のキーの形の守り（m2-t2 水準 1 Info 1）。key が `resourceId + '\0'` で始まらない Entry は
+ * putEntry のキーの形の守り。key が `resourceId + '\0'` で始まらない Entry は
  * deleteResource・clearEntries のキーの範囲から外れて数が合わなくなるので、tx を作る前に止める（何も書かない）。
  * 本体の key がメタの key と違うときも同じ。問題が無ければ undefined
  */
@@ -670,7 +670,7 @@ export const openStore = async (): Promise<Store> => {
   const ZERO: Delta = { count: 0, bytes: 0, pinnedBytes: 0 };
 
   /**
-   * kv の totals を同じ tx で読む（m4-t6・R15）。無い（既存の開発用 DB）・形が違うときは、この tx の resources の和から作る
+   * kv の totals を同じ tx で読む。無い（既存の開発用 DB）・形が違うときは、この tx の resources の和から作る
    * （tx の外で作ると同時の書き込みとずれる。resources は Entry を増減する全操作の tx に入っている）。
    * 和は Resource を書く前に読むこと（呼び出し側は tx の始めに呼ぶ）。getAll ではなく cursor で数える（照合表の読み込みの
    * getAll を数える試験と混ざらない）
@@ -703,7 +703,7 @@ export const openStore = async (): Promise<Store> => {
 
   /**
    * Entry の増減と同じ tx で各 Resource の count・bytes・pinnedBytes と kv の totals を直す（commitEntry・deleteEntries・
-   * setPinned・pruneGlyphParts・evictGlobal が共有する。C-O7・m4-t6）。known は同じ tx で読んだ Resource（読み直さない）。
+   * setPinned・pruneGlyphParts・evictGlobal が共有する）。known は同じ tx で読んだ Resource（読み直さない）。
    * 無い Resource は飛ばす（totals にも足さない）。totals は同じ tx で先に読んだ値（無ければここで読む。Resource を書く前）
    */
   const applyDeltas = async (
@@ -730,7 +730,7 @@ export const openStore = async (): Promise<Store> => {
 
   /**
    * 固定でない Entry を、cursors（索引と範囲。Source の要素は Resource ごとの IX_LRU、全体の要素は IX_GLOBAL_LRU の 1 つ）で
-   * 開いて併合し（accessedAt 昇順・同値はキー昇順）、total が budget に収まるまで 1 件ずつ消す（m4-t1・P7・R7'・m4-t6）。
+   * 開いて併合し（accessedAt 昇順・同値はキー昇順）、total が budget に収まるまで 1 件ずつ消す。
    * skipKey は候補から外す（保存する同じキー）。前の要素が消した Entry は同じ tx の後の cursor に現れない。
    * 消した分は deltas に数え、残りの total を返す
    */
@@ -776,7 +776,7 @@ export const openStore = async (): Promise<Store> => {
   /**
    * putEntry と putGlyphPart の共通の後半（C-O7）。同じ tx の中で、退避・Entry の書き込み・Resource の数の更新を行う。
    * target は meta.resourceId の Resource、old は同じキーの保存済みの Entry（どちらも同じ tx で読んだもの）。
-   * 書く pinned は meta.pinned と old.pinned の論理和（m4-t1・L1・R6。上流を待つ間の setPinned を戻さない）
+   * 書く pinned は meta.pinned と old.pinned の論理和（上流を待つ間の setPinned を戻さない）
    */
   const commitEntry = async (
     t: IDBTransaction, target: ResourceMeta, old: EntryMeta | undefined,
@@ -793,7 +793,7 @@ export const openStore = async (): Promise<Store> => {
     const willSave = evict.every((e) => e.maxBytes > 0 && newSize <= e.maxBytes);
     const deltas = new Map<string, Delta>();
     const known: ResourceMeta[] = [target];
-    // totals は Resource を書く前（applyDeltas の前）に読む。全体の要素の見積もりにも使う（m4-t6）
+    // totals は Resource を書く前（applyDeltas の前）に読む。全体の要素の見積もりにも使う
     const totals = await loadTotals(t);
 
     // 退避は要素ごと（第 1 回 S4）。まず予算の見積もり（R42）: 保存済みの固定でない大きさの和 ＋ この tx で前の要素が消した分
@@ -801,7 +801,7 @@ export const openStore = async (): Promise<Store> => {
     // 超えるときだけ cursor を併合して古い順に消す（今の getAll の実装と同じ集合を消す）
     for (const scope of evict) {
       if (scope.resourceIds === undefined) {
-        // 全体の要素（m4-t6・第 2 回 M1）: totals.bytes − totals.pinnedBytes ＋ この tx の全 Resource の deltas.bytes の和
+        // 全体の要素: totals.bytes − totals.pinnedBytes ＋ この tx の全 Resource の deltas.bytes の和
         // −（保存し、old が固定でないなら old.size）。cursor でも同じキーを飛ばす
         let total = totals.bytes - totals.pinnedBytes;
         for (const d of deltas.values()) total += d.bytes;
@@ -889,7 +889,7 @@ export const openStore = async (): Promise<Store> => {
       s.put(out);
       return out;
     }),
-    // 消す前に同じ tx で Resource を読み、その数を totals から引く（F30・m4-t6）
+    // 消す前に同じ tx で Resource を読み、その数を totals から引く
     deleteResource: (id) => tx([S_RESOURCES, S_ENTRIES, S_BODIES, S_KV], 'readwrite', async (t) => {
       const totals = await loadTotals(t);
       const saved = (await req2p(t.objectStore(S_RESOURCES).get(id))) as ResourceMeta | undefined;
@@ -920,7 +920,7 @@ export const openStore = async (): Promise<Store> => {
     }),
     hasEntries: (keys) => tx([S_ENTRIES], 'readonly', (t) => {
       const entries = t.objectStore(S_ENTRIES);
-      // メタだけで判定する（m4-t1・I12・R43）。古い形の本体は表示の要求の getEntry が miss にして取り直す
+      // メタだけで判定する。古い形の本体は表示の要求の getEntry が miss にして取り直す
       return Promise.all(keys.map(async (k) => (await req2p(entries.getKey(k))) !== undefined));
     }),
     touch: (key, accessedAt) => tx([S_ENTRIES], 'readwrite', async (t) => {
@@ -962,7 +962,7 @@ export const openStore = async (): Promise<Store> => {
           : [];
         // 本体を超える部分が 1 つでもあれば全体を読めないものとして kept を空にし、新しい部分だけで作り直す（例外にしない）
         let kept = oldParts.every(([, p]) => p.offset + p.length <= oldBody!.data.byteLength) ? oldParts : [];
-        // 上限を超える結合レコード（m4-t1・L3・R7）: 連結後の大きさが要素のどれかの maxBytes を超えるとき、残す部分を
+        // 上限を超える結合レコード: 連結後の大きさが要素のどれかの maxBytes を超えるとき、残す部分を
         // fetchedAt の昇順（同値は本体の中の順）に落として収める。新しい部分だけで超えるときは落とさない（commitEntry が保存しない）
         const limit = evict.reduce((m, e) => Math.min(m, e.maxBytes), Infinity);
         const freshSize = freshData.reduce((n, p) => n + p.data.byteLength, 0);
@@ -993,7 +993,7 @@ export const openStore = async (): Promise<Store> => {
       const metas = await Promise.all(unique.map((k) => req2p(entries.get(k)) as Promise<EntryMeta | undefined>));
       for (const m of metas) {
         if (!m) continue;
-        // tx の中で読んだメタで条件を見直す（一覧の後の固定・取り直しを消さない。第 1 回 M11）
+        // tx の中で読んだメタで条件を見直す（一覧の後の固定・取り直しを消さない）
         if (opts.unpinnedOnly && m.pinned === 1) continue;
         if (opts.fetchedBefore !== undefined && m.fetchedAt >= opts.fetchedBefore) continue;
         entries.delete(m.key);

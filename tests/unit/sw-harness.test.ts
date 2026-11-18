@@ -1,4 +1,4 @@
-// tests/unit/sw-harness.ts の試験（m2-t1）。ハーネス自体が Workbox の Router と同じに振る舞うことを確かめる。
+// tests/unit/sw-harness.ts の試験。ハーネス自体が Workbox の Router と同じに振る舞うことを確かめる。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
 import { createSwHarness, isPluginsNotFound, opaqueResponse, SW_ORIGIN, SW_SELF_ORIGIN } from './sw-harness';
@@ -55,7 +55,7 @@ describe('dispatch の選び方（Workbox の Router と同じ）', () => {
   it('別オリジンの URL は RegExp が先頭から当たったときだけ（RegExpRoute の決まり）', async () => {
     const h = createSwHarness();
     h.registerRoute(/a\.example\/x/, ok('partial'), 'GET');
-    // 両方を門番（m2-t7。microtask で Weiwudi_Internal が足す）より前に登録する
+    // 両方を門番（microtask で Weiwudi_Internal が足す）より前に登録する
     h.registerRoute(new RegExp(`^${SW_SELF_ORIGIN}/same`), ok('same'), 'GET');
     expect(await h.dispatch('https://a.example/x')).toBeUndefined();
     expect(await (await h.dispatch(`${SW_SELF_ORIGIN}/same`))!.text()).toBe('same');
@@ -78,7 +78,7 @@ describe('dispatch の選び方（Workbox の Router と同じ）', () => {
     h.registerRoute(/^https:\/\/m\.example\/x$/, ok('lower'), 'get');
     // Request は標準の method を大文字にするので、'get' で登録したルートには当たらない（実物と同じ）
     expect(await h.dispatch('https://m.example/x')).toBeUndefined();
-    // 門番（m2-t7）が microtask で後ろに足されるので、登録したルートを捕捉の値で引く
+    // 門番が microtask で後ろに足されるので、登録したルートを捕捉の値で引く
     expect(h.routes.find((r) => String(r.capture) === String(/^https:\/\/m\.example\/x$/))!.method).toBe('get');
   });
 
@@ -97,7 +97,7 @@ describe('dispatch の選び方（Workbox の Router と同じ）', () => {
     const h = createSwHarness();
     const seen = vi.fn(async ({ request }: { request: Request }) =>
       new Response(`${request.headers.get('content-type')}|${await request.text()}`));
-    // /v2/ は Weiwudi 自身の制御のルートが先に受ける（m2-t8）ので、別のパスで確かめる
+    // /v2/ は Weiwudi 自身の制御のルートが先に受けるので、別のパスで確かめる
     h.registerRoute(new RegExp(`^${SW_ORIGIN}/x/`), seen, 'POST');
     const res = await h.post('/x/register', { id: 'a' });
     expect(await res!.text()).toBe('text/plain;charset=UTF-8|{"id":"a"}');
@@ -107,7 +107,7 @@ describe('dispatch の選び方（Workbox の Router と同じ）', () => {
 describe('flushRoutes', () => {
   it('microtask で後から登録されるルートが、flushRoutes の後に見える', async () => {
     const h = createSwHarness();
-    // Weiwudi_Internal 自身の microtask のルート（m2-t7 の門番）を先に済ませる
+    // Weiwudi_Internal 自身の microtask のルート（門番）を先に済ませる
     await h.flushRoutes();
     const before = h.routes.length;
     Promise.resolve().then(() => Promise.resolve()).then(() => {

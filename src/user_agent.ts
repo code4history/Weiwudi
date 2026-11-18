@@ -1,5 +1,5 @@
 // 上流へ送る User-Agent。ページ（registerSW の検査）と SW（組み立て・付ける場面）の両方が import する。
-// 値の依存は errors だけ（仕様 §3）。
+// 値の依存は errors だけ。
 //
 // 決まり:
 // - 値はブラウザの User-Agent の後ろに足す（置き換えない）: `${navigator.userAgent} ${指定値} Weiwudi/<version>`。

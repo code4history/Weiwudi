@@ -1,5 +1,5 @@
-// スタイルの範囲取得の試験（m4-t4・仕様 §7.2・§11・L4・R-G・R32・R53・第 1 回 M15）。range.test.ts と同じく、ハーネスで
-// 大域（self・fetch・indexedDB）を差し替え、context と control を直接作る。上流は style.test.ts（m3-t7）と同じ形の偽で、
+// スタイルの範囲取得の試験。range.test.ts と同じく、ハーネスで
+// 大域（self・fetch・indexedDB）を差し替え、context と control を直接作る。上流は style.test.ts と同じ形の偽で、
 // オリジン＋パスで本体を引く。実ネットワークは使わない。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSwHarness, PAGE_CLIENT, PAGE_CLIENT_ID, SW_SELF_ORIGIN, type SwHarness } from './sw-harness';
@@ -163,7 +163,7 @@ const register = async (env: Env, extra: Record<string, unknown> = {}) => {
   env.h.fetch.mockClear();
 };
 
-describe('スタイルの fetchRange（§7.2・m4-t4）', () => {
+describe('スタイルの fetchRange', () => {
   it('style・tilejson・tile・glyph・sprite（4 つ）・data が全部 Entry になり、固定される', async () => {
     const env = await setup();
     await register(env);
@@ -187,7 +187,7 @@ describe('スタイルの fetchRange（§7.2・m4-t4）', () => {
   });
 });
 
-describe('グリフ（§11・L4・R32）', () => {
+describe('グリフ', () => {
   it("fontstack 1 つ・'common' の 5 範囲で putGlyphParts が 1 回、evictScopesFor も 1 回、parts が 5 つ、各範囲の再生が上流の本体と同じ", async () => {
     const env = await setup({ [STYLE]: { ...FULL, layers: [layers[1]] }, [TJ]: TILEJSON });
     await register(env);
@@ -234,7 +234,7 @@ describe('グリフ（§11・L4・R32）', () => {
     expect(await glyphParts(env2, 'Noto Sans Bold')).toEqual({ '0-255': 'Noto Sans Bold|0-255|1', '512-767': 'Noto Sans Bold|512-767|2' });
   });
 
-  it('グリフの単位の途中で cancel() → その fontstack の取れた範囲は書かれ、次の単位から止まる（第 1 回 M15）', async () => {
+  it('グリフの単位の途中で cancel() → その fontstack の取れた範囲は書かれ、次の単位から止まる', async () => {
     const env = await setup({ [STYLE]: { ...FULL, layers: [] }, [TJ]: TILEJSON });
     await register(env);
     env.onGlyph = (g) => {
@@ -257,7 +257,7 @@ describe('グリフ（§11・L4・R32）', () => {
   it('flush が QuotaExceededError で失敗すると errors.quota が 1 増える（範囲の数ではない）', async () => {
     const env = await setup({ [STYLE]: { ...FULL, layers: [layers[1]] }, [TJ]: TILEJSON });
     await register(env);
-    // m4-t6: 容量超過は 1 回だけ再試行するので、再試行も失敗させる（R16）
+    // 容量超過は 1 回だけ再試行するので、再試行も失敗させる
     vi.spyOn(env.store, 'putGlyphParts').mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError')).mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
     await ok(env, 'fetchRange', { id: 'st', range: RANGE });
     await settle(env);
@@ -305,7 +305,7 @@ describe('グリフ（§11・L4・R32）', () => {
   });
 });
 
-describe('枚数と進み（§7.2・R29）', () => {
+describe('枚数と進み', () => {
   it('estimate と total はタイルだけ。タイルが残っている間は percent が 100 にならず、100 を超えない', async () => {
     const env = await setup();
     await register(env);

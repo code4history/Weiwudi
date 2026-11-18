@@ -1,4 +1,4 @@
-// m4-t5: real store/control integration; every upstream response is local to the harness.
+// real store/control integration; every upstream response is local to the harness.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSwHarness, PAGE_CLIENT_ID } from './sw-harness';
 import { createContext } from '../../src/context';

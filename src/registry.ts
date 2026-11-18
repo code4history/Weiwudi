@@ -1,10 +1,10 @@
-// 合流と実効方針（仕様 §5.1・§5.6。m2-t6）。register・update・remove の Resource と Source の書き換えはここだけで行う。
-// 値の依存は store・url_pattern・constants・errors だけ（仕様 §3 の許可は store・spec・url_pattern・tile_math・constants・errors）。
+// 合流と実効方針。register・update・remove の Resource と Source の書き換えはここだけで行う。
+// 値の依存は store・url_pattern・constants・errors だけ（spec・tile_math も可）。
 //
 // 決まり:
 // - planRegister・composePolicy・isExclusiveTo・credentialSourceFor は純粋関数（IndexedDB を使わない）
 // - Resource の書き換えは createResource・replaceResource・patchResource だけ（count・bytes を store が引き継ぐ。第 1 回 S2）
-// - id は spec.ts の正規化済みの値だけを使う（第 1 回 C3）。warnings は "<code>: <Resource.id>"（R12）
+// - id は spec.ts の正規化済みの値だけを使う。warnings は "<code>: <Resource.id>"
 // - 旧 API の Resource（map: で始まる id）は合流の候補に入れず、書き換えない（第 2 回 S-6）
 import type { OutOfRange, ResourceMeta, ResourcePolicy, ResourceType, SourceRecord, Store, TileExtent } from './store';
 import type { NormalizedSpec, StoredSpec } from './spec';
@@ -16,8 +16,8 @@ import { MAX_TILE_ZOOM, normalizeTemplate, templatesOverlap } from './url_patter
 const isLegacy = (r: ResourceMeta): boolean => r.id.startsWith(LEGACY_PREFIX);
 
 /**
- * 衝突の warnings の書式の唯一の出どころ（仕様 §12 の "<code>: <subject>"）。keep の判定（isKeptIn）もこれで照らす
- * （書式が変わると keep の Source の spec が合成に紛れ込むため。m2-t6 の申し送り）
+ * 衝突の warnings の書式の唯一の出どころ（"<code>: <subject>"）。keep の判定（isKeptIn）もこれで照らす
+ * （書式が変わると keep の Source の spec が合成に紛れ込むため）
  */
 export const conflictWarning = (resourceId: string): string => `resource-conflict: ${resourceId}`;
 
@@ -54,7 +54,7 @@ const isTileSpec = (s: StoredSpec): boolean => s.type === 'tile';
 
 // ---- 子 Source（R1・X1） ----
 
-/** 子の id（X1）: "<parentId>\0<type>:<logicalName>"。利用者の id は \0 を含まない（m2 R36）ので衝突しない */
+/** 子の id: "<parentId>\0<type>:<logicalName>"。利用者の id は \0 を含まないので衝突しない */
 export const childSourceId = (parentId: string, type: ResourceType, logicalName: string): string =>
   `${parentId}\0${type}:${logicalName}`;
 
@@ -78,9 +78,9 @@ export function childLogicalName(slot: ChildSlot, key?: string): string {
   }
 }
 
-// ---- 実効方針（仕様 §5.6 の表） ----
+// ---- 実効方針 ----
 
-/** 範囲外の型の既定（仕様 §6）。ラスタは transparent、ベクタは empty */
+/** 範囲外の型の既定。ラスタは transparent、ベクタは empty */
 const defaultOutOfRange = (encoding: ResourceMeta['encoding']): OutOfRange => (encoding === 'vector' ? 'empty' : 'transparent');
 
 /**
@@ -104,7 +104,7 @@ const extentOf = (s: StoredSpec, scheme: ResourceMeta['scheme']): TileExtent => 
 };
 
 /**
- * 実効方針（仕様 §5.6）。sources は sourceIds の Source、rangeOnly は rangeOnlySourceIds の Source。
+ * 実効方針。sources は sourceIds の Source、rangeOnly は rangeOnlySourceIds の Source。
  * extents は両方の範囲の和、その他は sources だけから作る。credentialParams は Entry がある間（count > 0）は
  * 今の値のまま（縮めない。広がる合流は planRegister が先に拒否する）。sources に新 API の Source が無ければ今の方針と、rangeOnly だけから作った範囲を返す。
  * extraPolicies は仮の参加者の方針（keep の Source がいるときの今の方針。PR #77 N1）で、範囲以外の合成に Source と同じ規則で入る
@@ -145,7 +145,7 @@ const composeTemplates = (resource: ResourceMeta, sources: readonly SourceRecord
 };
 
 /**
- * 資格情報を使う Source（仕様 §5.6 の表の「資格情報」）: sourceIds の Source を登録順（order）に見て、
+ * 資格情報を使う Source: sourceIds の Source を登録順（order）に見て、
  * withCredentials にある最初のもの。無ければ undefined
  */
 export function credentialSourceFor(
@@ -188,7 +188,7 @@ export interface RegisterPlan {
   warnings: string[];
 }
 
-/** 合流の拒否の理由（仕様 §5.6）。合流できれば undefined */
+/** 合流の拒否の理由。合流できれば undefined */
 const conflictOf = (r: ResourceMeta, s: StoredSpec): string | undefined => {
   if (r.type !== s.type) return 'type';
   if (isTileSpec(s)) {
@@ -197,7 +197,7 @@ const conflictOf = (r: ResourceMeta, s: StoredSpec): string | undefined => {
     if ((r.encoding ?? encoding) !== encoding) return 'encoding';
     if ((r.scheme ?? 'xyz') !== (s.scheme ?? 'xyz')) return 'scheme';
   }
-  // 提供元が違えば合流しない（資格情報の足し方が Resource ごとに 1 つに決まらない。未指定どうしは一致。m3-t5）
+  // 提供元が違えば合流しない（資格情報の足し方が Resource ごとに 1 つに決まらない。未指定どうしは一致）
   if (r.provider !== s.provider) return 'provider';
   if (r.count > 0) {
     const have = new Set(r.policy.credentialParams.map((p) => p.toLowerCase()));
@@ -260,7 +260,7 @@ const lookupOf = (sources: readonly SourceRecord[]): Lookup => {
 
 /**
  * keep（S-I）の Source か: 自分の warnings にその Resource との衝突を持つ。その Source の保存済みの spec は新しい登録内容で、
- * この Resource に入れると別の Resource のテンプレートや新しい方針が混ざる（PR #77 水準 1 M1）
+ * この Resource に入れると別の Resource のテンプレートや新しい方針が混ざる（PR #77）
  */
 const isKeptIn = (rec: SourceRecord, resourceId: string): boolean =>
   rec.warnings.indexOf(conflictWarning(resourceId)) >= 0;
@@ -290,7 +290,7 @@ const composeFor = (m: ResourceMeta, recs: Lookup): Pick<ResourceMeta, 'policy' 
   return { policy: own.policy, extents: [...(own.extents ?? []), ...oldKept, ...rangeOnly], templates };
 };
 
-/** 範囲は tile の Resource だけが持つ（P1）。tile でなければ extents を消す（空の配列も書かない。L1 m1） */
+/** 範囲は tile の Resource だけが持つ。tile でなければ extents を消す（空の配列も書かない） */
 const tileExtentsOnly = (next: ResourceMeta): ResourceMeta => {
   if (next.type === 'tile') return next;
   delete next.extents;
@@ -316,7 +316,7 @@ const setRangeOnly = (m: ResourceMeta, ids: string[]): ResourceMeta => {
 };
 
 /**
- * Resource から Source を外す。sourceIds が空になれば rangeOnlySourceIds が残っていても Entry ごと消す（仕様 §5.6）。
+ * Resource から Source を外す。sourceIds が空になれば rangeOnlySourceIds が残っていても Entry ごと消す。
  * 旧 API の Resource は新 API の Source を参照に持たない（planRegister が候補から除く）ので、ここへは来ない
  */
 const detach = async (store: Store, resourceId: string, sourceId: string, recs: Lookup): Promise<void> => {
@@ -341,11 +341,11 @@ export interface RegisterResult {
   warnings: string[];
 }
 
-/** apply の振る舞い（m3-t2）。applyRegister は { false, false }、applyUpdate は { true, true }、スタイルの update() の子は { false, true }（P2） */
+/** apply の振る舞い。applyRegister は { false, false }、applyUpdate は { true, true }、スタイルの update() の子は { false, true } */
 export interface ApplyOptions {
   /** 衝突を WeiwudiError('resource-conflict') にして何も変えない（自分自身の update()） */
   throwOnConflict: boolean;
-  /** 通常の合流先の corsOk・corslessUntil を消す（CORS の判定のやり直し。仕様 §4.5） */
+  /** 通常の合流先の corsOk・corslessUntil を消す（CORS の判定のやり直し） */
   resetCors: boolean;
   /** 登録順。無ければ既存の値か nextOrder（子は親の order を渡す） */
   order?: number;
@@ -354,7 +354,7 @@ export interface ApplyOptions {
 }
 
 /**
- * 1 つの資源の指定を合流させて保存する（仕様 §5.6）。existing は同じ id の保存済みの記録（旧 API の記録は渡さない）。
+ * 1 つの資源の指定を合流させて保存する。existing は同じ id の保存済みの記録（旧 API の記録は渡さない）。
  * 同じ id で kind を替えた登録は attribute-invalid で、何も変えない（C-O5。子の構成が丸ごと変わり keep の規則が当たらない）
  */
 export const apply = async (
@@ -371,7 +371,7 @@ export const apply = async (
   }
   const plan = planRegister(spec, existing, await store.listResources());
   if (opts.throwOnConflict && plan.conflicts.length > 0) {
-    // 自分自身の update() の衝突は全体を失敗させ、何も変えない（仕様 §5.6）
+    // 自分自身の update() の衝突は全体を失敗させ、何も変えない
     throw new WeiwudiError('resource-conflict', `Source "${id}" conflicts with ${plan.conflicts.length} resource(s)`,
       { resourceIds: plan.conflicts.slice() });
   }
@@ -401,7 +401,7 @@ export const apply = async (
     const encoding = encodingOf(s);
     if (encoding !== undefined) base.encoding = encoding;
     if (isTileSpec(s)) base.scheme = s.scheme ?? 'xyz';
-    // 提供元は作るときだけ写す。合流では先の値を変えない（m3-t5）
+    // 提供元は作るときだけ写す。合流では先の値を変えない
     if (s.provider !== undefined) base.provider = s.provider;
     await store.createResource(recompose(base, recs));
   } else if (plan.join) {
@@ -409,7 +409,7 @@ export const apply = async (
       const sourceIds = m.sourceIds.indexOf(id) >= 0 ? m.sourceIds.slice() : [...m.sourceIds, id];
       const next = recompose(setRangeOnly({ ...m, sourceIds }, without(m.rangeOnlySourceIds, id)), recs);
       if (opts.resetCors) {
-        // update() は CORS の判定をやり直す（仕様 §4.5。count には触らない）
+        // update() は CORS の判定をやり直す（count には触らない）
         delete next.corsOk;
         delete next.corslessUntil;
       }
@@ -431,7 +431,7 @@ export const apply = async (
 };
 
 /**
- * 登録（仕様 §5.6）。衝突しても失敗にせず Source を保存し、warnings に書く。同じ id の再登録は、既に属している
+ * 登録。衝突しても失敗にせず Source を保存し、warnings に書く。同じ id の再登録は、既に属している
  * Resource との衝突を keep（古い方針のまま）にし、参照が消えた Resource からは外す（第 1 回 O-11）
  */
 export async function applyRegister(store: Store, spec: NormalizedSpec): Promise<RegisterResult> {
@@ -440,7 +440,7 @@ export async function applyRegister(store: Store, spec: NormalizedSpec): Promise
 }
 
 /**
- * 自分自身の update()（仕様 §5.6）。衝突は WeiwudiError('resource-conflict') で、何も変えない。
+ * 自分自身の update()。衝突は WeiwudiError('resource-conflict') で、何も変えない。
  * 無い Source（旧 API の Source を含む）は source-not-found、spec の id が違えば attribute-invalid
  */
 export async function applyUpdate(store: Store, sourceId: string, spec: NormalizedSpec): Promise<RegisterResult> {
@@ -455,7 +455,7 @@ export async function applyUpdate(store: Store, sourceId: string, spec: Normaliz
 }
 
 /**
- * 削除（仕様 §5.6）。参照している Resource から外し（sourceIds が空になれば Entry ごと消す）、
+ * 削除。参照している Resource から外し（sourceIds が空になれば Entry ごと消す）、
  * 範囲だけの Resource から外して和を計算し直し、最後に Source・資格情報・region を消す。
  * 無い Source（旧 API の Source を含む）は source-not-found
  */

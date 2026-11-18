@@ -1,4 +1,4 @@
-// 標準の提供元 mapbox（src/providers/mapbox.ts。m3-t5・#40・仕様 §10）。実ネットワーク・実トークンは使わない。
+// 標準の提供元 mapbox（src/providers/mapbox.ts。#40）。実ネットワーク・実トークンは使わない。
 import { describe, expect, it } from 'vitest';
 import { createMapboxProvider, MAPBOX_API } from '../../src/providers/mapbox';
 import { appendQueryCredentials } from '../../src/upstream';
@@ -218,7 +218,7 @@ describe('資格情報', () => {
 });
 
 // BeatBox 0.1.1 の toHttpUrl（code4history/BeatBox の src/index.ts。accessToken: 'pk.T' で作ったときの出力）を写した表。
-// 依存は足さない（R15）。違うのは、TileJSON に ?secure を付ける点と、トークンを足さない点だけ
+// 依存は足さない。違うのは、TileJSON に ?secure を付ける点と、トークンを足さない点だけ
 describe('BeatBox 0.1.1 の toHttpUrl との突き合わせ', () => {
   const BEATBOX: [input: string, beatbox: string][] = [
     ['mapbox://styles/u1/s1', 'https://api.mapbox.com/styles/v1/u1/s1?access_token=pk.T'],

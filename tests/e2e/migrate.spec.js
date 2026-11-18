@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { PAGE_HOST } from './fixtures/page-origin.mjs';
 
-// 1.1.x の旧 DB からの移行を実ブラウザで確かめる（m4-t10・仕様 §14.2）。legacy-seed.html が 1.1.1 の形の旧 DB
+// 1.1.x の旧 DB からの移行を実ブラウザで確かめる。legacy-seed.html が 1.1.1 の形の旧 DB
 // （Weiwudi.mapSetting と Weiwudi_x.tileCache に Blob）を IndexedDB に直接作ってから SW を登録し、旧 API の
 // /api/cache/x/z/x/y を読む。外部へ出ない構成（上流は tile-server.mjs の localhost:5174）。WebKit・Firefox でも走らせる
 // （R14'）。Chromium だけで成り立つものは @chromium-only で外す
@@ -216,7 +216,7 @@ test.describe('Weiwudi migration from 1.1.x', () => {
         expectNoLeaks(guard);
     });
 
-    // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた（仕様 §2 の 7）
+    // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた。
     test('serves migrated tiles offline during migration', { tag: '@chromium-only' }, async ({ page, context, request }) => {
         const guard = await guardNetwork(context);
         // z0〜5 の 1365 枚（200 件ずつで 7 バッチ）。最後に読まれるキー（z_x_y の辞書順の末尾）は数回の要求では移らない

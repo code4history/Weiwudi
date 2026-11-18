@@ -1,4 +1,4 @@
-// 範囲取得の CORS・認証の規則の試験（m4-t3・P6・R4。仕様 §4.5-3・§4.6 の文ごとに）。
+// 範囲取得の CORS・認証の規則の試験（規則の文ごとに）。
 // cors の取得（Request）と no-cors の確かめ（upstream.probeNoCors の fetch(文字列, init)）を偽の上流で分けて答える。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSwHarness, PAGE_CLIENT, PAGE_CLIENT_ID, SW_SELF_ORIGIN, opaqueResponse, type SwHarness } from './sw-harness';
@@ -82,7 +82,7 @@ const noCorsCalls = (env: Env) => env.h.fetch.mock.calls.filter(([r]) => typeof 
 
 const typeError = (): Response => { throw new TypeError('Failed to fetch'); };
 
-describe('§4.5-3 jobOpaqueStreak と 5 枚の確かめ', () => {
+describe('jobOpaqueStreak と 5 枚の確かめ', () => {
   it('実績の無い Resource で cors が TypeError・no-cors が opaque を 3 枚 → 5 枚の確かめ → 全部 opaque → stop（opaque）・opaque イベントが 1 回', async () => {
     const env = await setup({ cors: typeError, noCors: () => opaqueResponse() });
     await ok(env, 'register', SOURCE);
@@ -148,7 +148,7 @@ describe('§4.5-3 jobOpaqueStreak と 5 枚の確かめ', () => {
   });
 });
 
-describe('§4.6 範囲取得の認証', () => {
+describe('範囲取得の認証', () => {
   it('count === 0 で 401 が 3 回 → stop（upstream）', async () => {
     const env = await setup({ cors: () => png(401), noCors: () => opaqueResponse() });
     await ok(env, 'register', SOURCE);

@@ -1,11 +1,11 @@
-// 登録内容（SourceSpec）の検査と正規化（仕様 §5.1・§10・§12。m2-t3・第 1 回 O-18）。SW 側で register と update が使う。
-// 値の依存は url_pattern・tile_math・constants・errors だけ（仕様 §3）。保存の型は store.ts から import type で使う。
+// 登録内容（SourceSpec）の検査と正規化。SW 側で register と update が使う。
+// 値の依存は url_pattern・tile_math・constants・errors だけ。保存の型は store.ts から import type で使う。
 //
 // 決まり:
 // - 出力は入力を写さず、検査した項目だけで組み立てる（未知の項目や credentials が spec へ紛れ込まない）
 // - 資格情報は NormalizedSpec.credentials に分けて持ち、spec（SourceRecord.spec に入る）へは入れない
 // - 拒否の文面に入力の値（URL・資格情報・id）を入れない。項目の名前と番号だけを書く
-// - 提供元（m3-t5）: providers を渡されたときだけ使う。URL が matches に当たれば resolve してから検査し、
+// - 提供元: providers を渡されたときだけ使う。URL が matches に当たれば resolve してから検査し、
 //   validateCredentials を呼び、credentialParams を和に入れ、spec.provider に id を入れる
 import type { Credentials, OutOfRange, ResourcePolicy, ResourceType, TileExtent } from './store';
 import type { TileBox } from './tile_math';
@@ -17,7 +17,7 @@ import {
   DEFAULT_CREDENTIAL_PARAMS, MAX_TILE_ZOOM, compileTemplate, isSecretValue, normalizeTemplate, stripTemplateParams, tokenRejection,
 } from './url_pattern';
 
-// ---- 公開の型（仕様 §12。ページ側 API の型の正本。t8 で weiwudi.ts から export する） ----
+// ---- 公開の型（ページ側 API の型の正本。weiwudi.ts から export する） ----
 
 export type { Credentials, OutOfRange, TileBox };
 
@@ -43,12 +43,12 @@ export type SourceSpec = CommonPolicy & (
 
 // ---- 正規化の出力 ----
 
-/** 資源の指定の種類（利用者の kind と、スタイルの下位資源の種類。m3-t2） */
+/** 資源の指定の種類（利用者の kind と、スタイルの下位資源の種類） */
 export type MemberKind = 'raster' | 'vector' | 'asset' | 'style' | 'tilejson' | 'glyph' | 'sprite';
 
 /**
  * SourceRecord.spec に入れる形（資格情報を除く）。raster・vector・asset の Source と、スタイルの子 Source（kind: 'child'）。
- * m2 の記録は type を持たない（store.ts の storedSpecOf が 'tile' として読む）
+ * 旧い版の記録は type を持たない（store.ts の storedSpecOf が 'tile' として読む）
  */
 export interface StoredSpec {
   kind: 'raster' | 'vector' | 'asset' | 'child';
@@ -69,9 +69,9 @@ export interface StoredSpec {
   /** 子だけ: スタイルの中で子を指す名前（id の \0 の後の "<type>:" に続く部分） */
   logicalName?: string;
   policy: ResourcePolicy;
-  /** Source 単位の上限（§7.1）。子は持たない（親の値を使う） */
+  /** Source 単位の上限。子は持たない（親の値を使う） */
   cacheMaxBytes?: number;
-  /** 提供元（m3-t5） */
+  /** 提供元 */
   provider?: string;
 }
 
@@ -83,7 +83,7 @@ export interface StyleChild {
   from?: string;
 }
 
-/** スタイルの Source（親）の登録内容（m3-t2 で型と保存を決め、m3-t7 が使う） */
+/** スタイルの Source（親）の登録内容 */
 export interface StyleSpec {
   kind: 'style';
   id: string;
@@ -91,7 +91,7 @@ export interface StyleSpec {
   url: string;
   /** スタイル自身のテンプレート（正規化済み） */
   templates: [string];
-  /** m3 では保存だけ。m4 の範囲取得のグリフで使う */
+  /** 保存だけ。範囲取得のグリフで使う */
   fonts?: string[];
   policy: ResourcePolicy;
   cacheMaxBytes?: number;
@@ -99,7 +99,7 @@ export interface StyleSpec {
   children: StyleChild[];
 }
 
-// ---- 範囲取得の型（仕様 §7.2・§12。m4-t3） ----
+// ---- 範囲取得の型 ----
 
 /**
  * 範囲取得の範囲。bounds は経緯度（west > east は日付変更線をまたぐ）、box は maxZoom での x/y の範囲で
@@ -115,9 +115,9 @@ export interface FetchRangeOptions {
   pin?: boolean;
   /** 既定 5（1〜20。R31） */
   concurrency?: number;
-  /** 既定 'common'（スタイルのグリフ。m4-t4） */
+  /** 既定 'common'（スタイルのグリフ） */
   glyphRanges?: 'common' | 'all' | string[];
-  /** 追加の fontstack（スタイル。m4-t4・R53） */
+  /** 追加の fontstack（スタイル） */
   fonts?: string[];
   /** {ratio} の値。ページ側の既定は devicePixelRatio > 1 なら '@2x'（R-ratio） */
   ratio?: '' | '@2x';
@@ -125,7 +125,7 @@ export interface FetchRangeOptions {
 
 export type RegionStatus = 'running' | 'complete' | 'partial' | 'canceled' | 'stopped';
 
-/** 範囲取得の記録（仕様 §7.2・§12） */
+/** 範囲取得の記録 */
 export interface RegionInfo {
   id: string;
   sourceId: string;
@@ -151,7 +151,7 @@ export interface NormalizedRange {
   maxZoom: number;
 }
 
-/** 検査済みの FetchRangeOptions（既定を入れたもの。region に保存して再開で使う。R-t3-3） */
+/** 検査済みの FetchRangeOptions（既定を入れたもの。region に保存して再開で使う） */
 export interface NormalizedFetchOptions {
   pin: boolean;
   concurrency: number;
@@ -164,7 +164,7 @@ export interface NormalizedSpec {
   spec: StoredSpec;
   /** credentials ストアだけへ入れる。無ければ undefined */
   credentials?: Credentials;
-  /** 登録は通すが知らせること（"credential-undeclared: <名前>"。m4-t8・L8・R36）。無ければ undefined */
+  /** 登録は通すが知らせること（"credential-undeclared: <名前>"）。無ければ undefined */
   warnings?: string[];
 }
 
@@ -196,10 +196,10 @@ const own = (o: Record<string, unknown>, k: string): unknown =>
 const isNonNegNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 const isNonNegInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
 
-/** 秘密トークンか（仕様 §10）。判定は url_pattern.isSecretValue 1 か所（m4-t8・L7・R35） */
+/** 秘密トークンか。判定は url_pattern.isSecretValue 1 か所 */
 const isSecretToken = (v: string): boolean => isSecretValue(v);
 
-/** パスの区画の秘密トークン（仕様 §10。I9・R23）: sk.eyJ で始まる区画だけ（sk.osm のような区画名は通す）。大文字小文字を問わない */
+/** パスの区画の秘密トークン: sk.eyJ で始まる区画だけ（sk.osm のような区画名は通す）。大文字小文字を問わない */
 const isSecretPathSegment = (v: string): boolean => /^sk\.eyj/i.test(v);
 
 /** クエリ値を percent-decode する。崩れた % でも投げない（URLSearchParams で取る。第 4 回 O-3） */
@@ -207,7 +207,7 @@ const decodeQueryValue = (raw: string): string => new URLSearchParams(`v=${raw.r
 
 /**
  * テンプレートのクエリの (名前, 値) の組。名前と値は percent-decode しない生の形と、した形。
- * `#` を含むテンプレートは checkTemplate が先に拒否するので、最初の `?` から末尾までがクエリ（M1）
+ * `#` を含むテンプレートは checkTemplate が先に拒否するので、最初の `?` から末尾までがクエリ
  */
 const templateQueryPairs = (t: string): { rawName: string; name: string; raw: string; decoded: string }[] => {
   const q = t.indexOf('?');
@@ -251,7 +251,7 @@ const parseCredentials = (v: unknown): Credentials | undefined => {
   const query = parseStringRecord(own(v, 'query'), 'credentials.query');
   const headers = parseStringRecord(own(v, 'headers'), 'credentials.headers');
   for (const val of Object.values(query ?? {})) if (isSecretToken(val)) throw rejectedCredential('credentials.query');
-  // クエリの名前は大文字小文字を問わずに除く・合わせるので、小文字で同じ名前が 2 つあると勝ち負けが決まらない（M2）
+  // クエリの名前は大文字小文字を問わずに除く・合わせるので、小文字で同じ名前が 2 つあると勝ち負けが決まらない
   const lower = Object.keys(query ?? {}).map((k) => k.toLowerCase());
   if (lower.some((k, i) => lower.indexOf(k) !== i)) throw invalid('credentials.query', 'must not repeat a name in a different case');
   for (const val of Object.values(headers ?? {})) if (isSecretToken(val)) throw rejectedCredential('credentials.headers');
@@ -281,12 +281,12 @@ const parseCredentialParams = (v: unknown, explicitNames: readonly string[], fro
 };
 
 /**
- * 型ごとの字句の許可（m3-t2）。tile は TILE_TOKENS で座標が要る。glyph は {fontstack}・{range} の両方が要る。
- * sprite は内部の字句 {spriteSuffix} を受ける（m3-t6・R6。スタイルの子だけが sprite になり、利用者の登録は tile なので受けない）。
+ * 型ごとの字句の許可。tile は TILE_TOKENS で座標が要る。glyph は {fontstack}・{range} の両方が要る。
+ * sprite は内部の字句 {spriteSuffix} を受ける（スタイルの子だけが sprite になり、利用者の登録は tile なので受けない）。
  * style・tilejson・data は字句なし
  */
 const checkTokens = (type: ResourceType, compiled: ReturnType<typeof compileTemplate>, index: number): void => {
-  // 許可の表は url_pattern.tokenRejection 1 つ（style_body の子の判定と共有する。L1 Major-1）
+  // 許可の表は url_pattern.tokenRejection 1 つ（style_body の子の判定と共有する）
   const reason = tokenRejection(type, compiled);
   if (reason !== undefined) throw unsupportedTemplate(index, reason);
 };
@@ -294,7 +294,7 @@ const checkTokens = (type: ResourceType, compiled: ReturnType<typeof compileTemp
 /** 1 つのテンプレートを検査し、正規化した形を返す */
 const checkTemplate = (t: string, index: number, credentialParams: readonly string[], type: ResourceType = 'tile'): string => {
   if (/[\u0000-\u001f\u007f]/.test(t)) throw unsupportedTemplate(index, 'contains a control character');
-  // フラグメントは上流へ届かず、クエリの検査と除去の外に資格情報を残す（M1）
+  // フラグメントは上流へ届かず、クエリの検査と除去の外に資格情報を残す
   if (t.indexOf('#') >= 0) throw unsupportedTemplate(index, 'must not contain a fragment (#)');
   let parsed: URL;
   try {
@@ -341,7 +341,7 @@ const safeMatches = (p: WeiwudiProvider, url: string): boolean => {
 };
 
 /**
- * 提供元の解決（m3-t5）。各 URL に最初に当たる提供元で resolve する。当たる提供元がミラーの間で違う
+ * 提供元の解決。各 URL に最初に当たる提供元で resolve する。当たる提供元がミラーの間で違う
  * （オブジェクトの同一性で比べる。当たるものと当たらないものが混ざるのも含む）なら attribute-invalid。
  * resolve の失敗は、例外の種類を問わず固定の文面の unsupported-template（番号つき。利用者の提供元の文面を外へ出さない）
  */
@@ -433,13 +433,13 @@ const parseExtent = (o: Record<string, unknown>, sourceId: string, scheme: 'xyz'
   return extent;
 };
 
-/** 資格情報らしい値の形（m4-t8・L8・R36。sk. は checkTemplate が先に拒否する） */
+/** 資格情報らしい値の形（sk. は checkTemplate が先に拒否する） */
 const CREDENTIAL_LIKE = /^(pk|sk|tk)\./i;
 
 /**
  * テンプレートのクエリのうち、credentialParams（既定＋宣言。大文字小文字を問わない）に無い名前の値が資格情報らしい
  * （^(pk|sk|tk)\.。生の形か decode した形）項目の warnings（"credential-undeclared: <名前>"。値は書かない。名前ごとに 1 回）。
- * normalizeMember と、保存した登録内容から作り直す control の update() が共有する（m4-t8・L8・R36）
+ * normalizeMember と、保存した登録内容から作り直す control の update() が共有する
  */
 export function undeclaredCredentialWarnings(urls: readonly string[], credentialParams: readonly string[]): string[] {
   const declared = new Set(credentialParams.map((p) => p.toLowerCase()));
@@ -475,7 +475,7 @@ export interface MemberOptions {
 }
 
 /**
- * 1 つの資源の指定を検査して正規化する（仕様 §5.1・§10・§12。m3-t2）。拒否は WeiwudiError:
+ * 1 つの資源の指定を検査して正規化する。拒否は WeiwudiError:
  * - id（利用者の id）: map: から始まる・空・\0 を含む・文字列でない は attribute-invalid。既定は先頭のテンプレートの normalizeTemplate
  * - テンプレート: 絶対でない・http/https 以外・字句の誤り（型ごとの許可は checkTokens）・weiwudi.example.com・
  *   tile で座標が取れない は unsupported-template、userinfo は attribute-invalid
@@ -489,11 +489,11 @@ export function normalizeMember(
   type: ResourceType, inputUrls: string[], common: CommonPolicyInput, opts: MemberOptions,
   providers?: readonly WeiwudiProvider[],
 ): NormalizedSpec {
-  // kind と資源の型の組（m3-t2 の申し送り）: raster・vector は tile、asset は data だけ。子はどの型でもよい
+  // kind と資源の型の組: raster・vector は tile、asset は data だけ。子はどの型でもよい
   if ((opts.kind === 'asset' && type !== 'data') || ((opts.kind === 'raster' || opts.kind === 'vector') && type !== 'tile')) {
     throw new WeiwudiError('internal', `Source kind "${opts.kind}" cannot hold a ${type} resource`);
   }
-  // 提供元の URL は resolve してから検査する（以後の urls は解決した https の URL。m3-t5）
+  // 提供元の URL は resolve してから検査する（以後の urls は解決した https の URL）
   const { urls, provider } = resolveProviders(inputUrls, providers);
   const explicit = parseCredentials(own(common, 'credentials'));
   const providerParams = (provider?.credentialParams ?? []).filter((p) => typeof p === 'string' && p !== '');
@@ -504,12 +504,12 @@ export function normalizeMember(
   const templates = normalized.filter((t, i, xs) => xs.indexOf(t) === i);
   const id = opts.internalId ?? parseId(opts.id, templates[0]);
 
-  // テンプレートに載っていた資格情報の項目（字句を含む値は除く）。名前は小文字で 1 つにまとめ（M2）、
+  // テンプレートに載っていた資格情報の項目（字句を含む値は除く）。名前は小文字で 1 つにまとめ、
   // 先のミラー・先の出現が勝ち、明示の credentials がさらに勝つ。出力の名前は勝った側の綴り。
   // 同じ名前に違う値があれば attribute-invalid（I2・R22。明示の名前は見ない。値は文面に入れない）
   const drop = new Set(credentialParams.map((p) => p.toLowerCase()));
   const explicitNames = new Set(Object.keys(explicit?.query ?? {}).map((n) => n.toLowerCase()));
-  // 1 つのテンプレートの中では先の出現が勝つ（M2）。比べるのはミラーごとに勝った値どうし
+  // 1 つのテンプレートの中では先の出現が勝つ。比べるのはミラーごとに勝った値どうし
   const merged = new Map<string, [name: string, value: string]>();
   for (const t of urls) {
     const first = new Map<string, [name: string, value: string]>();
@@ -592,11 +592,11 @@ export function normalizeMember(
   return { spec, ...(credentials ? { credentials } : {}), ...(warnings.length > 0 ? { warnings } : {}) };
 }
 
-/** スタイルの Source（親）の正規化の出力（m3-t7）。資格情報は credentials ストアだけへ入れる */
+/** スタイルの Source（親）の正規化の出力。資格情報は credentials ストアだけへ入れる */
 export interface NormalizedStyle {
   spec: StyleSpec;
   credentials?: Credentials;
-  /** NormalizedSpec.warnings と同じ（m4-t8・L8） */
+  /** NormalizedSpec.warnings と同じ */
   warnings?: string[];
 }
 
@@ -613,7 +613,7 @@ const parseFonts = (v: unknown): string[] | undefined => {
 };
 
 /**
- * スタイルの登録内容（m3-t7・仕様 §5.5）。url は文字列 1 つ（配列は attribute-invalid）。検査は normalizeMember('style', …) と同じで、
+ * スタイルの登録内容。url は文字列 1 つ（配列は attribute-invalid）。検査は normalizeMember('style', …) と同じで、
  * 提供元（mapbox:// など）も通す。children は空（芋づるの子は style.ts が作る）
  */
 const normalizeStyle = (input: Record<string, unknown>, providers?: readonly WeiwudiProvider[]): NormalizedStyle => {
@@ -636,9 +636,9 @@ const normalizeStyle = (input: Record<string, unknown>, providers?: readonly Wei
 };
 
 /**
- * 利用者の登録内容を検査して正規化する（仕様 §5.1・§5.5・§10・§12）。kind は raster・vector・style・asset（m3-t7）、
+ * 利用者の登録内容を検査して正規化する。kind は raster・vector・style・asset、
  * それ以外の値は attribute-invalid。raster・vector は normalizeMember('tile', …)、asset は normalizeMember('data', …)（URL 配列はミラー。R8）、
- * style は NormalizedStyle。providers は提供元の評価の順（m3-t5。無ければ使わない）
+ * style は NormalizedStyle。providers は提供元の評価の順（無ければ使わない）
  */
 export function normalizeSpec(input: unknown, providers?: readonly WeiwudiProvider[]): NormalizedInput {
   if (!isPlainObject(input)) throw invalid('spec', 'must be an object');
@@ -651,9 +651,8 @@ export function normalizeSpec(input: unknown, providers?: readonly WeiwudiProvid
 }
 
 /**
- * 子の URL の組を normalizeMember が受けるか（m3-t7。投げずに真偽で返す）。スタイルの子を作るとき（style.ts）と、
- * 本体の資格情報の除去の組（style_body。配線が context に渡す）が同じ判定を使う（t6 の申し送り: R22・userinfo・sk.・# など
- * normalizeMember だけが拒否する組を、子作りと本体の除去で揃える）
+ * 子の URL の組を normalizeMember が受けるか（投げずに真偽で返す）。スタイルの子を作るとき（style.ts）と、
+ * 本体の資格情報の除去の組（style_body。配線が context に渡す）が同じ判定を使う（userinfo・sk.・# など normalizeMember だけが拒否する組を、子作りと本体の除去で揃える）
  */
 export function acceptsMember(
   type: ResourceType, templates: readonly string[], credentialParams: readonly string[], providers?: readonly WeiwudiProvider[],
@@ -684,9 +683,9 @@ export function hasSecretPathSegment(url: string): boolean {
   });
 }
 
-// ---- 範囲取得の範囲の検査（仕様 §7.2・m4-t3・R28・R30・R-tms） ----
+// ---- 範囲取得の範囲の検査 ----
 
-/** 範囲の Source の側（範囲と scheme）。'all' のスタイルは子の tile の範囲を all に並べる（R-t3-2） */
+/** 範囲の Source の側（範囲と scheme）。'all' のスタイルは子の tile の範囲を all に並べる */
 export interface RangeSource {
   extent?: TileExtent;
   scheme?: 'xyz' | 'tms';
@@ -718,7 +717,7 @@ export function copyRange(input: unknown): RangeSpec {
       throw invalid('bounds', 'must be [west, south, east, north]');
     }
     const [w, s, e, n] = bounds as number[];
-    // west > east は日付変更線をまたぐ範囲（§7.2）
+    // west > east は日付変更線をまたぐ範囲
     if (w < -180 || w > 180 || e < -180 || e > 180 || s < -90 || n > 90 || s > n) throw invalid('bounds', 'is out of range');
     return { bounds: [w, s, e, n], minZoom, maxZoom };
   }
@@ -740,14 +739,14 @@ const boundsBox = (w: number, s: number, e: number, n: number, z: number): TileB
   return { minX: clamp(b.minX, 0, last), maxX: clamp(b.maxX, 0, last), minY: clamp(b.minY, 0, last), maxY: clamp(b.maxY, 0, last) };
 };
 
-/** maxZoom の box を、より大きい z の box にする（子の範囲の和。R-t3-2） */
+/** maxZoom の box を、より大きい z の box にする（子の範囲の和） */
 const scaleUp = (box: TileBox, from: number, to: number): TileBox => {
   const f = Math.pow(2, to - from);
   return { minX: box.minX * f, maxX: (box.maxX + 1) * f - 1, minY: box.minY * f, maxY: (box.maxY + 1) * f - 1 };
 };
 
 /**
- * 範囲を正規化する（§7.2）。boxes は maxZoom での XYZ の座標。bounds は緯度を ±85.0511 に丸め（R28）、
+ * 範囲を正規化する。boxes は maxZoom での XYZ の座標。bounds は緯度を ±85.0511 に丸め、
  * west > east は 2 つの box に分ける。box は Source の scheme の座標として読み、tms なら XYZ に直す（R-tms）。
  * 'all' は取得のときの Source の範囲（スタイルは source.all の子の範囲の和）。box の無い範囲は cannot-fetch-all（R30）
  */

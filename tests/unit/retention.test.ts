@@ -1,4 +1,4 @@
-// m4-t2・仕様 §7.1: 実物の store/core と SW の dispatch で保持期間の掃除を確かめる。
+// 実物の store/core と SW の dispatch で保持期間の掃除を確かめる。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import * as contexts from '../../src/context';

@@ -1,13 +1,13 @@
-// スタイル・TileJSON の本体の解析と書き換え（仕様 §5.5・§10。m3-t6・R5・R28・R31・R32）。純粋関数だけを置く。
-// 値の依存は url_pattern・constants・errors だけ（仕様 §3）。IndexedDB も上流の取得も使わない。
+// スタイル・TileJSON の本体の解析と書き換え。純粋関数だけを置く。
+// 値の依存は url_pattern・constants・errors だけ。IndexedDB も上流の取得も使わない。
 //
 // 決まり:
 // - モジュール変数を持たない
 // - 子になる URL の組（1 つの子になる URL の全部）は childGroups 1 つで数える。collectStyleRefs（子を作る）と
 //   rewriteStyleBody（本体の資格情報の除去）が同じ組を使う（S-N1）
 // - 子として受けられない組（型の字句の許可に外れる・compile できない。url_pattern.tokenRejection）は子にせず、除去もしない。
-//   1 つでも外れる組を持つ source は、source ごと skipped にする（L1 Major-1・Minor-3）。source を持たない
-//   glyphs・sprite の組は dropped に種類と論理名だけを残す（subject に URL・トークンを入れない。仕様 §12）
+//   1 つでも外れる組を持つ source は、source ごと skipped にする。source を持たない
+//   glyphs・sprite の組は dropped に種類と論理名だけを残す（subject に URL・トークンを入れない）
 // - 除くのは、組の全部の URL で shouldStrip が真のときの、その組の URL の credentialParams の項目だけ（C-S1・X5・R32）。
 //   除くのは登録した資格情報の値（StripRule.credentialValues）と同じ値の項目だけ（違う値・登録の無い名前は子の固有の
 //   トークンなので本体に残し、normalizeMember で子の資格情報に移る）。相対 URL は base で絶対化して判定し、書き戻すときは元の相対の形のまま項目だけを除く
@@ -28,17 +28,17 @@ export interface StyleRefs {
   glyphs?: string;
   /** 文字列か {id, url}[] の url */
   sprites: string[];
-  /** sprites と同じ並びの id（{id, url}[] の id。文字列の sprite は undefined。子の論理名に使う。m3-t7） */
+  /** sprites と同じ並びの id（{id, url}[] の id。文字列の sprite は undefined。子の論理名に使う） */
   spriteIds: (string | undefined)[];
   /** geojson の data（文字列）・image の url */
   data: { name: string; url: string }[];
   /** 子にしない source（video・知らない type・URL が解決できないもの。R31） */
   skipped: { name: string; reason: 'unsupported-source' }[];
-  /** 子にできなかった glyphs・sprite（種類と論理名だけ。URL・トークンを入れない。仕様 §12 の unsupported-source の subject） */
+  /** 子にできなかった glyphs・sprite（種類と論理名だけ。URL・トークンを入れない。unsupported-source の subject） */
   dropped: DroppedRef[];
 }
 
-/** 子にできなかった glyphs・sprite の組（source を持たないので skipped に入らない分。仕様 §12） */
+/** 子にできなかった glyphs・sprite の組（source を持たないので skipped に入らない分） */
 export interface DroppedRef {
   slot: 'glyphs' | 'sprite';
   /** sprite の {id, url}[] の id（文字列の sprite は undefined） */
@@ -50,17 +50,17 @@ export interface StripRule {
   credentialParams: readonly string[];
   /**
    * 登録した資格情報の値（親の credentials.query）。本体の項目は、名前が credentialParams にあり値がこの値と同じときだけ除く
-   * （違う値・登録の無い名前＝子の固有のトークンは本体に残し、子の資格情報に移る。§10 R32）
+   * （違う値・登録の無い名前＝子の固有のトークンは本体に残し、子の資格情報に移る）
    */
   credentialValues: Readonly<Record<string, string>>;
   /** 1 つの組（子になる URL の組。絶対化した URL を受ける）の全部が真のときだけ、その組から除く */
   shouldStrip: (absoluteUrl: string) => boolean;
-  /** 組を子として受けるか（spec.acceptsMember。normalizeMember だけが拒否する組を、子作りと除去で揃える。m3-t7） */
+  /** 組を子として受けるか（spec.acceptsMember。normalizeMember だけが拒否する組を、子作りと除去で揃える） */
   accepts?: MemberAcceptor;
 }
 
 /**
- * 子の URL の組（型の子のテンプレート。sprite は base＋{spriteSuffix}）を子として受けるか（m3-t7）。
+ * 子の URL の組（型の子のテンプレート。sprite は base＋{spriteSuffix}）を子として受けるか。
  * 配線と style.ts が spec.acceptsMember を渡す。無ければ字句の許可（tokenRejection）だけで見る
  */
 export type MemberAcceptor = (type: ResourceType, templates: string[]) => boolean;
@@ -122,7 +122,7 @@ const SLOT_TYPE: Readonly<Record<'tilejson' | 'tiles' | 'glyphs' | 'sprite' | 'd
 });
 
 /**
- * 絶対化した URL が、その型の子のテンプレートとして受けられるか（L1 Major-1）。userinfo が無く、compileTemplate が通り、字句がその型の許可の範囲
+ * 絶対化した URL が、その型の子のテンプレートとして受けられるか。userinfo が無く、compileTemplate が通り、字句がその型の許可の範囲
  * （url_pattern.tokenRejection。spec.ts の登録の検査と同じ表）にあること。sprite は子のテンプレート（base＋{spriteSuffix}）で見る
  */
 const acceptsAsChild = (type: ResourceType, absoluteUrl: string): boolean => {
@@ -146,7 +146,7 @@ interface Group {
   /** tiles の source（範囲を読む） */
   source?: Obj;
   encoding?: 'raster' | 'vector';
-  /** sprite の {id, url}[] の id（m3-t7） */
+  /** sprite の {id, url}[] の id */
   spriteId?: string;
 }
 
@@ -200,8 +200,8 @@ const styleGroups = (style: Obj & { sources: Obj }): { groups: Group[]; unsuppor
 
 /**
  * 子として受けられる組（abs は絶対化した URL）と、子にしない source の名前と、子にできなかった glyphs・sprite。
- * source は組が 1 つでも外れたら丸ごと外す（Minor-3）。accepts があれば組の単位でも見る（R22 のミラーの値の食い違い・
- * userinfo・sk. など。m3-t7）
+ * source は組が 1 つでも外れたら丸ごと外す。accepts があれば組の単位でも見る（ミラーの値の食い違い・
+ * userinfo・sk. など）
  */
 const childGroups = (
   style: Obj & { sources: Obj }, base: string, accepts?: MemberAcceptor,
@@ -238,7 +238,7 @@ export function parseStyle(text: string): unknown {
 
 /**
  * スタイルが参照する下位資源（相対 URL はスタイルの URL で解決）。スタイルの形でなければ invalid-style。
- * accepts は組を子として受けるかの判定（本体の除去の StripRule.accepts と同じもの。m3-t7）
+ * accepts は組を子として受けるかの判定（本体の除去の StripRule.accepts と同じもの）
  */
 export function collectStyleRefs(style: unknown, base: string, accepts?: MemberAcceptor): StyleRefs {
   if (!isStyleShape(style)) throw invalidStyle('style');
@@ -273,7 +273,7 @@ export function collectTileJson(text: string, base: string): TileJsonRefs | unde
 
 /**
  * 子として受けられる組（childGroups が絶対化した abs）の全部で shouldStrip が真なら、元の形のまま credentialParams の項目
- * のうち credentialValues と同じ値のものだけを除いた URL の列（判定は stripTemplateParams の 1 か所。§10 R32）。除かない・変わらないときは undefined
+ * のうち credentialValues と同じ値のものだけを除いた URL の列（判定は stripTemplateParams の 1 か所）。除かない・変わらないときは undefined
  */
 const strippedGroup = (urls: readonly string[], abs: readonly string[], strip: StripRule): string[] | undefined => {
   if (abs.some((u) => !strip.shouldStrip(u))) return undefined;
@@ -327,7 +327,7 @@ export function rewriteTileJsonBody(text: string, base: string, o: { strip?: Str
 }
 
 /**
- * 親の資格情報を受け取る URL か（R5）。子を作るとき（t7）と本体の除去（R32）の両方がこれを使う。
+ * 親の資格情報を受け取る URL か。子を作るときと本体の除去の両方がこれを使う。
  * スタイルの URL と同じオリジンか、親の提供元の matches に当たる（投げたら当たらない）
  */
 export function credentialTargetOf(o: { styleOrigin: string; providerMatches?: (url: string) => boolean }): (absoluteUrl: string) => boolean {
@@ -350,7 +350,7 @@ export function credentialTargetOf(o: { styleOrigin: string; providerMatches?: (
 
 /**
  * MapLibre の式の演算子（collectFonts が text-font の式を飛ばすための判定。先頭がこれらの文字列の配列は式）。
- * フォント名と取り違えないよう、式の仕様の名前だけを並べる（m4-t4・R53）
+ * フォント名と取り違えないよう、式の仕様の名前だけを並べる
  */
 const EXPRESSION_OPERATORS: ReadonlySet<string> = new Set([
   'array', 'boolean', 'collator', 'format', 'image', 'literal', 'number', 'number-format', 'object', 'string',
@@ -372,7 +372,7 @@ const fontstackOf = (v: unknown): string | undefined => {
 };
 
 /**
- * スタイルの layers[*].layout['text-font'] の fontstack（m4-t4・R53）。文字列の配列と ["literal", [文字列…]] を集め、
+ * スタイルの layers[*].layout['text-font'] の fontstack。文字列の配列と ["literal", [文字列…]] を集め、
  * 配列を , で結んで 1 つの fontstack にする（MapLibre が {fontstack} に入れる形）。式は飛ばす。重複を除き、最初に現れた順
  */
 export function collectFonts(style: unknown): string[] {

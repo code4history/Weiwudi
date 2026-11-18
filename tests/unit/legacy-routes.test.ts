@@ -1,5 +1,5 @@
-// 旧 API のルートの登録と、install・activate のリスナ（m2-t5。weiwudi-gw-logic.test.ts の :39〜:75 を移した）。
-// 正規表現の試験はそのまま。「registerRoute を 1 回」は「旧 API のルートが 1 本」に直した（仕様 §13・§4.3）。
+// 旧 API のルートの登録と、install・activate のリスナ（weiwudi-gw-logic.test.ts から移した）。
+// 正規表現の試験はそのまま。「registerRoute を 1 回」は「旧 API のルートが 1 本」に直した。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSwHarness } from './sw-harness';
 
@@ -47,7 +47,7 @@ describe('Weiwudi_Internal の初期化', () => {
     expect(waitUntil).toHaveBeenCalledWith(sentinel);
   });
 
-  it('/v2/ で始まるパスは旧 API へ渡さない。ping は control が答え、他は 404・Not Found（仕様 §3・計画 m2-t5・m2-t8）', async () => {
+  it('/v2/ で始まるパスは旧 API へ渡さない。ping は control が答え、他は 404・Not Found', async () => {
     const h = createSwHarness();
     expect((await (await h.dispatch('https://weiwudi.example.com/v2/ping'))!.json()).api).toBe(2);
     const res = await h.dispatch('https://weiwudi.example.com/v2/nope');
@@ -67,9 +67,9 @@ describe('Weiwudi_Internal の初期化', () => {
   });
 });
 
-// m2-t7: 照合ルートと門番を足した後も、旧 API のルートの形と経路は変わらない（仕様 §4.3）
-describe('照合ルート・門番と旧 API のルート（m2-t7）', () => {
-  it('旧 API の GET RegExp ルートはちょうど 1 本のまま。制御の POST（m2-t8）の後に、照合ルート（同期）と門番（microtask）が関数の捕捉で並ぶ', async () => {
+// 照合ルートと門番を足した後も、旧 API のルートの形と経路は変わらない
+describe('照合ルート・門番と旧 API のルート', () => {
+  it('旧 API の GET RegExp ルートはちょうど 1 本のまま。制御の POST の後に、照合ルート（同期）と門番（microtask）が関数の捕捉で並ぶ', async () => {
     const h = createSwHarness();
     expect(h.routes).toHaveLength(3);
     await h.flushRoutes();
@@ -101,7 +101,7 @@ describe('照合ルート・門番と旧 API のルート（m2-t7）', () => {
   });
 });
 
-// m4-t2: store を使う Weiwudi の要求だけが保守の契機（既存の試験は変更しない）。
+// store を使う Weiwudi の要求だけが保守の契機（既存の試験は変更しない）。
 describe('保守を waitUntil へ渡すルート', () => {
   it('門番と照合ルートの dispatch は照合に当たったときだけ保守を起こす', async () => {
     const { createContext } = await import('../../src/context');

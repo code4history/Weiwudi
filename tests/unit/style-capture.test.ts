@@ -1,5 +1,5 @@
-// スタイル・TileJSON・スプライトの捕捉（m3-t6・I3 の前半・仕様 §5.5・§6・§10・R5・R6・R28・R32・C-S1・C-S4）。
-// t7 の芋づる登録はまだ無いので、t2 の normalizeMember と apply で style・tilejson・sprite の子の Resource を直接作り、
+// スタイル・TileJSON・スプライトの捕捉。
+// 芋づる登録は使わず、normalizeMember と apply で style・tilejson・sprite の子の Resource を直接作り、
 // ハーネスの SW（標準の mapbox を持つ配線）の照合ルート・門番で捕捉させる。実ネットワーク・実トークンは使わない。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSwHarness, type SwHarness } from './sw-harness';
@@ -29,7 +29,7 @@ const json = (body: unknown, type = 'application/json') =>
 const styleBody = (sources: Record<string, unknown>, over: Record<string, unknown> = {}) =>
   JSON.stringify({ version: 8, sources, layers: [], ...over });
 
-/** スタイルの親の記録（t7 が作るもの。ここでは直接置く） */
+/** スタイルの親の記録（芋づる登録が作るもの。ここでは直接置く） */
 const putParent = async (store: Store, id: string, url: string, provider?: string): Promise<void> => {
   const spec: StyleSpec = {
     kind: 'style', id, url, templates: [url],
@@ -41,7 +41,7 @@ const putParent = async (store: Store, id: string, url: string, provider?: strin
   await store.putSource(rec);
 };
 
-/** スタイルの子を 1 つ作る（t2 の normalizeMember と apply。親の order・parentId を渡す） */
+/** スタイルの子を 1 つ作る（normalizeMember と apply。親の order・parentId を渡す） */
 const putChild = async (
   store: Store, parentId: string, type: ResourceType, logicalName: string, url: string,
   common: Record<string, unknown> = {}, opts: { providers?: boolean; encoding?: 'raster' | 'vector' } = {},
@@ -114,7 +114,7 @@ describe('スタイルの捕捉', () => {
     expect(await saved!.body.blob.text()).not.toContain(TOKEN);
   });
 
-  it('資格情報が無ければ本体は上流のまま（仕様 §10）', async () => {
+  it('資格情報が無ければ本体は上流のまま', async () => {
     const { h, store } = await setup();
     await putParent(store, 'st', STYLE_URL);
     await putChild(store, 'st', 'style', 'style', STYLE_URL);
@@ -173,7 +173,7 @@ describe('スタイルの捕捉', () => {
     const r = await putChild(store, 'st', 'style', 'style', STYLE_URL, { credentials: { query: { access_token: TOKEN } } });
     h.fetch.mockImplementation(async (req: Request) => (req.url.startsWith(STYLE_URL)
       ? json(styleBody({
-        // 除くのは登録した資格情報と同じ値の項目だけ（§10 R32）
+        // 除くのは登録した資格情報と同じ値の項目だけ
         a: { type: 'raster', tiles: [`https://a.example/{z}/{x}/{y}.png?access_token=${TOKEN}`] },
         b: { type: 'raster', tiles: ['https://b.example/{z}/{x}/{y}.png?key=k'] },
       }))
@@ -184,14 +184,14 @@ describe('スタイルの捕捉', () => {
     expect(body.sources.a.tiles).toEqual(['https://a.example/{z}/{x}/{y}.png']);
     expect(body.sources.b.tiles).toEqual(['https://b.example/{z}/{x}/{y}.png?key=k']);
 
-    // b.example の子（t7 の R5 では親の資格情報を受け取らない）。テンプレートの key だけを持つ
+    // b.example の子（親の資格情報を受け取らない）。テンプレートの key だけを持つ
     const b = await putChild(store, 'st', 'tile', 'b', body.sources.b.tiles[0], {}, { encoding: 'raster' });
     expect(await store.getCredentials(b.source.id)).toEqual({ query: { key: 'k' } });
     expect(await store.getCredentials(b.source.id)).not.toHaveProperty('query.access_token');
     // 表を読み直させる（ハーネスの SW へ届く）
     const { tableChanged, NOTIFY_DEBOUNCE_MS } = await import('../../src/hook');
     await tableChanged(createContext());
-    // 通知は最後の変更から NOTIFY_DEBOUNCE_MS 後（m4-t8・I8b・R34）
+    // 通知は最後の変更から NOTIFY_DEBOUNCE_MS 後
     await new Promise((res) => setTimeout(res, NOTIFY_DEBOUNCE_MS + 20));
     h.fetch.mockClear();
     const tile = await get(h, 'https://b.example/1/0/0.png?key=k');
@@ -286,7 +286,7 @@ describe('L3: 合流後も組の判定には親の credentialParams を使う', 
     const text = await res.text();
     expect(text).not.toContain(TOKEN);
     const body = JSON.parse(text);
-    // 登録した資格情報と同じ値の access_token だけを除く。variant は登録の値が無いので残す（§10 R32）
+    // 登録した資格情報と同じ値の access_token だけを除く。variant は登録の値が無いので残す
     expect(type === 'style' ? body.sources.t.tiles : body.tiles)
       .toEqual(['one', 'two'].map((v) => `https://a.example/${v}/{z}/{x}/{y}.pbf?variant=${v}`));
     const [saved] = await entriesOf(store, resource.id, ['']);
@@ -313,7 +313,7 @@ describe('スプライトの捕捉（R6）', () => {
   });
 });
 
-describe('serveResource を直接呼ぶ（L1 Minor-2・Minor-4）', () => {
+describe('serveResource を直接呼ぶ', () => {
   const TJ = 'https://a.example/tiles/t.json';
   const tjBody = () => json({ tiles: [`https://a.example/{z}/{x}/{y}.pbf?access_token=${TOKEN}`] });
 
@@ -368,7 +368,7 @@ describe('serveResource を直接呼ぶ（L1 Minor-2・Minor-4）', () => {
     const m = matchUrl(compileTemplate(resource.templates[0]), url)!;
     const res = await serveResource(ctx, resource, new Request(TJ), url, m, credentials, { parent });
     expect(res.headers.get('x-weiwudi-status')).toBe('miss');
-    // 登録した資格情報と同じ値の access_token だけを除く。variant は登録の値が無いので残す（§10 R32）
+    // 登録した資格情報と同じ値の access_token だけを除く。variant は登録の値が無いので残す
     expect((await res.json()).tiles).toEqual(['one', 'two'].map((v) => `https://a.example/${v}/{z}/{x}/{y}.pbf?variant=${v}`));
   });
 
@@ -380,7 +380,7 @@ describe('serveResource を直接呼ぶ（L1 Minor-2・Minor-4）', () => {
     expect(await res.text()).toContain(TOKEN);
   });
 
-  it('Minor-4: hit では除去の規則を計算しない（Source・資格情報を IndexedDB から読まない）', async () => {
+  it('hit では除去の規則を計算しない（Source・資格情報を IndexedDB から読まない）', async () => {
     const { ctx, store } = await prepare();
     await putParent(store, 'p2', STYLE_URL);
     const r = await putChild(store, 'p2', 'tilejson', 'tj', TJ, { credentials: { query: { access_token: TOKEN } } });

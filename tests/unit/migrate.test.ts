@@ -1,4 +1,4 @@
-// 旧 DB（Weiwudi・Weiwudi_<mapID>）からの移行（m4-t7・仕様 §14.2・R17〜R19・R50・R51・R59）。
+// 旧 DB（Weiwudi・Weiwudi_<mapID>）からの移行。
 // fake-indexeddb の IDBFactory に 1.1.x の形の旧 DB を作り（F22）、契機（migrateStep）を 1 回ずつ進めて確かめる。
 // 「SW の起動」は新しい Context（メモリの状態が空）で表す。旧 API の要求は同じ Context の handleLegacy に渡す。
 // 旧レコードの epoch は試験の今の時刻にする（24 時間を過ぎると stale・refresh になり hit を確かめられない）。
@@ -101,7 +101,7 @@ const steps = async (ctx: Context, n: number) => {
   for (let i = 0; i < n; i++) await step(ctx);
 };
 
-describe('第 1 段と第 2 段（仕様 §14.2・R51）', () => {
+describe('第 1 段と第 2 段', () => {
   it('mapSetting 2 件・a 450 件・b 0 件: 1 回目で第 1 段、続く 3 回で 200・200・50 を移し、旧 DB を順に消す', async () => {
     const factory = new IDBFactory();
     setup(factory);
@@ -247,7 +247,7 @@ describe('第 1 段と第 2 段（仕様 §14.2・R51）', () => {
   });
 });
 
-describe('読み通し（R18・第 1 回 M5）', () => {
+describe('読み通し', () => {
   it('最初の要求: 旧 DB だけで SW を起動し、契機を待たずに /api/cache を 1 回 → 第 1 段を待って読み通しで hit（オフライン）', async () => {
     const factory = new IDBFactory();
     const { fetch } = setup(factory);
@@ -334,7 +334,7 @@ describe('読み通し（R18・第 1 回 M5）', () => {
   });
 });
 
-describe('失敗の数え方（第 1 回 M6・第 2 回 L2）', () => {
+describe('失敗の数え方', () => {
   it('先頭の 250 件が壊れた記録（blob が無い）でも lastKey で最後まで進み、recordFailures 250・batchFailures 0', async () => {
     const factory = new IDBFactory();
     setup(factory);
@@ -398,8 +398,8 @@ describe('失敗の数え方（第 1 回 M6・第 2 回 L2）', () => {
   });
 });
 
-describe('PR #103 のレビュー（M1・L1・L2）', () => {
-  it('M1: putEntry が 3 回 reject すると failed になり、Weiwudi_a と旧レコードが残る（lastKey は進めない）', async () => {
+describe('PR #103 のレビュー', () => {
+  it('putEntry が 3 回 reject すると failed になり、Weiwudi_a と旧レコードが残る（lastKey は進めない）', async () => {
     const factory = new IDBFactory();
     setup(factory);
     await makeSettings(factory, [setting('a')]);
@@ -468,7 +468,7 @@ describe('PR #103 のレビュー（M1・L1・L2）', () => {
   });
 });
 
-describe('旧 API の clean・delete との順（第 1 回 M6・第 2 回 M2）', () => {
+describe('旧 API の clean・delete との順', () => {
   it('第 2 段の途中の clean の後、契機を重ねても消したタイルが新 DB に戻らない', async () => {
     const factory = new IDBFactory();
     setup(factory);
@@ -866,7 +866,7 @@ describe('戻して上げ直す・blocked・databases() の無い環境（R17・
     setup(noList);
     const ctx = startSw();
     await step(ctx);
-    // 旧 DB が無いので kv に書かずにメモリだけで完了する（R-t7-3）
+    // 旧 DB が無いので kv に書かずにメモリだけで完了する
     expect(ctx.maintenance.migrated).toBe(true);
     expect(await stateOf(ctx)).toBeUndefined();
     expect(await names(factory)).not.toContain('Weiwudi');

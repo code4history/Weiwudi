@@ -1,5 +1,5 @@
-// 上流の取得と CORS・認証付きの要求（仕様 §4.5・§4.6・§10。m2-t7）。core.serve に渡す upstream を作る。
-// 値の依存は context・store・url_pattern・constants・errors だけ（仕様 §3。値で使っているのは constants だけ）。
+// 上流の取得と CORS・認証付きの要求。core.serve に渡す upstream を作る。
+// 値の依存は context・store・url_pattern・constants・errors だけ（値で使っているのは constants だけ）。
 //
 // 決まり:
 // - 上流への取得は ctx.upstreamFetch だけ（同じオリジンの要求に User-Agent を足す）
@@ -9,11 +9,11 @@
 // - corslessStreak は context のメモリだけ（保存しない）
 // - 条件付き要求（If-None-Match など）を出さない
 // - 登録の資格情報は要求に無いときだけ足す（R5）。足す相手のオリジンは呼び出し側（hook）が選ぶ（I2）。
-//   差し込み口の後の要求のオリジンがページの要求と違えば足さない（I1・R21）。ヘッダを足した要求は redirect: 'error'
+//   差し込み口の後の要求のオリジンがページの要求と違えば足さない。ヘッダを足した要求は redirect: 'error'
 //   （no-cors の要求を除く。ヘッダが送られないため）
-// - 範囲取得側の規則（jobOpaqueStreak ほか）は range.ts。no-cors の確かめ（probeNoCors）は fetch を持つここに置く（m4-t3・R4）。
+// - 範囲取得側の規則（jobOpaqueStreak ほか）は range.ts。no-cors の確かめ（probeNoCors）は fetch を持つここに置く。
 //   corslessUntil を書いたら ctx.notify で opaque イベントを 1 回送る（R20）
-// - 提供元の Resource（provider が登録表にあるもの）は、クエリの資格情報を provider.applyCredentials で足す（m3-t5）。
+// - 提供元の Resource（provider が登録表にあるもの）は、クエリの資格情報を provider.applyCredentials で足す。
 //   オリジンの規則（I1）と redirect の規則はそのまま当たる。applyCredentials がオリジンを替えた結果は使わない
 import type { Context } from './context';
 import type { ServeInput, UpstreamResult } from './core';
@@ -21,20 +21,20 @@ import type { WeiwudiProvider } from './plugins';
 import type { Credentials, ResourceMeta, ResourcePolicy } from './store';
 import { DAY_MS } from './constants';
 
-/** CORS 非対応と見なすまでの opaque の連続数（仕様 §4.5-3） */
+/** CORS 非対応と見なすまでの opaque の連続数 */
 export const CORSLESS_STREAK_LIMIT = 3;
-/** corslessUntil の長さ（仕様 §4.5-3） */
+/** corslessUntil の長さ */
 export const CORSLESS_PERIOD_MS = DAY_MS;
 
-/** 上流へ出さないヘッダ（条件付き要求。preflight を誘発する。仕様 §4.5 末尾） */
+/** 上流へ出さないヘッダ（条件付き要求。preflight を誘発する） */
 const CONDITIONAL_HEADERS: readonly string[] = ['if-none-match', 'if-modified-since', 'if-match', 'if-unmodified-since', 'if-range'];
 
-/** 仕様 §4.6: Authorization がある、または mode: 'cors' で credentials: 'include'。<img> の include（no-cors）は含めない */
+/** Authorization がある、または mode: 'cors' で credentials: 'include'。<img> の include（no-cors）は含めない */
 export function isAuthenticated(request: Request): boolean {
   return request.headers.has('authorization') || (request.mode === 'cors' && request.credentials === 'include');
 }
 
-/** 保存の可否（仕様 §4.6）: 認証付きは policy.store（cachePrivate）のときだけ。匿名は保存する */
+/** 保存の可否: 認証付きは policy.store（cachePrivate）のときだけ。匿名は保存する */
 export function isStorable(request: Request, policy: ResourcePolicy): boolean {
   return !isAuthenticated(request) || policy.store;
 }
@@ -46,7 +46,7 @@ export function hasCredentials(c: Credentials | undefined): c is Credentials {
 
 /**
  * クエリの資格情報を、要求に無い名前（大文字小文字を問わない）だけ url の末尾に文字列で足す
- * （既存の項目の符号化を変えない。署名つきの URL を壊さない）。提供元の applyCredentials もこれを使う（m3-t5）
+ * （既存の項目の符号化を変えない。署名つきの URL を壊さない）。提供元の applyCredentials もこれを使う
  */
 export function appendQueryCredentials(url: URL, query: Record<string, string>): void {
   const have = new Set([...url.searchParams.keys()].map((n) => n.toLowerCase()));
@@ -137,7 +137,7 @@ export interface UpstreamOptions {
   original: Request;
   /** 足す資格情報（hook がオリジンで選んだもの。認証付きの要求には足さない） */
   credentials?: Credentials;
-  /** Resource の provider の提供元（登録表にあるときだけ。hook が ctx.providers() から引く。m3-t5） */
+  /** Resource の provider の提供元（登録表にあるときだけ。hook が ctx.providers() から引く） */
   provider?: WeiwudiProvider;
   now: () => number;
 }
@@ -185,8 +185,8 @@ const countCorsless = async (ctx: Context, o: UpstreamOptions, t: number): Promi
 };
 
 /**
- * 範囲取得の no-cors の確かめ（仕様 §4.5-3・R4）。fetch(url, { mode: 'no-cors' }) を 1 回。登録の資格情報を足さず
- * Cookie も送らない（credentials: 'omit'。R-t3-5）・保存しない。opaque は 'opaque'、TypeError は 'network'、
+ * 範囲取得の no-cors の確かめ。fetch(url, { mode: 'no-cors' }) を 1 回。登録の資格情報を足さず
+ * Cookie も送らない（credentials: 'omit'）・保存しない。opaque は 'opaque'、TypeError は 'network'、
  * それ以外の応答（同じオリジンの basic など）は 'response'（本文は読み捨てる）
  */
 export async function probeNoCors(ctx: Context, url: string): Promise<'opaque' | 'network' | 'response'> {
@@ -214,15 +214,15 @@ const readResource = async (ctx: Context, id: string): Promise<ResourceMeta | un
 };
 
 /**
- * core.serve に渡す upstream（仕様 §4.5 の手順 1〜4・§4.6）。request は差し込み口を通した後の要求で、
+ * core.serve に渡す upstream。request は差し込み口を通した後の要求で、
  * 匿名の要求ではこれを組み替える（mode・credentials・条件付きのヘッダ・資格情報）
  */
 export function createUpstream(ctx: Context, o: UpstreamOptions): ServeInput['upstream'] {
   return async (request, { hasEntry, requestChanged }) => {
-    // §4.6 認証付き: 元の Request のまま。組み替えず、2〜4 も通らない（hasEntry も見ない）
+    // 認証付き: 元の Request のまま。組み替えず、2〜4 も通らない（hasEntry も見ない）
     if (isAuthenticated(o.original)) return attempt(ctx, request);
 
-    // 差し込み口が別オリジンへ替えた要求には登録の資格情報を足さない（I1・R21）
+    // 差し込み口が別オリジンへ替えた要求には登録の資格情報を足さない
     const credentials = requestChanged && new URL(request.url).origin !== new URL(o.original.url).origin ? undefined : o.credentials;
 
     const t = o.now();
@@ -230,7 +230,7 @@ export function createUpstream(ctx: Context, o: UpstreamOptions): ServeInput['up
     const noCors = request.mode === 'no-cors';
     const retry = () => attempt(ctx, rebuild(request, credentials, o.provider, request.mode, request.credentials));
 
-    // §4.5-3 corslessUntil の間は 1 を省いて元の要求を出す（元が cors の要求は 1 で取る）
+    // corslessUntil の間は 1 を省いて元の要求を出す（元が cors の要求は 1 で取る）
     if (noCors && read?.corslessUntil !== undefined && read.corslessUntil > t) return retry();
 
     // 1 組み替えた形で取る
@@ -242,17 +242,17 @@ export function createUpstream(ctx: Context, o: UpstreamOptions): ServeInput['up
       if (!noCors) return { kind: 'network', error };
       // 2 元の要求（no-cors）で 1 回取り直す。両方失敗（オフライン）は数えない
       const second = await retry();
-      // 3 実績が無いうちの opaque だけを数える。実績があれば upstream として serve が §6 の 4・5 にする
+      // 3 実績が無いうちの opaque だけを数える。実績があれば upstream として serve が古い本体か合成応答にする
       if (second.kind === 'opaque' && !experienced(read)) await countCorsless(ctx, o, t);
       return second;
     }
     // CORS を通った（状態コードを問わない）
     await markCors(ctx, read, o);
 
-    // §4.5-3 S-F: no-cors の要求の 401・403。Entry があれば取り直さない（serve が古い本体を返す）
+    // no-cors の要求の 401・403。Entry があれば取り直さない（serve が古い本体を返す）
     if (noCors && (first.status === 401 || first.status === 403) && !hasEntry) {
       const second = await retry();
-      // 取り直しが TypeError なら 1 の応答をそのまま（serve が §6 の 5 にする）
+      // 取り直しが TypeError なら 1 の応答をそのまま（serve が合成応答にする）
       return second.kind === 'network' ? { kind: 'response', response: first } : second;
     }
     return { kind: first.type === 'opaque' ? 'opaque' : 'response', response: first };

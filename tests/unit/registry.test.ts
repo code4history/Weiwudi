@@ -1,4 +1,4 @@
-// src/registry.ts の試験（m2-t6）。仕様 §5.1・§5.6、計画 docs/superpowers/plans/2026-11-03-m2-core.md の m2-t6。
+// src/registry.ts の試験。
 // 各 it が仕様の文 1 つ。planRegister・composePolicy・isExclusiveTo・credentialSourceFor の試験は IndexedDB を使わない。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
@@ -44,7 +44,7 @@ const res = (id: string, over: Partial<ResourceMeta> = {}): ResourceMeta => ({
 
 // ---- 純粋関数（IndexedDB を使わない） ----
 
-describe('composePolicy: 合成の 8 行（仕様 §5.6 の表）', () => {
+describe('composePolicy: 合成の 8 行', () => {
   const tokyo = ns({ id: 'tokyo', minZoom: 0, maxZoom: 10, box: { minX: 900, maxX: 910, minY: 400, maxY: 410 } });
   const osaka = ns({ id: 'osaka', minZoom: 5, maxZoom: 12, box: { minX: 3500, maxX: 3510, minY: 1600, maxY: 1610 } });
 
@@ -138,7 +138,7 @@ describe('composePolicy: 合成の 8 行（仕様 §5.6 の表）', () => {
   });
 });
 
-describe('planRegister: 拒否の 3 条件（仕様 §5.6）', () => {
+describe('planRegister: 拒否の 3 条件', () => {
   it('重ならなければ新しい Resource（id は先頭のテンプレートの正規化）', () => {
     const plan = planRegister(ns({ id: 'p', url: [B, A] }), undefined, [res(C)]);
     expect(plan.join).toEqual({ resourceId: B, create: true });
@@ -276,7 +276,7 @@ describe('applyRegister・applyUpdate・applyRemove', () => {
     expect(after?.count).toBe(1);
   });
 
-  it('keep の Source の新しい spec は、後の合成でもテンプレートと方針に入らない（PR #77 水準 1 M1）', async () => {
+  it('keep の Source の新しい spec は、後の合成でもテンプレートと方針に入らない（PR #77）', async () => {
     await applyRegister(store, ns({ id: 'p', url: A, cacheTtl: 500, maxZoom: 5 }));
     await applyRegister(store, ns({ id: 'q', url: A, cacheTtl: 400 }));
     await applyRegister(store, ns({ id: 'r', url: B }));
@@ -470,7 +470,7 @@ describe('applyRegister・applyUpdate・applyRemove', () => {
     expect((await get(C))?.sourceIds).toEqual(['p']);
   });
 
-  it('id と warnings に資格情報が入らない（第 1 回 C3）', async () => {
+  it('id と warnings に資格情報が入らない', async () => {
     await applyRegister(store, normalizeSpec({ kind: 'raster', url: `${A}?access_token=pk.SECRET1` }));
     // Entry を置いて、credentialParams を広げる登録で衝突させる（warnings を出す）
     const [only] = await store.listResources();
@@ -503,7 +503,7 @@ describe('applyRegister・applyUpdate・applyRemove', () => {
   });
 });
 
-describe('旧 API の Resource と合流しない（第 2 回 S-6・m2-t5 の申し送り）', () => {
+describe('旧 API の Resource と合流しない', () => {
   it('旧 API の地図と同じテンプレートを新 API で登録すると別の Resource ができ、旧 API の地図はそのまま動く', async () => {
     const h = createSwHarness();
     const add = await h.request(`/api/add?mapID=m&type=xyz&url=${encodeURIComponent(A)}&width=1024&height=1024`);

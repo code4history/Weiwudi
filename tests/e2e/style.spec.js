@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { PAGE_HOST } from './fixtures/page-origin.mjs';
 
-// スタイルの芋づる登録と捕捉を実ブラウザで確かめる（m3-t9・仕様 §5.5・§10・§12）。MapLibre は依存に足さない（R15）。
+// スタイルの芋づる登録と捕捉を実ブラウザで確かめる。MapLibre は依存に足さない。
 // ページの blob Worker から、MapLibre 6.9.0 が出すのと同じ形の要求（スタイル → TileJSON → タイル・sprite@2x・
 // {fontstack}/{range}）を fetch で出す。上流は tile-server.mjs（localhost:5174。ページは localhost:5173 で別オリジン）、
 // api.mapbox.com は context.route で tile-server の /style/mapbox*.json などを返す。外部へは出ない（各テストの最後に数える）。
-// WebKit・Firefox でも走らせる（m3-t10・R14'）。Chromium だけで成り立つものは @chromium-only で外し、理由をその試験に書く
+// WebKit・Firefox でも走らせる。Chromium だけで成り立つものは @chromium-only で外し、理由をその試験に書く
 const UPSTREAM = 'http://localhost:5174';
 const PAGE = '/tests/e2e/fixtures/style-page.html';
 const PSEUDO = 'weiwudi.example.com';
@@ -43,7 +43,7 @@ async function guardNetwork(context) {
         return route.abort();
     });
     const pseudo = [];
-    // 疑似ホストへの要求のうち、ネットワークへ出たものだけ（SW が受けたものはここに来ない。m2 の countPseudoHits）
+    // 疑似ホストへの要求のうち、ネットワークへ出たものだけ（SW が受けたものはここに来ない。hook.spec.js の countPseudoHits と同じ）
     await context.route(`**://${PSEUDO}/**`, (route) => {
         pseudo.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
         return route.abort();
@@ -175,7 +175,7 @@ test.describe('Weiwudi style (kind: style)', () => {
         expectNoLeaks(guard);
     });
 
-    // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた（仕様 §2 の 7）
+    // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた。
     test('serves the style offline after registering twice', { tag: '@chromium-only' }, async ({ page, context }) => {
         const guard = await guardNetwork(context);
         await openPage(page);
@@ -211,7 +211,7 @@ test.describe('Weiwudi style (kind: style)', () => {
             expect(res.wstatus).toBe('miss');
             expect(res.text).toBe(`glyph:${FONTSTACK}:${range}`);
         }
-        // 1 fontstack は 1 つの Entry にまとまる（仕様 §11）
+        // 1 fontstack は 1 つの Entry にまとまる
         await expect.poll(async () => (await byResource(page))[rid]?.count).toBe(1);
         for (const range of ['256-511', '0-255']) {
             const res = await getTile(page, glyph(range));
@@ -221,7 +221,7 @@ test.describe('Weiwudi style (kind: style)', () => {
         expectNoLeaks(guard);
     });
 
-    // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた（仕様 §2 の 7）
+    // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた。
     test('keeps entries when the tilejson is unreachable on update', { tag: '@chromium-only' }, async ({ page, context }) => {
         const guard = await guardNetwork(context);
         await openPage(page);
@@ -340,7 +340,7 @@ test.describe('Weiwudi style (kind: style)', () => {
         expect(report.byProvider.mapbox.count).toBeGreaterThan(0);
         const sum = Object.values(report.byProvider).reduce((a, p) => ({ count: a.count + p.count, bytes: a.bytes + p.bytes }), { count: 0, bytes: 0 });
         expect(sum).toEqual({ count: report.count, bytes: report.bytes });
-        // 制御の POST は、blob Worker・同じオリジンの iframe・srcdoc の iframe からも通る（I6・t8 の申し送り）
+        // 制御の POST は、blob Worker・同じオリジンの iframe・srcdoc の iframe からも通る
         const fromWorker = await page.evaluate(() => window.inWorker('async () => control("usage", {})', null));
         expect(fromWorker, 'from a blob worker').toEqual({ ok: true, value: { ok: true, result: report } });
         const fromIframe = await page.evaluate(() => window.inIframe('usage', {}));
