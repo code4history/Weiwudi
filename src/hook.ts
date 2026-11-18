@@ -5,13 +5,13 @@
 //
 // 決まり:
 // - 照合表は context に持つ（モジュール変数を置かない）。読み込みの Promise は 1 つだけ持って共有する
-// - 候補の条件（isCandidate）は照合ルートと門番の両方に当てる（第 1 回 O-8・R19）
+// - 候補の条件（isCandidate）は照合ルートと門番の両方に当てる
 // - 照合表は map: で始まらない Resource から作る。weiwudi.example.com のテンプレートは入れない
-// - 読み込みは最初の候補の要求で始める（Weiwudi_Internal の呼び出しでは IndexedDB を開かない。Ruling）
+// - 読み込みは最初の候補の要求で始める（Weiwudi_Internal の呼び出しでは IndexedDB を開かない）
 // - Range つきの要求は照合しても serve に入れず core.passThrough で素通し（範囲外の判定より前）
 // - 規則の順: 固定値のクエリ項目が多いもの → 座標のクエリ項目が多いもの → 早く登録された Source の Resource →
-//   Resource の id → テンプレートの順（Ruling）。同じ要求に当たる別の照合の形は warnings に出す
-// - 資格情報は、要求のオリジンをテンプレートに持つ Source だけから credentialSourceFor で選ぶ（別ホストへ送らない。I2）
+//   Resource の id → テンプレートの順。同じ要求に当たる別の照合の形は warnings に出す
+// - 資格情報は、要求のオリジンをテンプレートに持つ Source だけから credentialSourceFor で選ぶ（別ホストへ送らない）
 // - Resource の provider の提供元を ctx.providers() から引いて upstream へ渡す
 // - 資格情報の選び方は credentialsForResource 1 つ（照合ルートと範囲取得が共有する）
 // - ServeInput を作るのは serveResource 1 つ（照合ルート・門番・登録時の取得・範囲取得が共有する）。
@@ -64,7 +64,7 @@ const originOf = (template: string): string | undefined => {
   }
 };
 
-/** 規則の順（Ruling）。具体的な形を先に、同じ具体さなら早く登録されたものを先に */
+/** 規則の順。具体的な形を先に、同じ具体さなら早く登録されたものを先に */
 const compareRules = (a: RankedRule, b: RankedRule): number =>
   b.compiled.queryFixed.length - a.compiled.queryFixed.length
   || b.compiled.queryTokens.length - a.compiled.queryTokens.length
@@ -129,7 +129,7 @@ const buildTable = async (ctx: Context): Promise<LoadedTable> => {
     if (!pick || withCredentials.length === 0) continue;
     const byOrigin = new Map<string, string>();
     for (const origin of origins) {
-      // そのオリジンをテンプレートに持つ Source だけを候補にする（別ホストへ資格情報を送らない。I2）
+      // そのオリジンをテンプレートに持つ Source だけを候補にする（別ホストへ資格情報を送らない）
       const candidates = live.filter((s) => templatesOf(s).some((t) => originOf(t) === origin));
       const id = pick(r, candidates, withCredentials);
       if (id !== undefined) byOrigin.set(origin, id);
@@ -259,7 +259,7 @@ export interface ServeResourceOptions {
   revalidate?: boolean;
   /**
    * この Resource に資格情報を持つ Source の id（照合表の credentialSources が要求のオリジンで選んだもの）。
-   * style・tilejson の本体の除去の親をここから引く（O-N3）。無ければ sourceIds の Source を登録順に見て、資格情報を持つ最初のもの
+   * style・tilejson の本体の除去の親をここから引く。無ければ sourceIds の Source を登録順に見て、資格情報を持つ最初のもの
    */
   credentialSourceId?: string;
   /**
@@ -274,7 +274,7 @@ export interface ServeResourceOptions {
 
 const byOrder = (a: SourceRecord, b: SourceRecord): number => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
-/** 資格情報を持つ Source（指定が無ければ sourceIds を登録順に見て最初のもの。credentialSourceFor と同じ順。O-N3） */
+/** 資格情報を持つ Source（指定が無ければ sourceIds を登録順に見て最初のもの。credentialSourceFor と同じ順） */
 const credentialOwnerOf = async (ctx: Context, resource: ResourceMeta, given: string | undefined): Promise<SourceRecord | undefined> => {
   const store = await ctx.store();
   if (given !== undefined) return store.getSource(given);
@@ -288,7 +288,7 @@ const credentialOwnerOf = async (ctx: Context, resource: ResourceMeta, given: st
 };
 
 /**
- * 本体の資格情報の除去の規則（R32）。資格情報を持つ Source の親（スタイル）の URL のオリジンと、親の提供元の matches で
+ * 本体の資格情報の除去の規則。資格情報を持つ Source の親（スタイル）の URL のオリジンと、親の提供元の matches で
  * credentialTargetOf を作る（子の資格情報の配り先と同じ関数）。除く値はその Source の credentials。
  * 資格情報を持つ Source が無い・親が引けなければ除かない
  */
@@ -329,9 +329,9 @@ const ruleOfParent = (
 };
 
 /**
- * style・tilejson の本体の書き換え（R28）。base は要求の URL（相対 URL の解決）。style には Resource の提供元の rewriteStyle を当てる。
+ * style・tilejson の本体の書き換え。base は要求の URL（相対 URL の解決）。style には Resource の提供元の rewriteStyle を当てる。
  * 除去の規則は transform の中で初めて計算する（hit では transform が呼ばれず、IndexedDB を読まない）。
- * 読めない本体は style_body が投げ、core が上流の失敗として扱う（保存しない。C-S4）。規則の計算の失敗も同じ扱い
+ * 読めない本体は style_body が投げ、core が上流の失敗として扱う（保存しない）。規則の計算の失敗も同じ扱い
  */
 const bodyTransformOf = (
   type: 'style' | 'tilejson', base: string, rewriteStyle: ((s: unknown) => unknown) | undefined,

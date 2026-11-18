@@ -2,7 +2,7 @@
 // 配線だけ。実行中の状態（context）を呼び出しごとに 1 つ作り、install・activate のリスナと、
 // 疑似ホストの GET のルート 1 本・制御の POST のルート（/v2/*）・照合ルート・門番（hook）をこの順に登録する。
 // 疑似ホストの GET のうち /v2/ で始まるパス（ping）は control へ、それ以外は legacy へ渡す（legacy から control を
-// 呼ばない。第 2 回 O12）。
+// 呼ばない）。
 import type { RouteHandlerCallback, RouteMatchCallback } from 'workbox-core';
 import { createContext, type Context } from './context';
 import { sweepOnce } from './core';

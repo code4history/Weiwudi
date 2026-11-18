@@ -162,7 +162,7 @@ describe('SW 側の src/ にモジュール変数が無い', () => {
     expect(found).toEqual([]);
   });
 
-  it('errors.ts の正規表現（PLACEHOLDER の /…/g）と LEGACY_TABLE.map(...) の MATCHERS は検査に掛からない（第 4 回 O-4 の実測）', () => {
+  it('errors.ts の正規表現（PLACEHOLDER の /…/g）と LEGACY_TABLE.map(...) の MATCHERS は検査に掛からない（実測）', () => {
     const found = findModuleState(readFileSync(join(SRC, 'errors.ts'), 'utf8'), 'errors.ts').map((f) => f.name);
     expect(found).not.toContain('PLACEHOLDER');
     expect(found).not.toContain('MATCHERS');

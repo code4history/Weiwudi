@@ -403,7 +403,7 @@ describe('スプライトの内部の字句 {spriteSuffix}', () => {
   const BASE = 'https://a.example/styles/s/sprite';
   const TPL = spriteTemplateOf(BASE);
 
-  it('スプライトのテンプレートは base ＋ {spriteSuffix} ＋ クエリ（MapLibre の要求の形。F3）', () => {
+  it('スプライトのテンプレートは base ＋ {spriteSuffix} ＋ クエリ（MapLibre の要求の形）', () => {
     expect(TPL).toBe(`${BASE}{spriteSuffix}`);
     expect(spriteTemplateOf(`${BASE}?v=1&fresh=true`)).toBe(`${BASE}{spriteSuffix}?v=1&fresh=true`);
   });

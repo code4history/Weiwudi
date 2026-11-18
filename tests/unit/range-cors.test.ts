@@ -191,8 +191,8 @@ describe('probeNoCors の要求', () => {
   });
 });
 
-describe('確かめの数え直しと固定（PR #102 L1・L2）', () => {
-  it('確かめで取れたタイルが列挙で失敗と数えたものなら、その場で成功に数え直して固定する（L2）', async () => {
+describe('確かめの数え直しと固定（PR #102）', () => {
+  it('確かめで取れたタイルが列挙で失敗と数えたものなら、その場で成功に数え直して固定する', async () => {
     const FIRST = 'https://t.example/2/0/0.png';
     let firstCalls = 0;
     const env = await setup({ cors: (u) => (u === FIRST && ++firstCalls >= 2 ? png() : typeError()), noCors: () => opaqueResponse() });
@@ -206,7 +206,7 @@ describe('確かめの数え直しと固定（PR #102 L1・L2）', () => {
     expect((await env.store.getEntry(`${TPL}\x002_0_0`))!.meta.pinned).toBe(1);
   });
 
-  it('確かめが stop を投げても、そのバッチで取れたタイルは固定する（L1）', async () => {
+  it('確かめが stop を投げても、そのバッチで取れたタイルは固定する', async () => {
     // スタイルの 2 つの子: a.example（CORS なし）と b.example（取れる）。1 つ目のバッチに a の 3 枚と b の 1 枚が入る
     const A = 'https://a.example/{z}/{x}/{y}.png';
     const B = 'https://b.example/{z}/{x}/{y}.png';

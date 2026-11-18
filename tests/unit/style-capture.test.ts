@@ -124,7 +124,7 @@ describe('スタイルの捕捉', () => {
     expect(await res.text()).toBe(upstream);
   });
 
-  it('content-type: text/html でも JSON として読めるスタイルは保存される（isStyleLike。C-S4）', async () => {
+  it('content-type: text/html でも JSON として読めるスタイルは保存される（isStyleLike）', async () => {
     const { h, store } = await setup();
     await putParent(store, 'st', STYLE_URL);
     const r = await putChild(store, 'st', 'style', 'style', STYLE_URL);
@@ -136,7 +136,7 @@ describe('スタイルの捕捉', () => {
     expect(await saved!.body.blob.text()).toBe(upstream);
   });
 
-  it('HTML の本体（ログイン画面）は保存されず、前に保存した本体が stale で返り、Entry が前のまま（C-S4）', async () => {
+  it('HTML の本体（ログイン画面）は保存されず、前に保存した本体が stale で返り、Entry が前のまま', async () => {
     const { h, store } = await setup();
     await putParent(store, 'st', STYLE_URL);
     const r = await putChild(store, 'st', 'style', 'style', STYLE_URL, { cacheTtl: 0 });
@@ -167,7 +167,7 @@ describe('スタイルの捕捉', () => {
     expect((await store.getResource(r.resources[0].id))!.count).toBe(0);
   });
 
-  it('C-S1: a.example のスタイル（資格情報を登録）の中の b.example の ?key=k は保存した本体に残り、ページがそのとおりに出した要求の ?key=k が上流へそのまま出る（キーには残らない）', async () => {
+  it('a.example のスタイル（資格情報を登録）の中の b.example の ?key=k は保存した本体に残り、ページがそのとおりに出した要求の ?key=k が上流へそのまま出る（キーには残らない）', async () => {
     const { h, store } = await setup();
     await putParent(store, 'st', STYLE_URL);
     const r = await putChild(store, 'st', 'style', 'style', STYLE_URL, { credentials: { query: { access_token: TOKEN } } });
@@ -239,7 +239,7 @@ describe('TileJSON の捕捉', () => {
   });
 });
 
-describe('L3: 合流後も組の判定には親の credentialParams を使う', () => {
+describe('合流後も組の判定には親の credentialParams を使う', () => {
   it('スタイル登録時も直接渡す親に policy を添える', async () => {
     const { h, store } = await setup();
     await putParent(store, 'wide', STYLE_URL);
@@ -294,7 +294,7 @@ describe('L3: 合流後も組の判定には親の credentialParams を使う', 
   });
 });
 
-describe('スプライトの捕捉（R6）', () => {
+describe('スプライトの捕捉', () => {
   it('スプライト 4 つが 1 つの Resource の別の Entry', async () => {
     const { h, store } = await setup();
     await putParent(store, 'st', STYLE_URL);
@@ -334,7 +334,7 @@ describe('serveResource を直接呼ぶ', () => {
     return serveResource(ctx, resource, new Request(TJ), url, m, undefined);
   };
 
-  it('O-N3: credentialSourceId が無ければ sourceIds を登録順に見て、資格情報を持つ最初の Source（後の親）のオリジンで除去する', async () => {
+  it('credentialSourceId が無ければ sourceIds を登録順に見て、資格情報を持つ最初の Source（後の親）のオリジンで除去する', async () => {
     const { ctx, store } = await prepare();
     // 前の親は c.example のスタイル（その子は資格情報なし）、後の親は a.example のスタイル（その子は資格情報あり）
     await putParent(store, 'p1', 'https://c.example/style.json');
@@ -351,7 +351,7 @@ describe('serveResource を直接呼ぶ', () => {
     expect(JSON.parse(await res.text()).tiles).toEqual(['https://a.example/{z}/{x}/{y}.pbf']);
   });
 
-  it('L3: 直接渡した親の policy で組を判定し、合流後の Resource の policy を使わない', async () => {
+  it('直接渡した親の policy で組を判定し、合流後の Resource の policy を使わない', async () => {
     const { ctx, store, fetchMock } = await prepare();
     await putParent(store, 'narrow', 'https://old.example/style.json');
     await putParent(store, 'wide', STYLE_URL);

@@ -174,7 +174,7 @@ describe('planRegister: 拒否の 3 条件', () => {
     expect(plan.rangeOnly).toEqual([A, B]);
   });
 
-  it('既に属している Resource との衝突は keep（rangeOnly へ移さない。S-I）', () => {
+  it('既に属している Resource との衝突は keep（rangeOnly へ移さない）', () => {
     const p = ns({ id: 'p', credentialParams: ['foo'] });
     const plan = planRegister(p, rec(ns({ id: 'p' }), 1), [res(A, { sourceIds: ['p'], count: 2 })]);
     expect(plan.keep).toEqual([A]);
@@ -182,7 +182,7 @@ describe('planRegister: 拒否の 3 条件', () => {
     expect(plan.warnings).toEqual([`resource-conflict: ${A}`]);
   });
 
-  it('旧 API の Resource（map: の id）は合流の候補に入らない（第 2 回 S-6）', () => {
+  it('旧 API の Resource（map: の id）は合流の候補に入らない', () => {
     const legacy = res('map:m', { templates: [A], sourceIds: ['map:m'], policy: { ...res(A).policy, credentialParams: [] } });
     const plan = planRegister(ns({ id: 'p' }), undefined, [legacy]);
     expect(plan.join).toEqual({ resourceId: A, create: true });
@@ -261,7 +261,7 @@ describe('applyRegister・applyUpdate・applyRemove', () => {
     expect(await get(B)).toBeUndefined();
   });
 
-  it('S-I: 同じ id で credentialParams を足して再登録（Entry あり）は例外にせず warnings・sourceIds に残る・方針と範囲が古いまま', async () => {
+  it('同じ id で credentialParams を足して再登録（Entry あり）は例外にせず warnings・sourceIds に残る・方針と範囲が古いまま', async () => {
     await applyRegister(store, ns({ id: 'p', cacheTtl: 500, maxZoom: 5 }));
     await putTile(A);
     const before = await get(A);
@@ -455,7 +455,7 @@ describe('applyRegister・applyUpdate・applyRemove', () => {
     expect((await get(A))?.policy.credentialParams).not.toContain('foo');
   });
 
-  it('同じ id の再登録で、前の登録にだけあったテンプレートの Resource が sourceIds から外れ、空なら Entry ごと消える（第 1 回 O-11）', async () => {
+  it('同じ id の再登録で、前の登録にだけあったテンプレートの Resource が sourceIds から外れ、空なら Entry ごと消える', async () => {
     await applyRegister(store, ns({ id: 'p', url: A }));
     await applyRegister(store, ns({ id: 'p2', url: B }));
     await applyRegister(store, ns({ id: 'p', url: [A, B, C] })); // A と B の 2 つに重なる → 衝突

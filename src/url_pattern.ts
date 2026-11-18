@@ -19,7 +19,7 @@ export const MAX_TILE_ZOOM = 30;
 
 /**
  * テンプレートの字句（公開の 9 つ ＋ 内部の spriteSuffix）。spriteSuffix はスタイルのスプライトの子だけが使い
- * （`(@2x)?.json|png`。R6）、利用者の登録では spec.ts が拒否する（tile の字句でない）
+ * （`(@2x)?.json|png`）、利用者の登録では spec.ts が拒否する（tile の字句でない）
  */
 export type TokenName = 'z' | 'x' | 'y' | '-y' | 'quadkey' | 'ratio' | 'prefix' | 'fontstack' | 'range' | 'spriteSuffix';
 
@@ -181,7 +181,7 @@ export function normalizeTemplate(t: string, credentialParams: readonly string[]
 
 /**
  * スプライトのテンプレート: スタイルの sprite の基底の URL のパスの末尾（クエリの前）に {spriteSuffix} を入れる。
- * MapLibre はクエリの前に `@2x`・拡張子を入れて要求する（F3）。字句は文字列のまま扱う（new URL を通さない）
+ * MapLibre はクエリの前に `@2x`・拡張子を入れて要求する。字句は文字列のまま扱う（new URL を通さない）
  */
 export function spriteTemplateOf(base: string): string {
   const cut = base.search(/[?#]/);
@@ -420,7 +420,7 @@ export interface ExpandValues {
 const replaceAll = (s: string, token: string, value: string): string => s.split(token).join(value);
 
 /**
- * 範囲取得のテンプレートの展開（R2）。タイルの 7 字句は tile_math.expandTileTemplate（全出現・ratio）に任せ、
+ * 範囲取得のテンプレートの展開。タイルの 7 字句は tile_math.expandTileTemplate（全出現・ratio）に任せ、
  * {fontstack} は encodeURIComponent、{range}・{spriteSuffix} はそのまま置く。範囲取得はこの URL を同じテンプレートに
  * matchUrl で照合して MatchResult を得る（キーは entryKey 1 つ）
  */
@@ -479,12 +479,12 @@ export function stripParams(url: URL, params: readonly string[]): URL {
  */
 export const isSecretValue = (v: string): boolean => /^sk\./i.test(v.replace(/^\s*(?:(?:bearer|token|basic)\s+)?\s*/i, ''));
 
-/** 名前が sk. で始まるか、値が isSecretValue（大文字小文字を問わない）。URLSearchParams で decode した後の形で見る（I9・X4・L7） */
+/** 名前が sk. で始まるか、値が isSecretValue（大文字小文字を問わない）。URLSearchParams で decode した後の形で見る */
 const isSecretPair = (n: string, v: string): boolean => /^sk\./i.test(n) || isSecretValue(v);
 
 /**
  * 照合に使った項目と資格情報を除いた残りのクエリを、名前順（同名は値の順）に並べた `?…`。無ければ空。
- * 名前か値が sk. で始まる項目も除く（秘密トークンをキーに残さない。I9・X4）
+ * 名前か値が sk. で始まる項目も除く（秘密トークンをキーに残さない）
  */
 const restQuery = (url: URL, used: readonly string[], credentialParams: readonly string[]): string => {
   const drop = lowerSet(credentialParams);

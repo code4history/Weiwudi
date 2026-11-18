@@ -4,11 +4,11 @@
 // 値の依存は user_agent・errors だけ。ResourceInfo・Credentials は store.ts の型を import type で使う。
 //
 // 決まり:
-// - モジュール変数はこのファイルの登録表だけ（計画「実行中の状態」）。試験用の _resetPluginsForTest で空にする
-// - 同じオブジェクトの 2 回目の addPlugin・addProvider は無視する（冪等。第 2 回 D4）
+// - モジュール変数はこのファイルの登録表だけ。試験用の _resetPluginsForTest で空にする
+// - 同じオブジェクトの 2 回目の addPlugin・addProvider は無視する（冪等）
 // - addPlugin は以後に始まる要求にだけ効く。core は要求の始めに getPlugins() の写しを取り、それで進める
 // - 標準の提供元（providers/mapbox.ts）はこのファイルからは import できない。配線が context に渡し、
-//   利用者の提供元（getProviders()）を先に評価する（R13）
+//   利用者の提供元（getProviders()）を先に評価する
 import type { Credentials, ResourceInfo } from './store';
 import { validateUserAgent } from './user_agent';
 

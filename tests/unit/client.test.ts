@@ -130,7 +130,7 @@ describe('ensureV2', () => {
     expect(posts()).toHaveLength(3);
   });
 
-  it('controllerchange の後と、controller の実体が替わった後は確かめ直す（第 2 回 D2）', async () => {
+  it('controllerchange の後と、controller の実体が替わった後は確かめ直す', async () => {
     const m = await setup();
     const first = container.controller;
     await m.default.sources();
@@ -170,7 +170,7 @@ describe('ensureV2', () => {
     expect(posts()).toHaveLength(0);
   });
 
-  it('ping の失敗（404）の間に controller が替わっていたら、新しい controller を確かめ直す（PR #80 水準 2 必須）', async () => {
+  it('ping の失敗（404）の間に controller が替わっていたら、新しい controller を確かめ直す（PR #80）', async () => {
     const m = await setup();
     let n = 0;
     pingReply = async () => {
@@ -206,7 +206,7 @@ describe('ensureV2', () => {
     expect(pings()).toBe(2);
   });
 
-  it('進行中の確認を待った後、今の controller が確認済みでなければ確かめ直す（水準 1 Minor 6）', async () => {
+  it('進行中の確認を待った後、今の controller が確認済みでなければ確かめ直す（Minor 6）', async () => {
     const m = await setup();
     const A = {};
     const B = {};
@@ -242,7 +242,7 @@ describe('ensureV2', () => {
     expect(posts()).toHaveLength(2);
   });
 
-  it('同時の 2 つの呼び出しで ping は 1 本（第 3 回 推奨）', async () => {
+  it('同時の 2 つの呼び出しで ping は 1 本（推奨）', async () => {
     const m = await setup();
     let release!: () => void;
     const held = new Promise<void>((r) => { release = r; });

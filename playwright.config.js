@@ -49,7 +49,7 @@ export default defineConfig({
             url: 'http://localhost:5174/__health',
             // 5174 に別のものが居るときに取り違えず、失敗させる（申し送り 3）
             reuseExistingServer: false,
-            // SIGTERM で止め、上流サーバが一時ディレクトリを消せるようにする（無いと SIGKILL。第 1 回 S14）
+            // SIGTERM で止め、上流サーバが一時ディレクトリを消せるようにする（無いと SIGKILL）
             gracefulShutdown: { signal: 'SIGTERM', timeout: 5000 },
         },
     ],

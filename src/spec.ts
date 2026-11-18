@@ -103,7 +103,7 @@ export interface StyleSpec {
 
 /**
  * 範囲取得の範囲。bounds は経緯度（west > east は日付変更線をまたぐ）、box は maxZoom での x/y の範囲で
- * Source の scheme の座標（登録の box と同じ）、'all' は取得のときの Source の範囲（R30）
+ * Source の scheme の座標（登録の box と同じ）、'all' は取得のときの Source の範囲
  */
 export type RangeSpec =
   | { bounds: [west: number, south: number, east: number, north: number]; minZoom: number; maxZoom: number }
@@ -113,13 +113,13 @@ export type RangeSpec =
 export interface FetchRangeOptions {
   /** 既定 true */
   pin?: boolean;
-  /** 既定 5（1〜20。R31） */
+  /** 既定 5（1〜20） */
   concurrency?: number;
   /** 既定 'common'（スタイルのグリフ） */
   glyphRanges?: 'common' | 'all' | string[];
   /** 追加の fontstack（スタイル） */
   fonts?: string[];
-  /** {ratio} の値。ページ側の既定は devicePixelRatio > 1 なら '@2x'（R-ratio） */
+  /** {ratio} の値。ページ側の既定は devicePixelRatio > 1 なら '@2x' */
   ratio?: '' | '@2x';
 }
 
@@ -129,11 +129,11 @@ export type RegionStatus = 'running' | 'complete' | 'partial' | 'canceled' | 'st
 export interface RegionInfo {
   id: string;
   sourceId: string;
-  /** 利用者の範囲の決めた項目だけの写し（R5） */
+  /** 利用者の範囲の決めた項目だけの写し */
   range: RangeSpec;
   status: RegionStatus;
   pinned: boolean;
-  /** タイルの枚数（estimate と同じ。R29） */
+  /** タイルの枚数（estimate と同じ） */
   total: number;
   error: number;
   errors: Record<TileFailure, number>;
@@ -143,7 +143,7 @@ export interface RegionInfo {
   updatedAt: number;
 }
 
-/** 正規化した範囲（内部。boxes は maxZoom での XYZ の座標。kind は #78 の区画を足せる形。R27） */
+/** 正規化した範囲（内部。boxes は maxZoom での XYZ の座標。kind は #78 の区画を足せる形） */
 export interface NormalizedRange {
   kind: 'boxes';
   boxes: TileBox[];
@@ -202,7 +202,7 @@ const isSecretToken = (v: string): boolean => isSecretValue(v);
 /** パスの区画の秘密トークン: sk.eyJ で始まる区画だけ（sk.osm のような区画名は通す）。大文字小文字を問わない */
 const isSecretPathSegment = (v: string): boolean => /^sk\.eyj/i.test(v);
 
-/** クエリ値を percent-decode する。崩れた % でも投げない（URLSearchParams で取る。第 4 回 O-3） */
+/** クエリ値を percent-decode する。崩れた % でも投げない（URLSearchParams で取る） */
 const decodeQueryValue = (raw: string): string => new URLSearchParams(`v=${raw.replace(/&/g, '%26')}`).get('v') ?? raw;
 
 /**
@@ -262,7 +262,7 @@ const parseCredentials = (v: unknown): Credentials | undefined => {
 };
 
 /**
- * 既定 ＋ 登録の credentialParams ＋ 明示の credentials.query の名前（M-1）。
+ * 既定 ＋ 登録の credentialParams ＋ 明示の credentials.query の名前。
  * 明示の名前は、大文字小文字を問わずに既にある名前なら足さない（照合も除去も大文字小文字を問わないため）
  */
 const parseCredentialParams = (v: unknown, explicitNames: readonly string[], fromProvider: readonly string[] = []): string[] => {
@@ -305,14 +305,14 @@ const checkTemplate = (t: string, index: number, credentialParams: readonly stri
   if (parsed.username !== '' || parsed.password !== '') {
     throw new WeiwudiError('attribute-invalid', `URL template #${index + 1} must not contain user info`, { attribute: 'url', index });
   }
-  // パスの区画も見る（生の形と decode した形。L-2）。区画は sk.eyJ だけ（I9）。崩れた % は生の形だけで見る
+  // パスの区画も見る（生の形と decode した形）。区画は sk.eyJ だけ。崩れた % は生の形だけで見る
   for (const seg of parsed.pathname.split('/')) {
     let decoded = seg;
     try { decoded = decodeURIComponent(seg); } catch (_e) { /* 生の形だけ */ }
     if (isSecretPathSegment(seg) || isSecretPathSegment(decoded)) throw rejectedCredential(`URL template #${index + 1}`);
   }
   for (const p of templateQueryPairs(t)) {
-    // 値の無い項目（?sk.…）も名前で見る（I1）
+    // 値の無い項目（?sk.…）も名前で見る
     if (isSecretToken(p.raw) || isSecretToken(p.decoded) || isSecretToken(p.rawName) || isSecretToken(p.name)) {
       throw rejectedCredential(`URL template #${index + 1}`);
     }
@@ -447,7 +447,7 @@ export function undeclaredCredentialWarnings(urls: readonly string[], credential
   for (const t of urls) {
     for (const p of templateQueryPairs(t)) {
       if (declared.has(p.name.toLowerCase())) continue;
-      // 名前そのものがトークンの形（?pk.…=…）なら名前を書かない（warnings に資格情報を出さない。PR #106 L1）
+      // 名前そのものがトークンの形（?pk.…=…）なら名前を書かない（warnings に資格情報を出さない。PR #106）
       if (isSecretValue(p.name) || isSecretValue(p.rawName) || CREDENTIAL_LIKE.test(p.name) || CREDENTIAL_LIKE.test(p.rawName)) continue;
       if (!CREDENTIAL_LIKE.test(p.raw) && !CREDENTIAL_LIKE.test(p.decoded)) continue;
       const w = `credential-undeclared: ${p.name}`;
@@ -483,7 +483,7 @@ export interface MemberOptions {
  *   sk.eyJ で始まるパスの区画は credential-rejected
  * - テンプレートの資格情報の項目に、同じ名前（大文字小文字を問わない）で違う値があれば attribute-invalid（明示の名前は除く）
  * テンプレートに載っていた資格情報の項目は credentials.query へ移す（明示の credentials が勝つ）。
- * 範囲・scheme・tileSize・outOfRange は tile だけが読む（tile でない指定は範囲を持たない。P1）
+ * 範囲・scheme・tileSize・outOfRange は tile だけが読む（tile でない指定は範囲を持たない）
  */
 export function normalizeMember(
   type: ResourceType, inputUrls: string[], common: CommonPolicyInput, opts: MemberOptions,
@@ -506,7 +506,7 @@ export function normalizeMember(
 
   // テンプレートに載っていた資格情報の項目（字句を含む値は除く）。名前は小文字で 1 つにまとめ、
   // 先のミラー・先の出現が勝ち、明示の credentials がさらに勝つ。出力の名前は勝った側の綴り。
-  // 同じ名前に違う値があれば attribute-invalid（I2・R22。明示の名前は見ない。値は文面に入れない）
+  // 同じ名前に違う値があれば attribute-invalid（明示の名前は見ない。値は文面に入れない）
   const drop = new Set(credentialParams.map((p) => p.toLowerCase()));
   const explicitNames = new Set(Object.keys(explicit?.query ?? {}).map((n) => n.toLowerCase()));
   // 1 つのテンプレートの中では先の出現が勝つ。比べるのはミラーごとに勝った値どうし
@@ -637,7 +637,7 @@ const normalizeStyle = (input: Record<string, unknown>, providers?: readonly Wei
 
 /**
  * 利用者の登録内容を検査して正規化する。kind は raster・vector・style・asset、
- * それ以外の値は attribute-invalid。raster・vector は normalizeMember('tile', …)、asset は normalizeMember('data', …)（URL 配列はミラー。R8）、
+ * それ以外の値は attribute-invalid。raster・vector は normalizeMember('tile', …)、asset は normalizeMember('data', …)（URL 配列はミラー）、
  * style は NormalizedStyle。providers は提供元の評価の順（無ければ使わない）
  */
 export function normalizeSpec(input: unknown, providers?: readonly WeiwudiProvider[]): NormalizedInput {
@@ -667,7 +667,7 @@ export function acceptsMember(
   }
 }
 
-/** URL（テンプレートでよい）のパスの区画に秘密トークン（sk.eyJ。decode した後も）があるか（same-origin-skipped の subject。C-S6・X3） */
+/** URL（テンプレートでよい）のパスの区画に秘密トークン（sk.eyJ。decode した後も）があるか（same-origin-skipped の subject） */
 export function hasSecretPathSegment(url: string): boolean {
   let path: string;
   try {
@@ -700,7 +700,7 @@ const flipBox = (box: TileBox, z: number): TileBox => {
   return { minX: box.minX, maxX: box.maxX, minY: last - box.maxY, maxY: last - box.minY };
 };
 
-/** 範囲の形を検査し、決めた項目だけを写す（利用者の任意の項目や関数を構造化複製に通さない。R5） */
+/** 範囲の形を検査し、決めた項目だけを写す（利用者の任意の項目や関数を構造化複製に通さない） */
 export function copyRange(input: unknown): RangeSpec {
   if (input === 'all') return 'all';
   if (!isPlainObject(input)) throw invalid('range', "must be { bounds, minZoom, maxZoom }, { box, minZoom, maxZoom } or 'all'");
@@ -747,8 +747,8 @@ const scaleUp = (box: TileBox, from: number, to: number): TileBox => {
 
 /**
  * 範囲を正規化する。boxes は maxZoom での XYZ の座標。bounds は緯度を ±85.0511 に丸め、
- * west > east は 2 つの box に分ける。box は Source の scheme の座標として読み、tms なら XYZ に直す（R-tms）。
- * 'all' は取得のときの Source の範囲（スタイルは source.all の子の範囲の和）。box の無い範囲は cannot-fetch-all（R30）
+ * west > east は 2 つの box に分ける。box は Source の scheme の座標として読み、tms なら XYZ に直す。
+ * 'all' は取得のときの Source の範囲（スタイルは source.all の子の範囲の和）。box の無い範囲は cannot-fetch-all
  */
 export function normalizeRange(input: unknown, source: RangeSource): NormalizedRange {
   const range = copyRange(input);
@@ -776,7 +776,7 @@ export function normalizeRange(input: unknown, source: RangeSource): NormalizedR
 
 const GLYPH_RANGE = /^\d+-\d+$/;
 
-/** FetchRangeOptions を検査し、既定を入れる（R31・R32・R53・R-ratio） */
+/** FetchRangeOptions を検査し、既定を入れる */
 export function normalizeFetchOptions(input: unknown): NormalizedFetchOptions {
   if (input === undefined || input === null) input = {};
   if (!isPlainObject(input)) throw invalid('options', 'must be an object');

@@ -10,9 +10,9 @@ const PSEUDO = 'weiwudi.example.com';
 const tpl = (kind) => `${UPSTREAM}/${kind}/{z}/{x}/{y}.png`;
 const at = (kind, z, x, y) => `${UPSTREAM}/${kind}/${z}/${x}/${y}.png`;
 
-// 疑似ホストへの要求のうち、ネットワークへ出たものだけを数える（SW が受けたものはここに来ない。第 1 回 S15）。
+// 疑似ホストへの要求のうち、ネットワークへ出たものだけを数える（SW が受けたものはここに来ない）。
 // 数えるのは Chromium だけ: WebKit の context.route は SW が出した要求を拾わず、ページの要求を SW より先に
-// 受けうるので、数が意味を持たない（O-N5）。ほかのエンジンでは route を置かず、空の並びを返す
+// 受けうるので、数が意味を持たない。ほかのエンジンでは route を置かず、空の並びを返す
 async function countPseudoHits(context) {
     const hits = [];
     if (test.info().project.name !== 'chromium') return hits;

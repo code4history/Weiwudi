@@ -60,7 +60,7 @@ describe('kind', () => {
     expect(n.spec).toMatchObject({ url: 'https://api.mapbox.com/styles/v1/u/s', provider: 'mapbox' });
   });
 
-  it('asset を受ける: type は data・URL 配列はミラー（R8）・範囲を持たない', () => {
+  it('asset を受ける: type は data・URL 配列はミラー・範囲を持たない', () => {
     const n = normalizeSpec({ kind: 'asset', url: ['https://a.example/x.png', 'https://b.example/x.png'], minZoom: 1, maxZoom: 3 });
     expect(n.spec).toMatchObject({ kind: 'asset', type: 'data', templates: ['https://a.example/x.png', 'https://b.example/x.png'] });
     expect((n.spec as NormalizedSpec['spec']).extent).toBeUndefined();
@@ -100,7 +100,7 @@ describe('id', () => {
   });
 
   it.each([
-    ['map: から始まる（第 1 回 S6）', 'map:x'],
+    ['map: から始まる', 'map:x'],
     ['空文字', ''],
     ['\\0 を含む', 'a\0b'],
     ['文字列でない', 3],
@@ -151,7 +151,7 @@ describe('テンプレート', () => {
   });
 });
 
-describe('userinfo（第 2 回 D1・第 3 回 推奨）', () => {
+describe('userinfo（推奨）', () => {
   it.each([
     ['user:pass@', 'https://user:pass@a.example/{z}/{x}/{y}.png'],
     ['user@ だけ', 'https://user@a.example/{z}/{x}/{y}.png'],
@@ -167,7 +167,7 @@ describe('userinfo（第 2 回 D1・第 3 回 推奨）', () => {
   });
 });
 
-describe('sk. の拒否（第 1 回 C6・第 2 回 D5・第 3 回 推奨）', () => {
+describe('sk. の拒否（推奨）', () => {
   it.each([
     ['credentials.query の値の先頭', { credentials: { query: { access_token: 'sk.abc' } } }],
     ['credentials.headers の Bearer sk.', { credentials: { headers: { Authorization: 'Bearer sk.abc' } } }],
@@ -187,7 +187,7 @@ describe('sk. の拒否（第 1 回 C6・第 2 回 D5・第 3 回 推奨）', ()
     expectNotLeaked({ kind: 'raster', url: `${T}?access_token=sk.topsecret` }, 'topsecret');
   });
 
-  it('崩れた % の値でも URIError にならない（第 4 回 O-3）', () => {
+  it('崩れた % の値でも URIError にならない', () => {
     expect(() => normalizeSpec({ kind: 'raster', url: `${T}?foo=%E0%A4%A&bar=%` })).not.toThrow();
   });
 
@@ -375,7 +375,7 @@ describe('テンプレートとクエリの検査', () => {
     ['値の無い項目', `${T}?sk.SECRET`],
     ['名前が sk.', `${T}?sk.SECRET=1`],
     ['percent-encode した名前', `${T}?%73k.SECRET`],
-  ])('I1: クエリ項目の名前の sk.（%s）も credential-rejected', (_l, url) => {
+  ])('クエリ項目の名前の sk.（%s）も credential-rejected', (_l, url) => {
     expect(codeOf({ kind: 'raster', url })).toBe('credential-rejected');
     expectNotLeaked({ kind: 'raster', url }, 'SECRET');
   });
@@ -450,7 +450,7 @@ describe('normalizeRange・copyRange・normalizeFetchOptions', () => {
   };
   const XYZ = { scheme: 'xyz' as const };
 
-  it('bounds は maxZoom の XYZ の box。緯度は ±85.0511 に丸める（R28）', () => {
+  it('bounds は maxZoom の XYZ の box。緯度は ±85.0511 に丸める', () => {
     const n = normalizeRange({ bounds: [139.7, 35.6, 139.8, 35.7], minZoom: 10, maxZoom: 14 }, XYZ);
     expect(n).toEqual({
       kind: 'boxes', minZoom: 10, maxZoom: 14,
@@ -474,7 +474,7 @@ describe('normalizeRange・copyRange・normalizeFetchOptions', () => {
     expect(normalizeRange({ box, minZoom: 0, maxZoom: 2 }, { scheme: 'tms' }).boxes).toEqual([{ minX: 1, maxX: 2, minY: 2, maxY: 3 }]);
   });
 
-  it("'all' は取得のときの Source の範囲（tms は XYZ へ）。範囲（box）が無ければ cannot-fetch-all（R30）", () => {
+  it("'all' は取得のときの Source の範囲（tms は XYZ へ）。範囲（box）が無ければ cannot-fetch-all", () => {
     const extent = { minZoom: 1, maxZoom: 3, box: { minX: 0, maxX: 2, minY: 0, maxY: 1 }, sourceId: 's' };
     expect(normalizeRange('all', { extent, scheme: 'xyz' })).toEqual({ kind: 'boxes', minZoom: 1, maxZoom: 3, boxes: [extent.box] });
     expect(normalizeRange('all', { extent, scheme: 'tms' }).boxes).toEqual([{ minX: 0, maxX: 2, minY: 6, maxY: 7 }]);
@@ -513,7 +513,7 @@ describe('normalizeRange・copyRange・normalizeFetchOptions', () => {
     for (const r of bad) expect(rangeError(() => normalizeRange(r, XYZ)).code).toBe('attribute-invalid');
   });
 
-  it('copyRange は決めた項目だけを写す（余分な項目・関数を写さない。第 1 回 L）', () => {
+  it('copyRange は決めた項目だけを写す（余分な項目・関数を写さない）', () => {
     const input = { bounds: [1, 2, 3, 4], minZoom: 1, maxZoom: 2, extra: 'x', fn: () => 1 };
     expect(copyRange(input)).toEqual({ bounds: [1, 2, 3, 4], minZoom: 1, maxZoom: 2 });
     const boxIn = { box: { minX: 0, maxX: 1, minY: 0, maxY: 1, z: 9 }, minZoom: 0, maxZoom: 1, y: 3 };

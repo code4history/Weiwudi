@@ -43,7 +43,7 @@ export type CredentialSourcePicker = (
 /** 読み込んだ照合表（hook.ts が作る） */
 export interface LoadedTable {
   table: MatchTable;
-  /** Resource の id → 要求のオリジン → 資格情報を足す Source の id（足さないものは入れない。I2） */
+  /** Resource の id → 要求のオリジン → 資格情報を足す Source の id（足さないものは入れない） */
   credentialSources: Map<string, Map<string, string>>;
   /** 照合表の作成時に見つけた注意（"<code>: <Resource.id>"） */
   warnings: string[];
@@ -87,11 +87,11 @@ export interface Context {
     settingsDone?: boolean;
     /** 進行中の migrateStep（同時の契機で 2 バッチ走らせない。clean・delete が待つ） */
     migrating?: Promise<void>;
-    /** 起動後の点検（やり直すかの判定。R59）が済んだ。起動後の最初の契機か、旧 API の最初の要求（ping を除く）で点検する */
+    /** 起動後の点検（やり直すかの判定）が済んだ。起動後の最初の契機か、旧 API の最初の要求（ping を除く）で点検する */
     migrationBooted?: boolean;
     /** 進行中の起動後の点検（第 1 段と契機が共有する。どちらが先でも点検は 1 回） */
     migrationBooting?: Promise<void>;
-    /** 起動後の最初の契機で pendingDelete を消し直した（R51。契機だけが行い、旧 API の要求には待たせない。返らない削除は DELETE_WAIT_MS で切る） */
+    /** 起動後の最初の契機で pendingDelete を消し直した（契機だけが行い、旧 API の要求には待たせない。返らない削除は DELETE_WAIT_MS で切る） */
     pendingDeletesRetried?: boolean;
     /** mapID → 進行中の pullTile（clean・delete が待つ） */
     pulls?: Map<string, Set<Promise<void>>>;

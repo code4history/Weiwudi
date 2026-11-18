@@ -3,12 +3,12 @@
 //
 // 決まり:
 // - モジュール変数を持たない
-// - 取得は hook.serveResource だけ（core.serve → upstream。fetch を直に呼ばない。C-O12）
+// - 取得は hook.serveResource だけ（core.serve → upstream。fetch を直に呼ばない）
 // - 子は registry.apply（{ throwOnConflict: false }。update は resetCors: true）。親の記録は子を 1 つ書くたびに書き直す
 //   （途中で止まっても、作った子が親の children に載り、remove() で外せる。「子を書いてから children を
 //   更新するまでの間、その子は退避の範囲に入らない」を 1 子分に縮める）
 // - 資格情報は親（スタイルの id）と子（子の id）の両方に持つ。親のものは登録の正本（update() で配り直す）、子のものは捕捉で
-//   照合表が使う。子には、子の全テンプレートが credentialTargetOf で真のときだけ親のものを配る（R5・X2）。
+//   照合表が使う。子には、子の全テンプレートが credentialTargetOf で真のときだけ親のものを配る。
 //   子のテンプレートに載っていた同じ名前の値は、子のものが勝つ（上流がその URL に付けた値を上書きしない）
 // - 子にする組の判定は spec.acceptsMember（本体の除去の組と同じ）
 // - warnings に資格情報を出さない（subject は Resource.id・クエリを落とした URL・sources.<名前>）
@@ -24,7 +24,7 @@ import { MAX_TILE_ZOOM, compileTemplate, matchUrl, spriteTemplateOf, type MatchR
 import { nextOrder, styleSpecOf, type Credentials, type ResourceMeta, type ResourceType, type SourceRecord, type Store } from './store';
 import { WeiwudiError } from './errors';
 
-/** 取れたものとして本体を使う x-weiwudi-status（C-S5。stale の古い本体も使う） */
+/** 取れたものとして本体を使う x-weiwudi-status（stale の古い本体も使う） */
 const USABLE: readonly string[] = ['hit', 'miss', 'refresh', 'stale'];
 
 /** warnings の書式（"<code>: <subject>"） */
@@ -62,8 +62,8 @@ const hasUserInfo = (url: string): boolean => {
 };
 
 /**
- * 子にしない URL の subject（C-S6・X3・R36）: クエリとフラグメントを落とした URL。パスに秘密（sk.eyJ）があるか、
- * userinfo を持てば label（sources.<名前> など。L2 A）
+ * 子にしない URL の subject: クエリとフラグメントを落とした URL。パスに秘密（sk.eyJ）があるか、
+ * userinfo を持てば label（sources.<名前> など）
  */
 const subjectOf = (url: string, label: string): string => {
   if (hasSecretPathSegment(url) || hasUserInfo(url)) return label;
@@ -128,7 +128,7 @@ const clampZoom = (z: number): number => Math.min(MAX_TILE_ZOOM, Math.max(0, z))
 
 /**
  * 範囲の項目を normalizeMember の入力（bounds・minZoom・maxZoom・scheme）へ直す。ズームは整数へ丸めて 0〜30 に収め、
- * bounds があって maxzoom が無ければ 30（U1・TileJSON 3.0 の既定）。形の合わない bounds（東西の逆転・範囲外）は捨てて全域にする
+ * bounds があって maxzoom が無ければ 30（TileJSON 3.0 の既定）。形の合わない bounds（東西の逆転・範囲外）は捨てて全域にする
  * （範囲は地図ライブラリの要求の外を範囲外にするだけで、捨てても捕捉は変わらない）
  */
 const rangeCommon = (r: RangeIn): Obj => {
@@ -151,7 +151,7 @@ const TILE_ENCODING: Readonly<Record<string, 'raster' | 'vector'>> = Object.free
 });
 
 export interface StyleRegisterOptions {
-  /** 'register' は通常の順の取得、'update' は revalidate と resetCors（R4） */
+  /** 'register' は通常の順の取得、'update' は revalidate と resetCors */
   mode: 'register' | 'update';
   /** SW のオリジン（self.location.origin）。無ければ同じオリジンの検査をしない */
   swOrigin?: string;
@@ -174,7 +174,7 @@ const matchIn = (candidates: readonly ResourceMeta[], url: URL): { resource: Res
 };
 
 /**
- * 保存しない仮の Resource（O-N2）。id は新しい正規化のテンプレートで、同じ id の Resource が store にあれば当たらない id にする
+ * 保存しない仮の Resource。id は新しい正規化のテンプレートで、同じ id の Resource が store にあれば当たらない id にする
  * （serve は Resource が無ければ保存も差し込み口も使わない）
  */
 const tempResource = async (store: Store, spec: StoredSpec): Promise<ResourceMeta> => {
@@ -206,9 +206,9 @@ const fetchBody = async (
 /**
  * スタイルの登録・再登録・update()。保存した親の記録を返す
  * （照合表の作り直しと template-shadowed の追記は control が行う）。
- * - 新しい登録: 段 A〜C のどこかで失敗したら、作った子を外してから親を外して、元の例外で reject する（R30）
- * - 既存の登録: 段 A（スタイルの取得と解析）が成功するまで何も書かない。段 A の後の失敗は巻き戻さない（R33）
- * 同じ id の style でない Source があれば attribute-invalid（C-O5・R37）
+ * - 新しい登録: 段 A〜C のどこかで失敗したら、作った子を外してから親を外して、元の例外で reject する
+ * - 既存の登録: 段 A（スタイルの取得と解析）が成功するまで何も書かない。段 A の後の失敗は巻き戻さない
+ * 同じ id の style でない Source があれば attribute-invalid
  */
 export async function registerStyle(ctx: Context, input: NormalizedStyle, o: StyleRegisterOptions): Promise<SourceRecord> {
   const store = await ctx.store();
@@ -230,7 +230,7 @@ export async function registerStyle(ctx: Context, input: NormalizedStyle, o: Sty
 
   /** この回に作った子（登録の順。論理名の id で重ねない） */
   const next: StyleChild[] = [];
-  /** この回に書き始めた子の id（apply の前に入れる。apply の途中で投げた子も巻き戻す。L1 M-1） */
+  /** この回に書き始めた子の id（apply の前に入れる。apply の途中で投げた子も巻き戻す） */
   const touched: string[] = [];
   const warnings: string[] = [];
   /** 親の記録（children は前の子と今回の子の和。最後だけ今回の子） */
@@ -251,7 +251,7 @@ export async function registerStyle(ctx: Context, input: NormalizedStyle, o: Sty
   /** 子を 1 つ合流させて保存し、親の children に載せる */
   const applyChild = async (n: NormalizedSpec, from?: string): Promise<RegisterResult> => {
     const before = await store.getSource(n.spec.id);
-    // 子の内部の id に子でない記録（か別の親の子）があれば止める。新規として上書きしない（巻き戻しの対象にも入れない。L2 D）
+    // 子の内部の id に子でない記録（か別の親の子）があれば止める。新規として上書きしない（巻き戻しの対象にも入れない）
     if (before && (before.kind !== 'child' || before.parentId !== id)) {
       throw new WeiwudiError('internal', 'A record that is not a child of this style holds the id of a style resource');
     }
@@ -313,7 +313,7 @@ export async function registerStyle(ctx: Context, input: NormalizedStyle, o: Sty
         warnings.push(unsupportedSourceWarning(label));
         return undefined;
       }
-      // 親の資格情報は、子の全テンプレート（ミラーを含む）が配る相手のときだけ（R5・X2）
+      // 親の資格情報は、子の全テンプレート（ミラーを含む）が配る相手のときだけ
       const given = creds && urls.every((u) => target(u)) ? creds : undefined;
       const merged = mergeCredentials(given, n.credentials);
       n = hasCredentials(merged) ? { spec: n.spec, credentials: merged } : { spec: n.spec };
@@ -321,7 +321,7 @@ export async function registerStyle(ctx: Context, input: NormalizedStyle, o: Sty
       return { r, n };
     };
 
-    // 段 B: TileJSON（前の子は外さない。R2）
+    // 段 B: TileJSON（前の子は外さない）
     const failedTileJson: string[] = [];
     for (const tj of refs.tilejson) {
       const src = isObj(sources[tj.name]) ? sources[tj.name] as Obj : undefined;
@@ -334,14 +334,14 @@ export async function registerStyle(ctx: Context, input: NormalizedStyle, o: Sty
         { ...fetchOpts, credentialSourceId: tjId });
       const tileJson = got ? collectTileJson(got.text, made.n.spec.url as string) : undefined;
       if (!got || !tileJson) {
-        // Entry が無く上流も失敗した（C-S5）。前回この TileJSON から作った子は前回のまま残す（R3）
+        // Entry が無く上流も失敗した。前回この TileJSON から作った子は前回のまま残す
         const rid = made.r.resources.find((m) => m.type === 'tilejson')?.id ?? made.n.spec.templates[0];
         warnings.push(fetchFailedWarning(rid));
         failedTileJson.push(tjId);
         continue;
       }
       if (!encoding || tileJson.urls.length === 0) continue;
-      // TileJSON の tiles にも同じオリジンの検査を当てる（スタイルか TileJSON のどちらかが別オリジンなら。C-S2・R35）
+      // TileJSON の tiles にも同じオリジンの検査を当てる（スタイルか TileJSON のどちらかが別オリジンなら）
       const tjCross = styleIsCross || (swOrigin !== undefined && originOf(tj.url) !== swOrigin);
       // 範囲はスタイルの source の値が TileJSON の値に勝つ（MapLibre と同じ）
       const range = rangeCommon({ ...rangeIn(tileJson as unknown as Obj), ...rangeIn(src) });
@@ -371,7 +371,7 @@ export async function registerStyle(ctx: Context, input: NormalizedStyle, o: Sty
     // Mapbox の imports（Standard スタイル）は辿らない（MapLibre は扱わない）
     if (isObj(style) && Array.isArray(style.imports) && style.imports.length > 0) warnings.push(unsupportedSourceWarning('imports'));
 
-    // 取れなかった TileJSON から前回作った子は残す（R3）
+    // 取れなかった TileJSON から前回作った子は残す
     for (const c of prevChildren) {
       if (c.from !== undefined && failedTileJson.indexOf(c.from) >= 0 && !next.some((n) => n.id === c.id)) next.push(c);
     }
@@ -385,7 +385,7 @@ export async function registerStyle(ctx: Context, input: NormalizedStyle, o: Sty
         if (!(e instanceof WeiwudiError && e.code === 'source-not-found')) throw e;
       }
     }
-    // 親の warnings: 全子の warnings（resource-conflict）と段の warnings（template-shadowed は control が足す。C-O11）
+    // 親の warnings: 全子の warnings（resource-conflict）と段の warnings（template-shadowed は control が足す）
     const childWarnings: string[] = [];
     for (const c of next) {
       const rec = await store.getSource(c.id);
@@ -405,14 +405,14 @@ export async function registerStyle(ctx: Context, input: NormalizedStyle, o: Sty
       const style = parseStyle(body.text);
       return await stagesBC(style);
     } catch (e) {
-      // 巻き戻し（R30）: 作った子を外してから親を外す。巻き戻しの失敗は飲み込む（R33）
+      // 巻き戻し: 作った子を外してから親を外す。巻き戻しの失敗は飲み込む
       await removeStyleChildren(store, id, touched);
       await removeQuietly(store, id);
       throw e;
     }
   }
 
-  // 既存の登録: 段 A は前の style 子の Resource（あれば）で取る。何も書かない（R30）
+  // 既存の登録: 段 A は前の style 子の Resource（あれば）で取る。何も書かない
   const prevStyleResources = await store.resourcesBySource(styleChild.spec.id);
   const body = await fetchBody(ctx, store, prevStyleResources, styleChild.spec, creds, stageAOpts);
   if (!body) throw invalidStyle();
@@ -427,19 +427,19 @@ export async function registerStyle(ctx: Context, input: NormalizedStyle, o: Sty
 
 /**
  * 1 つの Source を外す（source-not-found を含め、失敗は飲み込む）。applyRemove が投げたら記録と資格情報だけでも消す
- * （書きかけの子の資格情報を残さない。L1 M-1）
+ * （書きかけの子の資格情報を残さない）
  */
 const removeQuietly = async (store: Store, sourceId: string): Promise<void> => {
   try {
     await applyRemove(store, sourceId);
   } catch (_e) {
-    try { await store.deleteSource(sourceId); } catch (_e2) { /* 部分的な状態が残りうる（R33） */ }
+    try { await store.deleteSource(sourceId); } catch (_e2) { /* 部分的な状態が残りうる */ }
   }
 };
 
 /**
- * スタイルの子を全部外す（巻き戻しと control の remove。L1 M-1）。対象は ids（親の children・この回に書き始めた子）と、
- * listSources() のうち parentId が親の id の記録（親の children に載る前に途中で止まった孤児。R33 の経路も含む）。
+ * スタイルの子を全部外す（巻き戻しと control の remove）。対象は ids（親の children・この回に書き始めた子）と、
+ * listSources() のうち parentId が親の id の記録（親の children に載る前に途中で止まった孤児も含む）。
  * strict（control の remove）は source-not-found 以外の失敗を投げ直す（親を消す前に止め、remove() をやり直せるようにする）。
  * strict でなければ（巻き戻し）失敗を飲み込み、記録と資格情報だけでも消す
  */

@@ -46,7 +46,7 @@ describe('asset', () => {
     expect(h.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('URL 配列はミラー（R8）: 2 つのミラーが 1 つの Resource の同じ Entry', async () => {
+  it('URL 配列はミラー: 2 つのミラーが 1 つの Resource の同じ Entry', async () => {
     const h = setup();
     const info = await ok(h, 'register', { kind: 'asset', id: 'pts', url: [A, B] });
     expect(info.url).toEqual([A, B]);
@@ -67,7 +67,7 @@ describe('asset', () => {
     expect((await ok(h, 'stats', { id: 'pts' })).total).toBeUndefined();
   });
 
-  it('P1: tile の Resource と衝突しても、その Resource の範囲は変わらない（rangeOnly にも入らない）', async () => {
+  it('tile の Resource と衝突しても、その Resource の範囲は変わらない（rangeOnly にも入らない）', async () => {
     const h = setup();
     const store = await openStore();
     // tile の Resource が同じ URL の形を持つ（旧い版が作りうる形を直接置く）

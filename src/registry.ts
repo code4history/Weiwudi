@@ -3,9 +3,9 @@
 //
 // 決まり:
 // - planRegister・composePolicy・isExclusiveTo・credentialSourceFor は純粋関数（IndexedDB を使わない）
-// - Resource の書き換えは createResource・replaceResource・patchResource だけ（count・bytes を store が引き継ぐ。第 1 回 S2）
+// - Resource の書き換えは createResource・replaceResource・patchResource だけ（count・bytes を store が引き継ぐ）
 // - id は spec.ts の正規化済みの値だけを使う。warnings は "<code>: <Resource.id>"
-// - 旧 API の Resource（map: で始まる id）は合流の候補に入れず、書き換えない（第 2 回 S-6）
+// - 旧 API の Resource（map: で始まる id）は合流の候補に入れず、書き換えない
 import type { OutOfRange, ResourceMeta, ResourcePolicy, ResourceType, SourceRecord, Store, TileExtent } from './store';
 import type { NormalizedSpec, StoredSpec } from './spec';
 import { WeiwudiError } from './errors';
@@ -49,20 +49,20 @@ const specsOf = (sources: readonly SourceRecord[]): StoredSpec[] =>
 const encodingOf = (s: StoredSpec): ResourceMeta['encoding'] =>
   s.type === 'tile' ? s.encoding ?? (s.kind === 'raster' || s.kind === 'vector' ? s.kind : undefined) : undefined;
 
-/** 範囲の持ち主（P1・R9）: 範囲は tile の Source だけが持つ。tile でない Source は範囲を足さない */
+/** 範囲の持ち主: 範囲は tile の Source だけが持つ。tile でない Source は範囲を足さない */
 const isTileSpec = (s: StoredSpec): boolean => s.type === 'tile';
 
-// ---- 子 Source（R1・X1） ----
+// ---- 子 Source ----
 
 /** 子の id: "<parentId>\0<type>:<logicalName>"。利用者の id は \0 を含まないので衝突しない */
 export const childSourceId = (parentId: string, type: ResourceType, logicalName: string): string =>
   `${parentId}\0${type}:${logicalName}`;
 
-/** 子の論理名の置き場所（X1）。source はタイル・TileJSON（sources のキー）、tilejson-tiles は TileJSON の下のタイル */
+/** 子の論理名の置き場所。source はタイル・TileJSON（sources のキー）、tilejson-tiles は TileJSON の下のタイル */
 export type ChildSlot = 'source' | 'tilejson-tiles' | 'glyphs' | 'sprite' | 'data' | 'style';
 
 /**
- * 子の論理名（X1・O-N8）。encodeURIComponent はスタイルの sources のキーとスプライトの配列の id にだけ当てる
+ * 子の論理名。encodeURIComponent はスタイルの sources のキーとスプライトの配列の id にだけ当てる
  * （/ と固定の語には当てない）。key は source・tilejson-tiles・data では sources のキー、sprite では配列の id（無ければ単一）。
  * 同じ論理ソースの URL や範囲が変わっても id は変わらない
  */
@@ -116,7 +116,7 @@ export function composePolicy(
   extraPolicies: readonly ResourcePolicy[] = [],
 ): Pick<ResourceMeta, 'policy' | 'extents'> {
   const specs = specsOf(sources);
-  // 範囲は tile の Source だけから作る（P1。tile でない Source を「範囲の指定が無い Source」として全域にしない）
+  // 範囲は tile の Source だけから作る（tile でない Source を「範囲の指定が無い Source」として全域にしない）
   const extents = [...specs, ...specsOf(rangeOnly)].filter(isTileSpec).map((s) => extentOf(s, resource.scheme));
   if (specs.length === 0) return { policy: resource.policy, extents };
 
@@ -160,7 +160,7 @@ export function credentialSourceFor(
 }
 
 /**
- * clean・remove の唯一の判定（第 1 回 O-2・O-15・C-S7）: sourceIds と rangeOnlySourceIds の全部が owners に入る
+ * clean・remove の唯一の判定: sourceIds と rangeOnlySourceIds の全部が owners に入る
  * （sourceIds が空なら偽）。文字列は 1 つの一覧として読む。スタイルの親は子の id の一覧を渡す
  */
 export function isExclusiveTo(resource: ResourceMeta, owners: string | readonly string[]): boolean {
@@ -178,7 +178,7 @@ export interface RegisterPlan {
   join?: { resourceId: string; create: boolean };
   /** 衝突したが範囲だけ足す（rangeOnlySourceIds に入る。新しい id か、まだ属していない Resource） */
   rangeOnly: string[];
-  /** 既に属していて衝突した Resource（S-I）。古い方針と古い範囲のまま sourceIds に残し、書き換えない */
+  /** 既に属していて衝突した Resource。古い方針と古い範囲のまま sourceIds に残し、書き換えない */
   keep: string[];
   /** 前の登録で参照していたが今回は参照しない Resource（sourceIds・rangeOnlySourceIds から外す） */
   leave: string[];
@@ -233,7 +233,7 @@ export function planRegister(spec: NormalizedSpec, existing: SourceRecord | unde
   } else if (overlapping.length === 1 && conflictOf(overlapping[0], s) === undefined) {
     plan.join = { resourceId: overlapping[0].id, create: false };
   } else {
-    // 2 つ以上に重なるか、1 つと衝突した。範囲だけ足すのは既存の Resource も新しい指定も tile のときだけ（P1。
+    // 2 つ以上に重なるか、1 つと衝突した。範囲だけ足すのは既存の Resource も新しい指定も tile のときだけ（
     // 型が違う衝突は warnings に書くだけ）
     for (const r of overlapping) {
       plan.conflicts.push(r.id);
@@ -259,7 +259,7 @@ const lookupOf = (sources: readonly SourceRecord[]): Lookup => {
 };
 
 /**
- * keep（S-I）の Source か: 自分の warnings にその Resource との衝突を持つ。その Source の保存済みの spec は新しい登録内容で、
+ * keep の Source か: 自分の warnings にその Resource との衝突を持つ。その Source の保存済みの spec は新しい登録内容で、
  * この Resource に入れると別の Resource のテンプレートや新しい方針が混ざる（PR #77）
  */
 const isKeptIn = (rec: SourceRecord, resourceId: string): boolean =>
@@ -282,7 +282,7 @@ const composeFor = (m: ResourceMeta, recs: Lookup): Pick<ResourceMeta, 'policy' 
     : { policy: m.policy, extents: [] };
   const oldKept = (m.extents ?? []).filter((e) => kept.indexOf(e.sourceId) >= 0).map((e) => ({ ...e }));
   const rangeOnly = composePolicy(m, [], recs(m.rangeOnlySourceIds)).extents ?? [];
-  // 合成した credentialParams で正規化し直す（宣言しなかった Source のテンプレートの資格情報を残さない。L-1）
+  // 合成した credentialParams で正規化し直す（宣言しなかった Source のテンプレートの資格情報を残さない）
   const raw = kept.length === 0
     ? composeTemplates(m, active)
     : [...m.templates, ...composeTemplates(m, active)];
@@ -355,7 +355,7 @@ export interface ApplyOptions {
 
 /**
  * 1 つの資源の指定を合流させて保存する。existing は同じ id の保存済みの記録（旧 API の記録は渡さない）。
- * 同じ id で kind を替えた登録は attribute-invalid で、何も変えない（C-O5。子の構成が丸ごと変わり keep の規則が当たらない）
+ * 同じ id で kind を替えた登録は attribute-invalid で、何も変えない（子の構成が丸ごと変わり keep の規則が当たらない）
  */
 export const apply = async (
   store: Store,
@@ -432,7 +432,7 @@ export const apply = async (
 
 /**
  * 登録。衝突しても失敗にせず Source を保存し、warnings に書く。同じ id の再登録は、既に属している
- * Resource との衝突を keep（古い方針のまま）にし、参照が消えた Resource からは外す（第 1 回 O-11）
+ * Resource との衝突を keep（古い方針のまま）にし、参照が消えた Resource からは外す
  */
 export async function applyRegister(store: Store, spec: NormalizedSpec): Promise<RegisterResult> {
   const existing = await store.getSource(spec.spec.id);

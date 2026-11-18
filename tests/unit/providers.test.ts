@@ -99,7 +99,7 @@ describe('登録表（plugins.ts）', () => {
   });
 });
 
-describe('normalizeSpec の providers（X8）', () => {
+describe('normalizeSpec の providers', () => {
   const mapbox = createMapboxProvider(appendQueryCredentials);
 
   it('providers を渡さなければ提供元を使わない（mapbox:// は unsupported-template のまま）', () => {
@@ -243,7 +243,7 @@ describe('SW を通した登録と上流（標準の mapbox）', () => {
     expect(sent.url).not.toContain(TOKEN);
   });
 
-  it('https://a.tiles.mapbox.com/v4/… の要求にも access_token が付く（C-O2。matches が *.tiles.mapbox.com を拾う）', async () => {
+  it('https://a.tiles.mapbox.com/v4/… の要求にも access_token が付く（matches が *.tiles.mapbox.com を拾う）', async () => {
     const h = createSwHarness();
     h.fetch.mockImplementation(async () => png());
     const url = 'https://a.tiles.mapbox.com/v4/u1.t1/{z}/{x}/{y}.vector.pbf';
@@ -266,7 +266,7 @@ describe('SW を通した登録と上流（標準の mapbox）', () => {
     expect(sent.redirect).toBe('error');
   });
 
-  it('control を通して register した spec.templates が https で、update() でも同じ（X8）', async () => {
+  it('control を通して register した spec.templates が https で、update() でも同じ', async () => {
     const h = createSwHarness();
     const r = await register(h, { kind: 'raster', id: 'mb', url: MAPBOX_TILES, credentials: { query: { access_token: TOKEN } } });
     expect(r.ok).toBe(true);

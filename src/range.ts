@@ -1,21 +1,21 @@
 /// <reference lib="webworker" />
 // 範囲取得。control.ts の op（estimate・fetchRange・regions・cancel・job/resume）が呼ぶ。
 // 値の依存は hook・core・upstream・registry・context・store・spec・url_pattern・tile_math・style_body・constants・errors だけ。
-// 持ち主の一覧（ownerIdsOf。スタイルは子の id）は control が作って渡す（style を import しない。R1）。
+// 持ち主の一覧（ownerIdsOf。スタイルは子の id）は control が作って渡す（style を import しない）。
 //
 // 決まり:
-// - 取得は hook.serveResource だけ（core.serve 1 つ。fetch を直接呼ばない）。no-cors の確かめは upstream.probeNoCors（R4）
-// - URL は url_pattern.expandTemplate で作り、同じテンプレートに matchUrl で照合してキーを entryKey で作る（R2）
-// - 資格情報は hook.credentialsForResource（照合ルートと同じ選び方。R3）。要求は new Request(url)（cors・same-origin）
+// - 取得は hook.serveResource だけ（core.serve 1 つ。fetch を直接呼ばない）。no-cors の確かめは upstream.probeNoCors
+// - URL は url_pattern.expandTemplate で作り、同じテンプレートに matchUrl で照合してキーを entryKey で作る
+// - 資格情報は hook.credentialsForResource（照合ルートと同じ選び方）。要求は new Request(url)（cors・same-origin）
 // - 固定はバッチの後の store.setPinned 1 本（成功と数えたキー全部・region が有るときだけ。PR #102）。
 //   保存と同じ tx で固定する近道（ServeInput.pin）は使わない（途中で region が消えたとき、どの region にも属さない固定を残す）
-// - region の終わりの書き込みは patchRegion で「有り・running」のときだけ（R5）。終わりの順は region → ctx.job → postMessage（R45）
-// - ジョブは各バッチの前に Source と region の有無を見る（Source が無ければ stop（source-not-found）・region が無ければ canceled。
-//   R13・R57）。バッチの後の setPinned の前にも region を見る
+// - region の終わりの書き込みは patchRegion で「有り・running」のときだけ。終わりの順は region → ctx.job → postMessage
+// - ジョブは各バッチの前に Source と region の有無を見る（Source が無ければ stop（source-not-found）・region が無ければ canceled）。
+//   バッチの後の setPinned の前にも region を見る
 // - スタイルの非タイル資源: 型の順に style → tilejson・data → sprite（{spriteSuffix} の 4 値）→ tile → glyph。
 //   style は先に別の runJob で取り（hit でよい）、本体から（style_body.collectFonts） fontstack を集めてから glyph の単位を作る。
-//   glyph は 1 fontstack を 1 単位にし、範囲を順に取って core.createGlyphCollector で 1 回に書く（finally で flush。L4・R-G）。
-//   固定はグリフも onBatch の pinKeys() だけ（flush の後にキーを足す）。total・percent はタイルだけ（R29）
+//   glyph は 1 fontstack を 1 単位にし、範囲を順に取って core.createGlyphCollector で 1 回に書く（finally で flush）。
+//   固定はグリフも onBatch の pinKeys() だけ（flush の後にキーを足す）。total・percent はタイルだけ
 import type { Context, JobState, OpaqueNotice } from './context';
 import { createGlyphCollector, evictScopesFor, runJob, sweepOnce, type GlyphCollector } from './core';
 import { credentialsForResource, serveResource } from './hook';
@@ -37,7 +37,7 @@ import { LEGACY_PREFIX } from './constants';
 
 declare const self: ServiceWorkerGlobalScope;
 
-/** 固定の書き込み（setPinned）の 1 回の件数（R46） */
+/** 固定の書き込み（setPinned）の 1 回の件数 */
 const PIN_CHUNK = 200;
 /** 止める連続数（jobOpaqueStreak・401・403・quota） */
 const STREAK_LIMIT = 3;
@@ -48,7 +48,7 @@ const emptyErrors = (): Record<TileFailure, number> => ({ network: 0, upstream: 
 
 const isFailure = (v: string | null): v is TileFailure => v === 'network' || v === 'upstream' || v === 'quota' || v === 'storage';
 
-// ---- 列挙（R-tms・第 1 回 L） ----
+// ---- 列挙 ----
 
 interface Rect { minX: number; maxX: number; minY: number; maxY: number }
 /** x の区間 [minX, maxX] で y の区間の和が同じ列 */
@@ -56,7 +56,7 @@ interface Segment { minX: number; maxX: number; ys: [number, number][]; perColum
 
 /**
  * z での「範囲 ∩ Resource の範囲」の矩形（Resource の scheme の座標）。範囲（XYZ）を Resource の scheme に直してから
- * extents（Resource の scheme の座標。F32）と交差させる。extents が無ければ全域
+ * extents（Resource の scheme の座標）と交差させる。extents が無ければ全域
  */
 const rectsAt = (resource: ResourceMeta, normalized: NormalizedRange, z: number): Rect[] => {
   const last = Math.pow(2, z) - 1;
@@ -104,7 +104,7 @@ const countAt = (segments: readonly Segment[]): number => segments.reduce((n, s)
 
 /**
  * 範囲と Resource の範囲の交差のタイル（z 昇順 → x 昇順 → y 昇順。重ならない）。y は Resource の scheme の座標で、
- * そのまま expandTemplate に渡す（{-y} は expandTileTemplate が y から作る。2 回反転しない。R-tms）。配列を作らない
+ * そのまま expandTemplate に渡す（{-y} は expandTileTemplate が y から作る。2 回反転しない）。配列を作らない
  */
 export function* enumerate(resource: ResourceMeta, normalized: NormalizedRange): Generator<[z: number, x: number, y: number]> {
   for (let z = normalized.minZoom; z <= normalized.maxZoom; z++) {
@@ -154,7 +154,7 @@ const invalidRegion = (): WeiwudiError =>
 
 /**
  * 持ち主の一覧の Resource（sourceIds・rangeOnlySourceIds。重ねない・登録の順）。タイルは extents をその持ち主の分に絞った写し
- * （共有の Resource の他の Source の範囲は取らない。計画「Resource の extents（Source の分）」）
+ * （共有の Resource の他の Source の範囲は取らない）
  */
 const resourcesOf = async (store: Store, owners: readonly string[]): Promise<ResourceMeta[]> => {
   const own: string[] = [];
@@ -212,7 +212,7 @@ const planOf = async (
   const copy = copyRange(range);
   const resources = await resourcesOf(store, owners);
   if (isAsset(rec)) {
-    // asset は 'all' だけ（R52）
+    // asset は 'all' だけ
     if (copy !== 'all') {
       throw new WeiwudiError('attribute-invalid', 'Attribute "range" must be "all" for an asset source', { attribute: 'range' });
     }
@@ -241,7 +241,7 @@ const regionIdOf = (): string => {
 };
 
 /**
- * 公開の形（R5）。running で ctx.job が無いか ctx.job.regionId が違う（SW が止まった・別の region のジョブ）ものは partial と見せる
+ * 公開の形。running で ctx.job が無いか ctx.job.regionId が違う（SW が止まった・別の region のジョブ）ものは partial と見せる
  * （記録は書き換えない）。内部の項目（normalized・options）は出さない
  */
 export const regionInfoOf = (ctx: Context, r: RegionRecord): RegionInfo => {
@@ -263,7 +263,7 @@ const busy = (job: JobState): WeiwudiError => new WeiwudiError('fetch-busy',
   `Another fetching process is running: "${job.label}" (${job.count} / ${job.total})`,
   { sourceId: job.sourceId, ...(job.regionId !== undefined ? { regionId: job.regionId } : {}) });
 
-/** ctx.job を同期に確保する（await を挟まない。旧 API の fetchAll と同じ。R23）。あれば fetch-busy */
+/** ctx.job を同期に確保する（await を挟まない。旧 API の fetchAll と同じ）。あれば fetch-busy */
 const claim = (ctx: Context, rec: SourceRecord, region: RegionRecord): JobState => {
   if (ctx.job) throw busy(ctx.job);
   const job: JobState = {
@@ -273,7 +273,7 @@ const claim = (ctx: Context, rec: SourceRecord, region: RegionRecord): JobState 
   return job;
 };
 
-/** ジョブの client（開始の POST の event.clientId。I5c・R21） */
+/** ジョブの client（開始の POST の event.clientId） */
 export interface JobClient {
   id: string;
   postMessage(message: unknown): void;
@@ -281,7 +281,7 @@ export interface JobClient {
 
 /**
  * fetchRange。直列の中で呼ぶ（control）。範囲と指定を検査し、同期に ctx.job を確保してから region を書く
- * （書き込みが失敗したら外して投げる。R23）。ジョブの Promise は呼び出し側が event.waitUntil に結び付ける
+ * （書き込みが失敗したら外して投げる）。ジョブの Promise は呼び出し側が event.waitUntil に結び付ける
  */
 export async function startFetchRange(
   ctx: Context, store: Store, rec: SourceRecord, owners: readonly string[], client: JobClient, range: unknown, options: unknown,
@@ -330,7 +330,7 @@ export async function resumeRange(
   const region = await store.getRegion(regionId);
   if (!region || region.sourceId !== rec.id) throw invalidRegion();
   const plan = { ...await planOf(store, rec, owners, region.range, region.normalized), options: region.options };
-  // 計画の読み出しの間に別の op が消した・終えたなら始めない。読み直しの後は await を挟まずに確保する（R23）
+  // 計画の読み出しの間に別の op が消した・終えたなら始めない。読み直しの後は await を挟まずに確保する
   const again = await store.getRegion(regionId);
   if (!again || again.sourceId !== rec.id) throw invalidRegion();
   if (again.status !== 'running') return { info: regionInfoOf(ctx, again) };
@@ -363,7 +363,7 @@ export async function holdersOf(store: Store, resource: ResourceMeta): Promise<s
   return [...holders];
 }
 
-/** partial・canceled も固定を持つ。pin:false の region は保護に数えない（R11・R12） */
+/** partial・canceled も固定を持つ。pin:false の region は保護に数えない */
 export async function remainingRegions(store: Store, resource: ResourceMeta, exceptId: string): Promise<RegionRecord[]> {
   const remaining: RegionRecord[] = [];
   for (const id of await holdersOf(store, resource)) {
@@ -372,7 +372,7 @@ export async function remainingRegions(store: Store, resource: ResourceMeta, exc
   return remaining;
 }
 
-/** 自分のジョブだけが解放・削除を妨げる（R48）。cancel の要求だけでは足りず、終了を待つ */
+/** 自分のジョブだけが解放・削除を妨げる。cancel の要求だけでは足りず、終了を待つ */
 export function assertSourceIdle(ctx: Context, sourceId: string): void {
   if (ctx.job?.sourceId === sourceId) throw busy(ctx.job);
 }
@@ -382,7 +382,7 @@ const contains = (rects: readonly Rect[], x: number | undefined, y: number | und
 
 /**
  * enumerate と同じ rectsAt（scheme の変換と Resource の extents の交差）で保存済みのキーを選ぶ。
- * 理論上の全タイルを配列にせず、entriesAtZoom のメタを走査する。書き込みは 200 件ずつ（R46）
+ * 理論上の全タイルを配列にせず、entriesAtZoom のメタを走査する。書き込みは 200 件ずつ
  */
 async function* keysInRange(
   store: Store, resource: ResourceMeta, range: NormalizedRange, remaining: readonly NormalizedRange[] = [],
@@ -414,7 +414,7 @@ const releaseRegion = async (
     if (resource.type === 'tile') {
       for await (const keys of keysInRange(store, resource, region.normalized, remaining.map((r) => r.normalized))) await release(keys);
     } else if (remaining.length === 0) {
-      // グリフも fontstack のレコードごと（R11）。削除後も末尾キーを使って次ページへ進む
+      // グリフも fontstack のレコードごと。削除後も末尾キーを使って次ページへ進む
       let after: string | undefined;
       do {
         const page = await store.entriesOf(resource.id, PIN_CHUNK, after);
@@ -436,7 +436,7 @@ export async function releaseRange(
   await releaseRegion(store, region, owners, opts);
 }
 
-/** remove・範囲なし clean 共通の解放（P1・R47）。参照元を外す前に呼ぶ */
+/** remove・範囲なし clean 共通の解放。参照元を外す前に呼ぶ */
 export async function releaseAllOf(store: Store, sourceId: string, owners: readonly string[], opts: { keep?: boolean }): Promise<void> {
   for (const region of await store.listRegions(sourceId)) await releaseRegion(store, region, owners, opts);
 }
@@ -473,7 +473,7 @@ export async function cleanRange(
   }
 }
 
-// ---- opaque イベント（P2・I5d・R20） ----
+// ---- opaque イベント ----
 
 /**
  * ctx.notify の配線。子 Source は親に読み替え（旧 API の記録は除く）、全 window の client に
@@ -510,7 +510,7 @@ const typeRank = (t: ResourceType): number =>
 /** スプライトの {spriteSuffix} の 4 値 */
 const spriteSuffixes = (): string[] => ['.json', '.png', '@2x.json', '@2x.png'];
 
-/** glyphRanges の範囲（R32）。'common' は 5 つ、'all' は 0-255 から 65280-65535 の 256 個、配列はそのまま（重複も残す） */
+/** glyphRanges の範囲。'common' は 5 つ、'all' は 0-255 から 65280-65535 の 256 個、配列はそのまま（重複も残す） */
 export const glyphRangesOf = (g: NormalizedFetchOptions['glyphRanges']): string[] => {
   if (g === 'common') return ['0-255', '256-511', '8192-8447', '12288-12543', '65280-65535'];
   if (g === 'all') return Array.from({ length: 256 }, (_v, i) => `${i * 256}-${i * 256 + 255}`);
@@ -607,7 +607,7 @@ const runRangeJob = async (
   const confirmed = new Set<string>();
   let keys: string[] = [];
   const errors = job.failures;
-  /** 失敗と数えたタイルのキーと種類（確かめで取れたら数え直す。PR #102 L2） */
+  /** 失敗と数えたタイルのキーと種類（確かめで取れたら数え直す。PR #102） */
   const failed = new Map<string, TileFailure>();
   /** グリフの fontstack（opts.fonts ∪ StyleSpec.fonts ∪ collectFonts。重ねない） */
   const fontstacks: string[] = [];
@@ -794,7 +794,7 @@ const runRangeJob = async (
       return;
     }
     if (!t) {
-      // 照合に外れた（展開とテンプレートの食い違い）。internal として storage に数える（計画 R2）
+      // 照合に外れた（展開とテンプレートの食い違い）。internal として storage に数える（計画）
       fail('storage');
       return;
     }
@@ -883,7 +883,7 @@ const runRangeJob = async (
       isAlive: async () => !!(await self.clients.get(client.id)),
       isCanceled: async () => {
         if (job.cancel) return true;
-        // R13: Source が無ければ stop（source-not-found）。R57: region が無ければ固定を付けずに canceled
+        // Source が無ければ stop（source-not-found）。region が無ければ固定を付けずに canceled
         if (!(await store.getSource(rec.id))) throw notFound(rec.id);
         if (!(await store.getRegion(regionId))) {
           regionGone = true;
@@ -893,7 +893,7 @@ const runRangeJob = async (
       },
       run,
       onBatch: async () => {
-        // job.total はタイルの枚数なので、count もタイルだけで数える（旧 API の fetch-busy の文面。PR #104 L3）
+        // job.total はタイルの枚数なので、count もタイルだけで数える（旧 API の fetch-busy の文面。PR #104）
         job.count = processedTiles;
         if (!(await store.getRegion(regionId))) {
           regionGone = true;
@@ -907,7 +907,7 @@ const runRangeJob = async (
             if (resource) await confirm(resource);
           }
         } finally {
-          // 確かめが stop を投げても、このバッチで取れた分は固定する（region は上で確かめた。PR #102 L1）
+          // 確かめが stop を投げても、このバッチで取れた分は固定する（region は上で確かめた。PR #102）
           await pinKeys();
         }
         if (authStreak >= STREAK_LIMIT) throw stopError('upstream', 'The upstream refused the requests (401 / 403)');
@@ -931,7 +931,7 @@ const runRangeJob = async (
     stopped = e instanceof WeiwudiError ? e : WeiwudiError.from(e);
   }
 
-  // 終わりの順: region を書く → ctx.job を外す → postMessage（R45）
+  // 終わりの順: region を書く → ctx.job を外す → postMessage
   const status: RegionStatus = result === 'finished' ? (job.error === 0 ? 'complete' : 'partial')
     : result === 'canceled' ? 'canceled' : result === 'gone' ? 'partial' : 'stopped';
   if (!regionGone) {

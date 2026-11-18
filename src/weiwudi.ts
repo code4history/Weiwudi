@@ -69,9 +69,9 @@ let swChecked: boolean | undefined;
 const V2URL = `https://${PSEUDO_HOST}${V2_PREFIX}`;
 /** HTTP キャッシュの 200 を成功と取り違えず、リダイレクトで本文を別オリジンへ移さない（PR #80） */
 const V2_FETCH: Readonly<RequestInit> = Object.freeze({ cache: 'no-store', redirect: 'error' });
-/** ping が成功した controller の実体（controllerchange で捨てる。第 2 回 D2） */
+/** ping が成功した controller の実体（controllerchange で捨てる） */
 let v2Verified = new WeakMap<ServiceWorker, true>();
-/** 進行中の確認（同時の呼び出しを ping 1 本にまとめる。第 3 回 推奨） */
+/** 進行中の確認（同時の呼び出しを ping 1 本にまとめる） */
 let v2Pending: Promise<void> | undefined;
 let v2Listening = false;
 
@@ -106,7 +106,7 @@ const pingOnce = async (): Promise<void> => {
 /**
  * ping の前と後で controller の実体を比べ、違えば 1 回だけ確かめ直す。なお違えば sw-not-controlling。
  * ping が失敗したときも比べる: 替わっていれば失敗は前の controller のものなので確かめ直し、替わっていなければ
- * その失敗を返す（PR #80 水準 2 必須）
+ * その失敗を返す（PR #80）
  */
 const verify = async (): Promise<void> => {
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -142,7 +142,7 @@ const ensureV2 = async (): Promise<void> => {
             v2Pending = undefined;
         });
     }
-    // 進行中の確認を待った後、今の controller が確認済みかを見直す。替わっていれば 1 回だけ確かめ直す（水準 1 Minor 6）
+    // 進行中の確認を待った後、今の controller が確認済みかを見直す。替わっていれば 1 回だけ確かめ直す（Minor 6）
     for (let round = 0; round < 2; round++) {
         const current = controllerOf();
         if (!current) throw notControlling('This page is not controlled by a service worker');
@@ -212,7 +212,7 @@ const RESUME_AFTER_MS = 30_000;
  */
 const ENDED_LIMIT = 64;
 
-/** SW から届く範囲取得のメッセージ（{ type, sourceId, regionId, … }。I5c） */
+/** SW から届く範囲取得のメッセージ（{ type, sourceId, regionId, … }） */
 interface JobMessage {
     type: string;
     regionId?: unknown;
@@ -389,8 +389,8 @@ export class WeiwudiSource extends WeiwudiEventTarget {
 
     /**
      * 範囲を取得して固定する。持続的な保存領域を求め（待たず、失敗は無視）、ratio の既定は devicePixelRatio > 1 なら
-     * '@2x'（R-ratio）。終わり（finish・canceled は resolve、stop は WeiwudiError で reject）まで待つ。30 秒イベントが来なければ
-     * job/resume を送る（R22・R45）
+     * '@2x'。終わり（finish・canceled は resolve、stop は WeiwudiError で reject）まで待つ。30 秒イベントが来なければ
+     * job/resume を送る
      */
     async fetchRange(range: RangeSpec, opts: FetchRangeOptions = {}): Promise<RegionInfo> {
         this.alive();
@@ -451,7 +451,7 @@ export class WeiwudiSource extends WeiwudiEventTarget {
         });
     }
 
-    /** fetchRange の待ち（R22・R45）。終わりのメッセージ・job/resume の終わりの status・release() のどれかで決まる */
+    /** fetchRange の待ち。終わりのメッセージ・job/resume の終わりの status・release() のどれかで決まる */
     private waitRegion(info: RegionInfo): Promise<RegionInfo> {
         return new Promise<RegionInfo>((resolve, reject) => {
             let timer: ReturnType<typeof setTimeout> | undefined;

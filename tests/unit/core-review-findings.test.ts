@@ -1,5 +1,5 @@
 // コア入れ替えの区切りのレビューの指摘の試験。
-// 再現は区切りのレビューの scratchpad（m2review/tms-bounds.test.ts・m2sec/sec.test.ts の F1〜F3）から移した。
+// 再現は区切りのレビューの scratchpad から移した。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSwHarness } from './sw-harness';
 import { createContext } from '../../src/context';

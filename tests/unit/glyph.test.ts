@@ -410,7 +410,7 @@ describe('固定の競合のグリフ版', () => {
     await expectConsistent();
   });
 
-  it('上限を超える結合レコードは古い範囲を落として新しい範囲を保存する（L3・R7）', async () => {
+  it('上限を超える結合レコードは古い範囲を落として新しい範囲を保存する', async () => {
     await store.putSource(sourceRecord('s1', 25));
     await serve(ctx, glyphInput('Noto', '0-255', vi.fn<Up>(async () => okBody(glyphBytes('0-255', 12)))), () => T);
     await serve(ctx, glyphInput('Noto', '256-511', vi.fn<Up>(async () => okBody(glyphBytes('256-511', 12)))), () => T + 1);

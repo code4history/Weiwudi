@@ -344,7 +344,7 @@ describe('新 API の code（#33 レビュー）', () => {
   });
 });
 
-// ---- 第 3 回レビュー: Error.isError の有無・偽装・from が throw しないこと ----
+// ---- レビュー: Error.isError の有無・偽装・from が throw しないこと ----
 
 type IsError = (v: unknown) => boolean;
 const ORIGINAL_IS_ERROR = Object.getOwnPropertyDescriptor(Error, 'isError');
@@ -534,7 +534,7 @@ describe.each(PATHS)('%s', (_label, impl) => {
   });
 });
 
-describe('文字列にできない値（第 3 回レビュー）', () => {
+describe('文字列にできない値', () => {
   it('String が投げる値は [unprintable] になる', () => {
     const proxy = new Proxy({}, { get: () => undefined });
     expect(WeiwudiError.from(proxy).message).toBe('[unprintable]');
@@ -551,7 +551,7 @@ describe('Error.isError(DOMException) が false の環境（Firefox・WebKit の
   });
 });
 
-describe('照合の速さ: apiName・target（第 3 回レビュー）', () => {
+describe('照合の速さ: apiName・target', () => {
   it.each([
     ['api-not-found', 'apiName'],
     ['attribute-missing', 'target'],

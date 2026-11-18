@@ -1,5 +1,5 @@
 // 保存の失敗と x-weiwudi-error・fetchAll の errors と stop の code（weiwudi-gw-logic.test.ts から移した）。
-// 入出力の expect は変えない。変えてよいのは仕掛け（失敗させる要求の種類と expect(spy) の回数）だけ（計画「試験の振り分け」）。
+// 入出力の expect は変えない。変えてよいのは仕掛け（失敗させる要求の種類と expect(spy) の回数）だけ。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSwHarness, tileResponse } from './sw-harness';
 

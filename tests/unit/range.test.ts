@@ -196,7 +196,7 @@ describe('fetchRange のタイルと固定', () => {
     expect((await env.store.getEntry(tileKey(TPL, 2, 1, 1)))!.meta.pinned).toBe(1);
   });
 
-  it('固定の抜け (a): ページの要求が上流を待つ間にジョブが同じキーを取る（inflight の相乗り）→ pinned === 1（第 1 回 S2）', async () => {
+  it('固定の抜け (a): ページの要求が上流を待つ間にジョブが同じキーを取る（inflight の相乗り）→ pinned === 1', async () => {
     const env = await setup();
     await ok(env, 'register', SOURCE);
     let release!: () => void;
@@ -264,7 +264,7 @@ describe('fetchRange のタイルと固定', () => {
   });
 });
 
-describe('イベントと終わりの順（I5c・R21・R45）', () => {
+describe('イベントと終わりの順', () => {
   it('proceed は concurrency ごと、finish に error・errors・regionId・sourceId。finish の時点で regions() は running でない', async () => {
     const env = await setup();
     await ok(env, 'register', SOURCE);
@@ -308,7 +308,7 @@ describe('イベントと終わりの順（I5c・R21・R45）', () => {
     await fails(env, 'cancel', { id: 's' }, 'no-fetch-process');
   });
 
-  it('stop に code・message・processed・total（Source が消えると次のバッチで source-not-found。R13）', async () => {
+  it('stop に code・message・processed・total（Source が消えると次のバッチで source-not-found）', async () => {
     const env = await setup();
     await ok(env, 'register', SOURCE);
     let n = 0;
@@ -513,7 +513,7 @@ describe('job/resume', () => {
   });
 });
 
-describe('1 度に 1 ジョブ・code（R23・R30）', () => {
+describe('1 度に 1 ジョブ・code', () => {
   it('別の Source のジョブ中・旧 API の fetchAll 中は fetch-busy。region を書かない', async () => {
     const env = await setup();
     await ok(env, 'register', SOURCE);
@@ -612,7 +612,7 @@ describe('直列の外・range の写し・asset・資格情報', () => {
     expect((await env.store.getRegion(info.id))!.range).toEqual(RANGE);
   });
 
-  it("kind: 'asset' の fetchRange('all') で Resource が固定され、'all' 以外は attribute-invalid。estimate は 0（R52）", async () => {
+  it("kind: 'asset' の fetchRange('all') で Resource が固定され、'all' 以外は attribute-invalid。estimate は 0", async () => {
     const env = await setup();
     const D = 'https://d.example/a.json';
     env.h.fetch.mockImplementation(async () => new Response('{}', { headers: { 'content-type': 'application/json' } }));
@@ -627,7 +627,7 @@ describe('直列の外・range の写し・asset・資格情報', () => {
     expect(messages(env, 'finish')).toMatchObject([{ percent: 100, processed: 1, total: 0 }]);
   });
 
-  it('資格情報: 上流の URL に access_token が付き、キー・regions()・イベントに無い。足さない相手のミラーには付かない（R3）', async () => {
+  it('資格情報: 上流の URL に access_token が付き、キー・regions()・イベントに無い。足さない相手のミラーには付かない', async () => {
     const env = await setup();
     const A = 'https://a.example/{z}/{x}/{y}.png';
     const B = 'https://b.example/{z}/{x}/{y}.png';
@@ -677,7 +677,7 @@ describe('opaque イベントの送り先', () => {
   });
 });
 
-describe('enumerate・tileAt（R-tms・第 1 回 L）', () => {
+describe('enumerate・tileAt', () => {
   /** 種を固定した乱数（mulberry32） */
   const rng = (seed: number) => () => {
     seed |= 0; seed = (seed + 0x6d2b79f5) | 0;

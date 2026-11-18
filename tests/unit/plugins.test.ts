@@ -89,7 +89,7 @@ describe('登録表', () => {
     expect(getPlugins()).toEqual([a, b]);
   });
 
-  it('同じオブジェクトの 2 回目の addPlugin は無視する（フックは 1 回だけ。第 2 回 D4）', async () => {
+  it('同じオブジェクトの 2 回目の addPlugin は無視する（フックは 1 回だけ）', async () => {
     const p = { fetchDidSucceed: vi.fn(async () => undefined) };
     addPlugin(p);
     addPlugin(p);
@@ -343,7 +343,7 @@ describe('レビューの指摘（PR #75）', () => {
     expect(saved?.meta.pinned).toBe(1);
   });
 
-  it('cacheWillUpdate が返した Response の本体が読めなければ、保存の失敗（storage）として配信を続ける（L2 推奨）', async () => {
+  it('cacheWillUpdate が返した Response の本体が読めなければ、保存の失敗（storage）として配信を続ける（推奨）', async () => {
     const used = new Response('used');
     await used.text();
     addPlugin({ cacheWillUpdate: async () => used });
@@ -355,7 +355,7 @@ describe('レビューの指摘（PR #75）', () => {
   });
 });
 
-describe('処理中の addPlugin（第 3 回 推奨）', () => {
+describe('処理中の addPlugin（推奨）', () => {
   it('処理中の要求には効かず、次の要求から効く', async () => {
     const early = vi.fn(async () => undefined);
     const late = { fetchDidSucceed: vi.fn(async () => undefined) };

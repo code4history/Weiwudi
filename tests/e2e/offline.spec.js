@@ -42,7 +42,7 @@ async function upstreamCount(request) {
     return (await res.json()).count;
 }
 
-// 外へ出た要求を数える（range.spec.js と同じ。C-O8）。localhost:5173・5174 以外と疑似ホストへ出たものが 0 件であることを
+// 外へ出た要求を数える（range.spec.js と同じ）。localhost:5173・5174 以外と疑似ホストへ出たものが 0 件であることを
 // 試験の最後に確かめる（この describe は Chromium だけ）
 async function guardNetwork(context) {
     const external = [];

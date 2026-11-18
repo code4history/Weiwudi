@@ -77,7 +77,7 @@ export const pixelSizeToTileBox = (width: number, height: number, tileSize: numb
   };
 };
 
-/** expandTileTemplate の新 API 向けの指定（R6。展開の実装は新旧で 1 つ） */
+/** expandTileTemplate の新 API 向けの指定（展開の実装は新旧で 1 つ） */
 export interface ExpandOptions {
   /** 全出現を置換する。無ければ各字句の最初の出現だけ */
   all?: boolean;

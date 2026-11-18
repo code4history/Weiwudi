@@ -34,7 +34,7 @@ const withDropped = (body: string, init: ResponseInit = {}) => {
 };
 
 describe('旧 API との既知の変化', () => {
-  it('差し込み口が受ける request.url は上流のタイルの URL（疑似ホストではない。第 2 回 S-5）', async () => {
+  it('差し込み口が受ける request.url は上流のタイルの URL（疑似ホストではない）', async () => {
     const h = createSwHarness();
     await addTileMap(h);
     const seen: string[] = [];
@@ -59,7 +59,7 @@ describe('旧 API との既知の変化', () => {
     expect(h.fetch.mock.calls).toEqual([['tiles/2/1/0.png']]);
   });
 
-  it('requestWillFetch が別の Request を返すと、fetch はその Request の 1 引数で呼ばれる（第 1 回 S8）', async () => {
+  it('requestWillFetch が別の Request を返すと、fetch はその Request の 1 引数で呼ばれる', async () => {
     const h = createSwHarness();
     await addTileMap(h);
     addPlugin({
@@ -144,7 +144,7 @@ describe('旧 API との既知の変化', () => {
     expect(seen).toEqual({ miss: 'miss', hit: 'hit', zoom: 'out-of-range', extent: 'out-of-range', offline: 'offline-miss' });
   });
 
-  it('上流 500（4 ヘッダつき）で Entry が無いとき、4 ヘッダが残らず x-weiwudi-error: upstream が付く（第 4 回 S-1）', async () => {
+  it('上流 500（4 ヘッダつき）で Entry が無いとき、4 ヘッダが残らず x-weiwudi-error: upstream が付く', async () => {
     const h = createSwHarness();
     await addTileMap(h);
     h.fetch.mockImplementation(async () => withDropped('boom', { status: 500, statusText: 'Internal Server Error' }));
@@ -158,7 +158,7 @@ describe('旧 API との既知の変化', () => {
     expect(res.headers.get('x-weiwudi-status')).toBe('upstream-error');
   });
 
-  it('fetchAll のジョブは開始の FetchEvent の waitUntil に渡り、完了で解決する（第 1 回 S11）', async () => {
+  it('fetchAll のジョブは開始の FetchEvent の waitUntil に渡り、完了で解決する', async () => {
     const h = createSwHarness();
     await addTileMap(h);
     h.fetch.mockImplementation(async () => tileResponse(4));
@@ -229,7 +229,7 @@ describe('現行の癖を保つ（golden の筋書きでは区別できない手
   });
 });
 
-describe('載せ替えで決めた旧 API の扱い（Ruling）', () => {
+describe('載せ替えで決めた旧 API の扱い', () => {
   it('Range つきの要求は serve に入れず素通しする: 上流のタイルの URL へ Range を付けて出し、そのまま返し、保存しない', async () => {
     const h = createSwHarness();
     await addTileMap(h);

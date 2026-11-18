@@ -4,17 +4,17 @@
 // 決まり:
 // - 上流への取得は ctx.upstreamFetch だけ（同じオリジンの要求に User-Agent を足す）
 // - 匿名の要求は mode: 'cors'・credentials: 'same-origin' に組み替える。認証付きの要求は元の Request のまま
-// - corsOk・corslessUntil は判定のたびに store から読み直し、書き換えは patchResource（1 tx で読み・直し・書き。第 1 回 S2）。
+// - corsOk・corslessUntil は判定のたびに store から読み直し、書き換えは patchResource（1 tx で読み・直し・書き）。
 //   書き換えの関数の中でも実績の有無を見直す（別の SW が同じ DB に書くため）
 // - corslessStreak は context のメモリだけ（保存しない）
 // - 条件付き要求（If-None-Match など）を出さない
-// - 登録の資格情報は要求に無いときだけ足す（R5）。足す相手のオリジンは呼び出し側（hook）が選ぶ（I2）。
+// - 登録の資格情報は要求に無いときだけ足す。足す相手のオリジンは呼び出し側（hook）が選ぶ。
 //   差し込み口の後の要求のオリジンがページの要求と違えば足さない。ヘッダを足した要求は redirect: 'error'
 //   （no-cors の要求を除く。ヘッダが送られないため）
 // - 範囲取得側の規則（jobOpaqueStreak ほか）は range.ts。no-cors の確かめ（probeNoCors）は fetch を持つここに置く。
-//   corslessUntil を書いたら ctx.notify で opaque イベントを 1 回送る（R20）
+//   corslessUntil を書いたら ctx.notify で opaque イベントを 1 回送る
 // - 提供元の Resource（provider が登録表にあるもの）は、クエリの資格情報を provider.applyCredentials で足す。
-//   オリジンの規則（I1）と redirect の規則はそのまま当たる。applyCredentials がオリジンを替えた結果は使わない
+//   オリジンの規則と redirect の規則はそのまま当たる。applyCredentials がオリジンを替えた結果は使わない
 import type { Context } from './context';
 import type { ServeInput, UpstreamResult } from './core';
 import type { WeiwudiProvider } from './plugins';
@@ -98,9 +98,9 @@ const outgoing = (
 
 /**
  * 要求を mode・credentials を指定して作り直す（referrer などは元のまま）。
- * ヘッダの資格情報を足したときは redirect: 'error'（別オリジンへのリダイレクトにヘッダを持って行かせない。I1・R21）。
+ * ヘッダの資格情報を足したときは redirect: 'error'（別オリジンへのリダイレクトにヘッダを持って行かせない）。
  * no-cors の要求は除く: safelist に無いヘッダは捨てられて送られず、follow 以外の redirect は Fetch の main fetch で
- * network error になる（L1 M-1）。それ以外は元の redirect のまま
+ * network error になる。それ以外は元の redirect のまま
  */
 const rebuild = (
   request: Request, credentials: Credentials | undefined, provider: WeiwudiProvider | undefined,
@@ -171,7 +171,7 @@ const countCorsless = async (ctx: Context, o: UpstreamOptions, t: number): Promi
     const store = await ctx.store();
     // 書き換えの関数の中でも実績を見直す（読んだ後に別の要求・別の SW が CORS を通していれば書かない）
     const written = await store.patchResource(o.resourceId, (m) => (experienced(m) ? undefined : { ...m, corslessUntil: t + CORSLESS_PERIOD_MS }));
-    // 書いたときだけ 1 回知らせる（R20）。知らせの失敗は配信を止めない
+    // 書いたときだけ 1 回知らせる。知らせの失敗は配信を止めない
     if (written) {
       try {
         ctx.notify?.({ type: 'opaque', resourceId: written.id, sourceIds: written.sourceIds.slice() });

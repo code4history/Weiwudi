@@ -4,14 +4,14 @@
 // 決まり:
 // - モジュール変数を持たない
 // - 子になる URL の組（1 つの子になる URL の全部）は childGroups 1 つで数える。collectStyleRefs（子を作る）と
-//   rewriteStyleBody（本体の資格情報の除去）が同じ組を使う（S-N1）
+//   rewriteStyleBody（本体の資格情報の除去）が同じ組を使う
 // - 子として受けられない組（型の字句の許可に外れる・compile できない。url_pattern.tokenRejection）は子にせず、除去もしない。
 //   1 つでも外れる組を持つ source は、source ごと skipped にする。source を持たない
 //   glyphs・sprite の組は dropped に種類と論理名だけを残す（subject に URL・トークンを入れない）
-// - 除くのは、組の全部の URL で shouldStrip が真のときの、その組の URL の credentialParams の項目だけ（C-S1・X5・R32）。
+// - 除くのは、組の全部の URL で shouldStrip が真のときの、その組の URL の credentialParams の項目だけ。
 //   除くのは登録した資格情報の値（StripRule.credentialValues）と同じ値の項目だけ（違う値・登録の無い名前は子の固有の
 //   トークンなので本体に残し、normalizeMember で子の資格情報に移る）。相対 URL は base で絶対化して判定し、書き戻すときは元の相対の形のまま項目だけを除く
-// - 読めない本体は invalid-style を投げる（入力をそのまま返さない。C-S4）。拒否の文面に本体の値を入れない
+// - 読めない本体は invalid-style を投げる（入力をそのまま返さない）。拒否の文面に本体の値を入れない
 import { WeiwudiError } from './errors';
 import type { ResourceType } from './store';
 import { absolutizeTemplate, compileTemplate, spriteTemplateOf, stripTemplateParams, tokenRejection } from './url_pattern';
@@ -20,7 +20,7 @@ import { absolutizeTemplate, compileTemplate, spriteTemplateOf, stripTemplatePar
 export interface StyleRefs {
   /** sources[*].url（vector・raster・raster-dem） */
   tilejson: { name: string; url: string }[];
-  /** sources[*].tiles（vector は 'vector'、raster・raster-dem は 'raster'。R31） */
+  /** sources[*].tiles（vector は 'vector'、raster・raster-dem は 'raster） */
   tiles: {
     name: string; encoding: 'raster' | 'vector'; urls: string[]; scheme?: 'xyz' | 'tms';
     bounds?: number[]; minzoom?: number; maxzoom?: number;
@@ -32,7 +32,7 @@ export interface StyleRefs {
   spriteIds: (string | undefined)[];
   /** geojson の data（文字列）・image の url */
   data: { name: string; url: string }[];
-  /** 子にしない source（video・知らない type・URL が解決できないもの。R31） */
+  /** 子にしない source（video・知らない type・URL が解決できないもの） */
   skipped: { name: string; reason: 'unsupported-source' }[];
   /** 子にできなかった glyphs・sprite（種類と論理名だけ。URL・トークンを入れない。unsupported-source の subject） */
   dropped: DroppedRef[];
@@ -45,7 +45,7 @@ export interface DroppedRef {
   spriteId?: string;
 }
 
-/** 本体の資格情報の除去の規則（R32）。子を作るときと同じ判定（credentialTargetOf）で作る */
+/** 本体の資格情報の除去の規則。子を作るときと同じ判定（credentialTargetOf）で作る */
 export interface StripRule {
   credentialParams: readonly string[];
   /**
@@ -127,7 +127,7 @@ const SLOT_TYPE: Readonly<Record<'tilejson' | 'tiles' | 'glyphs' | 'sprite' | 'd
  */
 const acceptsAsChild = (type: ResourceType, absoluteUrl: string): boolean => {
   try {
-    // userinfo（user:pass@）は登録の検査（spec.checkTemplate）と同じく受けない。accepts が無くても子作りと除去で揃う（L2 B）
+    // userinfo（user:pass@）は登録の検査（spec.checkTemplate）と同じく受けない。accepts が無くても子作りと除去で揃う（B）
     const u = new URL(absoluteUrl.replace(/\{[^{}]*\}/g, '0'));
     if (u.username !== '' || u.password !== '') return false;
     return tokenRejection(type, compileTemplate(type === 'sprite' ? spriteTemplateOf(absoluteUrl) : absoluteUrl)) === undefined;
@@ -155,7 +155,7 @@ const TILE_ENCODING: Readonly<Record<string, 'raster' | 'vector'>> = Object.free
 });
 
 /**
- * 子になる URL の組と、子にしない source（R31）。style は isStyleShape を満たすこと。
+ * 子になる URL の組と、子にしない source。style は isStyleShape を満たすこと。
  * 組: sources.<キー>.url・sources.<キー>.tiles の全体・glyphs・sprite（配列なら要素ごと）・geojson の文字列の data・image の url
  */
 const styleGroups = (style: Obj & { sources: Obj }): { groups: Group[]; unsupported: string[] } => {
@@ -177,7 +177,7 @@ const styleGroups = (style: Obj & { sources: Obj }): { groups: Group[]; unsuppor
     } else if (type === 'image') {
       if (typeof src.url === 'string') groups.push({ slot: 'data', name, urls: [src.url], set: ([u]) => { src.url = u; } });
     } else {
-      // video（Range で取られて保存できない。R31）と知らない type
+      // video（Range で取られて保存できない）と知らない type
       unsupported.push(name);
     }
   }
@@ -282,7 +282,7 @@ const strippedGroup = (urls: readonly string[], abs: readonly string[], strip: S
 };
 
 /**
- * スタイルの本体を書き換える（R28）: 提供元の rewriteStyle を当て、strip があれば子の組の単位で資格情報の項目を除く（R32）。
+ * スタイルの本体を書き換える: 提供元の rewriteStyle を当て、strip があれば子の組の単位で資格情報の項目を除く。
  * どちらも無く変わらなければ入力と同じ文字列。読めない本体・rewriteStyle の結果がスタイルの形でなければ invalid-style
  */
 export function rewriteStyleBody(
@@ -310,7 +310,7 @@ export function rewriteStyleBody(
 }
 
 /**
- * TileJSON の本体を書き換える（R28）: strip があれば tiles の全体を 1 つの組として資格情報の項目を除く（R32）。
+ * TileJSON の本体を書き換える: strip があれば tiles の全体を 1 つの組として資格情報の項目を除く。
  * 変わらなければ入力と同じ文字列。JSON の object で tiles が配列でなければ invalid-style（detail.type: 'tilejson'）
  */
 export function rewriteTileJsonBody(text: string, base: string, o: { strip?: StripRule }): string {

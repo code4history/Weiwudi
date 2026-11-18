@@ -22,7 +22,7 @@ const codeOf = (fn: () => unknown): string | undefined => {
 /** 登録した資格情報の値（除くのはこれと同じ値の項目だけ） */
 const VALUES = { access_token: 'pk.T', key: 'k' };
 
-/** a.example だけを資格情報の相手とする（R5 の判定） */
+/** a.example だけを資格情報の相手とする */
 const stripA: StripRule = { credentialParams: CP, credentialValues: VALUES, shouldStrip: credentialTargetOf({ styleOrigin: 'https://a.example' }) };
 
 const style = (over: Record<string, unknown> = {}) => ({ version: 8, sources: {}, layers: [], ...over });
@@ -130,7 +130,7 @@ describe('collectTileJson（tiles・bounds・scheme・相対）', () => {
   });
 });
 
-describe('credentialTargetOf（R5。子を作るときと本体の除去が共有する判定）', () => {
+describe('credentialTargetOf（子を作るときと本体の除去が共有する判定）', () => {
   it('スタイルの URL と同じオリジンか、提供元の matches に当たる URL だけが真', () => {
     const f = credentialTargetOf({ styleOrigin: 'https://a.example', providerMatches: (u) => u.startsWith('https://api.mapbox.com/') });
     expect(f('https://a.example/{z}/{x}/{y}.pbf')).toBe(true);
@@ -146,7 +146,7 @@ describe('credentialTargetOf（R5。子を作るときと本体の除去が共�
   });
 });
 
-describe('rewriteStyleBody（本体の資格情報の除去は子の組の単位で絞る。R32）', () => {
+describe('rewriteStyleBody（本体の資格情報の除去は子の組の単位で絞る）', () => {
   const body = (over: Record<string, unknown>) => JSON.stringify(style(over));
 
   it('strip も rewriteStyle も無ければ入力と同じ文字列（「登録が無ければ本体を変えない」）', () => {
@@ -172,7 +172,7 @@ describe('rewriteStyleBody（本体の資格情報の除去は子の組の単位
     expect(out.version).toBe(8);
   });
 
-  it('C-S1・X5: a.example のスタイルの中で b.example のタイルの ?key=k は残り、a.example のタイルの ?key=k だけが除かれる', () => {
+  it('a.example のスタイルの中で b.example のタイルの ?key=k は残り、a.example のタイルの ?key=k だけが除かれる', () => {
     const out = JSON.parse(rewriteStyleBody(body({
       sources: {
         a: { type: 'raster', tiles: ['https://a.example/{z}/{x}/{y}.png?key=k'] },
@@ -183,7 +183,7 @@ describe('rewriteStyleBody（本体の資格情報の除去は子の組の単位
     expect(out.sources.b.tiles).toEqual(['https://b.example/{z}/{x}/{y}.png?key=k']);
   });
 
-  it('S-N1: 組（1 つの子になる URL の全部）に偽の URL が 1 つでもあれば、その組の URL は 1 つも除かない', () => {
+  it('組（1 つの子になる URL の全部）に偽の URL が 1 つでもあれば、その組の URL は 1 つも除かない', () => {
     const out = JSON.parse(rewriteStyleBody(body({
       sources: { m: { type: 'raster', tiles: ['https://a.example/{z}/{x}/{y}.png?key=k', 'https://c.example/{z}/{x}/{y}.png?key=k'] } },
     }), BASE, { strip: stripA }));
@@ -238,7 +238,7 @@ describe('rewriteStyleBody（本体の資格情報の除去は子の組の単位
     expect((seen as { sources: { m: { tiles: string[] } } }).sources.m.tiles[0]).toContain('mapbox://');
   });
 
-  it('R32: 登録した資格情報と同じ値の項目だけを除き、違う値（子の固有のトークン）は残す', () => {
+  it('登録した資格情報と同じ値の項目だけを除き、違う値（子の固有のトークン）は残す', () => {
     const strip: StripRule = { ...stripA, credentialValues: { access_token: 'pk.PARENT' } };
     const out = JSON.parse(rewriteStyleBody(body({
       sources: {
@@ -257,7 +257,7 @@ describe('rewriteStyleBody（本体の資格情報の除去は子の組の単位
     expect(out.sprite).toEqual([{ id: 's1', url: 'https://a.example/sprites/s1?access_token=pk.CHILD' }]);
   });
 
-  it('R32: 値は percent-decode して比べる（符号化が違っても同じ値なら除く）', () => {
+  it('値は percent-decode して比べる（符号化が違っても同じ値なら除く）', () => {
     const strip: StripRule = { ...stripA, credentialValues: { access_token: 'pk.A/B' } };
     const out = JSON.parse(rewriteStyleBody(body({
       sources: { m: { type: 'raster', tiles: ['https://a.example/{z}/{x}/{y}.png?access_token=pk.A%2FB'] } },
@@ -265,7 +265,7 @@ describe('rewriteStyleBody（本体の資格情報の除去は子の組の単位
     expect(out.sources.m.tiles).toEqual(['https://a.example/{z}/{x}/{y}.png']);
   });
 
-  it('R32: 登録の値が無ければ（ヘッダだけの資格情報など）本体の項目を除かない', () => {
+  it('登録の値が無ければ（ヘッダだけの資格情報など）本体の項目を除かない', () => {
     const text = body({ sources: { a: { type: 'raster', tiles: ['https://a.example/{z}/{x}/{y}.png?key=k'] } } });
     expect(rewriteStyleBody(text, BASE, { strip: { ...stripA, credentialValues: {} } })).toBe(text);
   });
@@ -292,7 +292,7 @@ describe('rewriteTileJsonBody（tiles の全体が 1 つの組）', () => {
     expect(out.name).toBe('n?key=k');
   });
 
-  it('R32: tiles の項目も、登録した資格情報と同じ値だけを除き、違う値（子の固有のトークン）は残す', () => {
+  it('tiles の項目も、登録した資格情報と同じ値だけを除き、違う値（子の固有のトークン）は残す', () => {
     const strip: StripRule = { ...stripA, credentialValues: { access_token: 'pk.PARENT' } };
     const out = JSON.parse(rewriteTileJsonBody(JSON.stringify({
       tiles: ['https://a.example/{z}/{x}/{y}.pbf?access_token=pk.CHILD&v=1', '{z}/{x}/{y}.pbf?access_token=pk.PARENT'],
@@ -300,7 +300,7 @@ describe('rewriteTileJsonBody（tiles の全体が 1 つの組）', () => {
     expect(out.tiles).toEqual(['https://a.example/{z}/{x}/{y}.pbf?access_token=pk.CHILD&v=1', '{z}/{x}/{y}.pbf']);
   });
 
-  it('偽の URL が混ざれば 1 つも除かない（S-N1）', () => {
+  it('偽の URL が混ざれば 1 つも除かない', () => {
     const text = JSON.stringify({ tiles: ['https://a.example/{z}/{x}/{y}.pbf?key=k', 'https://b.example/{z}/{x}/{y}.pbf?key=k'] });
     expect(rewriteTileJsonBody(text, TJ_BASE, { strip: stripA })).toBe(text);
   });
@@ -400,7 +400,7 @@ describe('組の判定 accepts（子作りと本体の除去で同じ組を使�
     sources: { m: { type: 'raster', tiles, url: 'https://a.example/m.json' }, k: { type: 'raster', tiles: ['https://a.example/k/{z}/{x}/{y}.png?access_token=pk.T'] } },
     sprite: [{ id: 'default', url: 'https://a.example/sprites/s?access_token=pk.T' }],
   });
-  /** m の tiles の組だけを受けない（R22 などで normalizeMember が拒否する組の代わり） */
+  /** m の tiles の組だけを受けない（などで normalizeMember が拒否する組の代わり） */
   const rejectM = (_type: string, templates: string[]) => !templates.some((t) => t.includes('/m/'));
 
   it('collectStyleRefs: accepts が偽の組の source は丸ごと skipped（url の組も子にしない）。sprite の組はテンプレート（{spriteSuffix}）で渡す', () => {
@@ -430,7 +430,7 @@ describe('組の判定 accepts（子作りと本体の除去で同じ組を使�
   });
 });
 
-describe('userinfo の組（L2 B: accepts が無くても子作りと除去で揃う）', () => {
+describe('userinfo の組（B: accepts が無くても子作りと除去で揃う）', () => {
   const ui = 'https://user:pass@a.example/u/{z}/{x}/{y}.png?access_token=pk.T';
   it('collectStyleRefs は userinfo の組の source を skipped にし、rewriteStyleBody・rewriteTileJsonBody はその組から除かない', () => {
     const s = style({ sources: { u: { type: 'raster', tiles: [ui] } } });

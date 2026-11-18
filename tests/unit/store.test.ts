@@ -326,7 +326,7 @@ describe('数の一致', () => {
   });
 });
 
-describe('交互の更新（第 1 回 S2）', () => {
+describe('交互の更新', () => {
   it('2 つの patchResource を同時に出しても両方の変更が残る', async () => {
     const s = await open();
     await s.createResource(resource('r', { sourceIds: ['s1'] }));
@@ -440,7 +440,7 @@ describe('退避（putItemWithEviction と同じ規則）', () => {
     await expectCountsConsistent(s);
   });
 
-  it('maxBytes が 0 の上限では保存しない（第 2 回 O16）', async () => {
+  it('maxBytes が 0 の上限では保存しない', async () => {
     const s = await open();
     await s.createResource(resource('r'));
     expect(await put(s, entry('r', 'a', 1, 1), [{ resourceIds: ['r'], maxBytes: 0 }])).toEqual({ saved: false });
@@ -466,7 +466,7 @@ describe('退避（putItemWithEviction と同じ規則）', () => {
     await expectCountsConsistent(s);
   });
 
-  it('上限 2 つ（第 1 回 S4）: 1 つの Resource を 2 つの Source が上限つきで参照するとき、両方の上限を満たすまで消える', async () => {
+  it('上限 2 つ: 1 つの Resource を 2 つの Source が上限つきで参照するとき、両方の上限を満たすまで消える', async () => {
     const s = await open();
     // 共有 R を、S1（R と A・上限 30）と S2（R と B・上限 25）が参照する
     for (const id of ['R', 'A', 'B']) await s.createResource(resource(id));
@@ -501,7 +501,7 @@ describe('退避（putItemWithEviction と同じ規則）', () => {
   });
 });
 
-describe('消された Resource（第 1 回 O-7）', () => {
+describe('消された Resource', () => {
   it('putEntry は、同じ tx の前に消された Resource には書かない（saved: false・entries が増えない）', async () => {
     const s = await open();
     await s.createResource(resource('r'));
@@ -550,7 +550,7 @@ describe('putEntry のキーの守り', () => {
   });
 });
 
-describe('touch（第 1 回 O-6）', () => {
+describe('touch', () => {
   it('entries の accessedAt だけを直し、bodies へ書かない', async () => {
     const s = await open();
     await s.createResource(resource('r'));
@@ -609,7 +609,7 @@ describe('reject の値', () => {
   });
 });
 
-describe('toResourceInfo（第 2 回 O6）', () => {
+describe('toResourceInfo', () => {
   const meta = resource('r', {
     rangeOnlySourceIds: ['s9'], corsOk: true, corslessUntil: 1000, provider: 'mapbox', count: 3, bytes: 30, pinnedBytes: 10,
   });
@@ -1071,7 +1071,7 @@ describe('上限を超えた結合レコード', () => {
     await expectCountsConsistent(s);
   });
 
-  it('本体の前が新しく後ろが古いときも、fetchedAt の古い部分（後ろ）から落とす（レビュー L1）', async () => {
+  it('本体の前が新しく後ろが古いときも、fetchedAt の古い部分（後ろ）から落とす（レビュー）', async () => {
     const s = await setup();
     // 1 回の putGlyphParts で、本体の前に新しい部分（t=20）・後ろに古い部分（t=10）を置く
     await s.putGlyphParts(glyphMeta(G, 'Noto', 20), [
@@ -1327,7 +1327,7 @@ describe('store の新しい操作', () => {
     expect((await s.listUnpinnedBefore(10, 10)).metas.map((m) => m.key)).toEqual([key('r', 'c'), key('r', 'a'), key('r', 'b')]);
   });
 
-  it('listUnpinnedBefore は同じ fetchedAt の途中から続きを読み、続きの位置のキーが消えても欠けも重複もない（レビュー L2）', async () => {
+  it('listUnpinnedBefore は同じ fetchedAt の途中から続きを読み、続きの位置のキーが消えても欠けも重複もない（レビュー）', async () => {
     const s = await open();
     await s.createResource(resource('r'));
     for (const x of ['a', 'b', 'c', 'd']) await put(s, entry('r', x, 1, 5));
@@ -1391,7 +1391,7 @@ describe('store の新しい操作', () => {
     expect(await s.getRegion('g3')).toEqual(r3);
   });
 
-  it('hasEntries（I12）: 古い形の本体を持つキーでも true。本体を読まない（bodies の get が 0 回）', async () => {
+  it('hasEntries: 古い形の本体を持つキーでも true。本体を読まない（bodies の get が 0 回）', async () => {
     const s = await open();
     await s.createResource(resource('r1'));
     const e = entry('r1', '1_0_0', 4, 10);

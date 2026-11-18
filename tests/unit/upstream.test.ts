@@ -191,7 +191,7 @@ describe('認証付きの要求', () => {
   });
 });
 
-describe('資格情報を足す（R5）', () => {
+describe('資格情報を足す', () => {
   it('要求に無いときだけ足す（名前は大文字小文字を問わない）。他のクエリの符号化を変えない', async () => {
     await call(img('https://t.example/1/0/0.png?a=%20b&ACCESS_TOKEN=page'), false,
       { query: { access_token: 'reg', extra: 'v' }, headers: { 'x-k': 'reg' } });
@@ -287,7 +287,7 @@ describe('corsOk・corslessStreak・corslessUntil', () => {
     expect(m.corsOk).toBe(true);
   });
 
-  it('CORS ヘッダつきの 404 でも corsOk が立つ（状態コードを問わない。第 2 回 O20）', async () => {
+  it('CORS ヘッダつきの 404 でも corsOk が立つ（状態コードを問わない）', async () => {
     fetchMock.mockResolvedValueOnce(png(404));
     await call(img());
     expect((await meta()).corsOk).toBe(true);

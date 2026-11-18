@@ -11,7 +11,7 @@ import { PAGE_HOST } from './fixtures/page-origin.mjs';
 // - fetchAll は proceed・finish・stop・canceled を聞いてから await fetchAll()
 // 外部へ出ない構成で、上流は tile-server.mjs（localhost:5174）だけ。SW は offline-sw.js、ページは offline-page.html。
 // context.setOffline と、SW の要求を context.route で数える外部通信の検査が Chromium だけで成り立つので、
-// describe ごと @chromium-only にする（R-lg-1）
+// describe ごと @chromium-only にする
 const UPSTREAM = 'http://localhost:5174';
 const PAGE = '/tests/e2e/fixtures/offline-page.html';
 const PSEUDO = 'weiwudi.example.com';
@@ -20,7 +20,7 @@ const tpl = (kind, y = '{y}') => `${UPSTREAM}/${kind}/{z}/{x}/${y}.png`;
 
 // 東京付近（z3〜8 で 25 枚）。期待値は試験の側で別の式（Web メルカトルのタイル番号の定義式）から出す
 const TOKYO = { minLng: 138, maxLng: 141, minLat: 34, maxLat: 37 };
-// 東の端は 180 にしない（180 は x = 2^z になり、範囲の外の 1 列が数に入る。現行からの癖。R-lg-6）
+// 東の端は 180 にしない（180 は x = 2^z になり、範囲の外の 1 列が数に入る。現行からの癖）
 const WORLD = { minLng: -180, maxLng: 179.99, minLat: -85, maxLat: 85 };
 
 const tileX = (lng, z) => Math.floor((lng + 180) / 360 * 2 ** z);
@@ -41,7 +41,7 @@ function tilesOf(b, minZoom, maxZoom) {
     return out;
 }
 
-// 外へ出た要求を数える（range.spec.js と同じ。C-O8）。どちらも各試験の最後に 0 件を確かめる
+// 外へ出た要求を数える（range.spec.js と同じ）。どちらも各試験の最後に 0 件を確かめる
 async function guardNetwork(context) {
     const external = [];
     await context.route('**/*', (route) => {
@@ -166,7 +166,7 @@ test.describe('Weiwudi legacy API as MaplatCore calls it', { tag: '@chromium-onl
         expect(second).toEqual({ status: 200, text: `tile:${z}/${x}/${y}` });
         expect(await upstreamCount(request)).toBe(before + 1);
 
-        // stats().total は totalTile と同じ。Core 側の補い（total が無ければ totalTile）を通しても同じ値（R-lg-3）
+        // stats().total は totalTile と同じ。Core 側の補い（total が無ければ totalTile）を通しても同じ値
         const stats = await call(page, 'stats');
         expect(stats.ok).toBe(true);
         expect(stats.value).toMatchObject({ count: 1, total: expected.length, percent: Math.floor(100 / expected.length) });
@@ -192,7 +192,7 @@ test.describe('Weiwudi legacy API as MaplatCore calls it', { tag: '@chromium-onl
         const end = await fetchAllUntilEnd(page);
         expect(end.type).toBe('finish');
         expect(end.detail).toMatchObject({ mapID: 'legacy_wmts_all', total: r.value.totalTile, error: 0 });
-        // finish に percent は無い（1.1.1 から同じ。R-lg-4）。100 は最後の proceed と stats() で見る
+        // finish に percent は無い（1.1.1 から同じ）。100 は最後の proceed と stats() で見る
         expect(end.detail.percent).toBeUndefined();
         const proceed = await eventsOf(page, 'proceed');
         expect(proceed.length).toBeGreaterThanOrEqual(1);
@@ -259,7 +259,7 @@ test.describe('Weiwudi legacy API as MaplatCore calls it', { tag: '@chromium-onl
         expect(r.ok, JSON.stringify(r.error)).toBe(true);
         expect(r.value.url).toBe(`https://${PSEUDO}/api/cache/legacy_mirrors/{z}/{x}/{y}`);
         expect(r.value.totalTile).toBe(21);
-        // ミラーは 1 枚ごとに無作為に選ばれる（R-lg-5）。どちらで取ったかは本体（上流が受けた y）でわかる
+        // ミラーは 1 枚ごとに無作為に選ばれる。どちらで取ったかは本体（上流が受けた y）でわかる
         const seen = { tms: 0, xyz: 0 };
         for (const [z, x, y] of tilesOf(WORLD, 0, 2)) {
             const tile = await getTile(page, z, x, y);
@@ -290,7 +290,7 @@ test.describe('Weiwudi legacy API as MaplatCore calls it', { tag: '@chromium-onl
         };
         const results = {};
         for (const [name, options] of Object.entries(cases)) results[name] = await registerLikeCore(page, `legacy_bad_${name}`, options);
-        // 今の実装のまま記録する: SW の文面（文字列）をそのまま throw する（Error ではない。R-lg-7）
+        // 今の実装のまま記録する: SW の文面（文字列）をそのまま throw する（Error ではない）
         expect(results.noUrl).toEqual({ ok: false, error: { kind: 'string', isError: false, text: 'Error: Attribute "url" is missing' } });
         expect(results.xyzNoSize).toEqual({ ok: false, error: { kind: 'string', isError: false, text: 'Error: Attribute "width" is missing' } });
         // 登録されていない（info は未登録の文面）

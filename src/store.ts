@@ -504,7 +504,7 @@ const packGlyph = (
   return { data: joined.buffer, parts };
 };
 
-/** 部分の索引のうち最も新しい fetchedAt（レコードの fetchedAt。R7） */
+/** 部分の索引のうち最も新しい fetchedAt（レコードの fetchedAt） */
 const newestPart = (parts: GlyphPartIndex): number =>
   Object.values(parts).reduce((m, p) => Math.max(m, p.fetchedAt), -Infinity);
 
@@ -774,7 +774,7 @@ export const openStore = async (): Promise<Store> => {
   };
 
   /**
-   * putEntry と putGlyphPart の共通の後半（C-O7）。同じ tx の中で、退避・Entry の書き込み・Resource の数の更新を行う。
+   * putEntry と putGlyphPart の共通の後半。同じ tx の中で、退避・Entry の書き込み・Resource の数の更新を行う。
    * target は meta.resourceId の Resource、old は同じキーの保存済みの Entry（どちらも同じ tx で読んだもの）。
    * 書く pinned は meta.pinned と old.pinned の論理和（上流を待つ間の setPinned を戻さない）
    */
@@ -796,8 +796,8 @@ export const openStore = async (): Promise<Store> => {
     // totals は Resource を書く前（applyDeltas の前）に読む。全体の要素の見積もりにも使う
     const totals = await loadTotals(t);
 
-    // 退避は要素ごと（第 1 回 S4）。まず予算の見積もり（R42）: 保存済みの固定でない大きさの和 ＋ この tx で前の要素が消した分
-    // － 置き換える同じキーの固定でない古い Entry（候補から外す分）。予算内なら走査しない（P7・R7'）。
+    // 退避は要素ごと。まず予算の見積もり: 保存済みの固定でない大きさの和 ＋ この tx で前の要素が消した分
+    // － 置き換える同じキーの固定でない古い Entry（候補から外す分）。予算内なら走査しない。
     // 超えるときだけ cursor を併合して古い順に消す（今の getAll の実装と同じ集合を消す）
     for (const scope of evict) {
       if (scope.resourceIds === undefined) {
@@ -931,7 +931,7 @@ export const openStore = async (): Promise<Store> => {
     putEntry: (meta, body, evict) => entryKeyError(meta, body.key)
     ?? txAfter(toStoredBody(body), [S_RESOURCES, S_ENTRIES, S_BODIES, S_KV], 'readwrite', async (t, stored) => {
       const target = (await req2p(t.objectStore(S_RESOURCES).get(meta.resourceId))) as ResourceMeta | undefined;
-      // 消された Resource へ書き込みを残さない（第 1 回 O-7）
+      // 消された Resource へ書き込みを残さない
       if (!target) return { saved: false };
       const old = (await req2p(t.objectStore(S_ENTRIES).get(meta.key))) as EntryMeta | undefined;
       return commitEntry(t, target, old, meta, stored, evict);
@@ -977,7 +977,7 @@ export const openStore = async (): Promise<Store> => {
         const next: EntryMeta = {
           ...meta,
           size: packed.data.byteLength,
-          // 最も新しい部分の fetchedAt（R7。新しい部分がある間はレコードを掃除の対象にしない）
+          // 最も新しい部分の fetchedAt（新しい部分がある間はレコードを掃除の対象にしない）
           fetchedAt: newestPart(packed.parts),
         };
         return commitEntry(t, target, old, next, { key: meta.key, data: packed.data, type, headers, parts: packed.parts }, evict);

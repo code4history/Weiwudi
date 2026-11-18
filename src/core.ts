@@ -5,11 +5,11 @@
 // 決まり:
 // - モジュール変数を持たない（同時要求の Map は context が持つ）
 // - 合成した応答すべてに x-weiwudi-status（7 値）・失敗時の x-weiwudi-error（4 語）・
-//   access-control-expose-headers を付ける（上流の同名のヘッダは上書き。R9）。opaque には付けない
+//   access-control-expose-headers を付ける（上流の同名のヘッダは上書き）。opaque には付けない
 // - 合成した応答と保存する応答から 4 ヘッダ（content-encoding・content-length・transfer-encoding・set-cookie）と
 //   上流の x-weiwudi-* をすべて落とす
 // - 同時要求をまとめるのは storable の要求だけ。Range つきの要求は素通し
-// - hit の touch は応答を返す前に呼び、完了は待たない（R8・第 1 回 O-6）
+// - hit の touch は応答を返す前に呼び、完了は待たない
 // - 保存に失敗しても配信は続け、x-weiwudi-error に quota か storage を付ける（#22）。退避の範囲の読み出しの失敗も storage
 // - store の読み出しの失敗（接続・Resource・Entry）は reject で返す（呼び出し側が旧 API の文面などへ直す）
 import type { Context } from './context';
@@ -40,7 +40,7 @@ export interface ServeInput {
   request: Request;
   /**
    * 上流の取得。request は差し込み口を通した後の要求。requestChanged は差し込み口が別の Request に替えたとき真
-   * （旧 API はこれで fetch(URL の文字列) から fetch(Request) に切り替える。第 1 回 S8）
+   * （旧 API はこれで fetch(URL の文字列) から fetch(Request) に切り替える）
    */
   upstream: (request: Request, ctx: { hasEntry: boolean; requestChanged: boolean }) => Promise<UpstreamResult>;
   /** 認証付きかどうかの判定（認証付きの要求は偽）。偽の要求は同時要求をまとめない（他の要求と応答を共有しない） */
@@ -62,7 +62,7 @@ export interface ServeInput {
   revalidate?: boolean;
   /**
    * 真なら保存と同じ tx で固定する（pinned = 1）。範囲取得の近道で、固定の正本はジョブ側の store.setPinned
-   * （同時要求のまとめと hit は save を通らない。R46）。偽・無しは pinned = 0 で書き、保存済みの固定は commitEntry が保つ
+   * （同時要求のまとめと hit は save を通らない）。偽・無しは pinned = 0 で書き、保存済みの固定は commitEntry が保つ
    */
   pin?: boolean;
   /**
@@ -394,7 +394,7 @@ export function serve(ctx: Context, input: ServeInput, now: () => number): Promi
 /**
  * 素通し（Range つきの要求）の唯一の実装。新旧どちらの経路もこれを使う（hook・legacy・serve の守り）。
  * 上流の応答をそのまま返し、保存・まとめ・差し込み口を使わない。ネットワーク失敗（fetcher の reject）だけは
- * 表の 7 の形（404・offline-miss・x-weiwudi-error: network・access-control-expose-headers）で返す
+ * offline-miss の形（404・x-weiwudi-error: network・access-control-expose-headers）で返す
  */
 export const passThrough = async (fetcher: () => Promise<Response>): Promise<Response> => {
   try {
@@ -441,7 +441,7 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
     ? { plugins, info: toResourceInfo(resource, t), states: new Map() }
     : undefined;
 
-  // 1 範囲外
+  // 範囲外
   if (resource) {
     const kind = outOfRangeKind(resource, input.coord);
     if (kind) return outOfRangeResponse(resource, kind);
@@ -469,10 +469,10 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
     return r === cached ? parts : partsOf(r);
   };
 
-  // 2 新しい Entry。認証付き（storable が偽）は hit を飛ばして必ず上流へ出し、上流の失敗のときだけ古い本体を返す経路で Entry を使う
+  // 新しい Entry。認証付き（storable が偽）は hit を飛ばして必ず上流へ出し、上流の失敗のときだけ古い本体を返す経路で Entry を使う
   // revalidate も hit を飛ばす
   if (resource && entry && input.storable && input.revalidate !== true && t - entry.meta.fetchedAt <= resource.policy.cacheTtl) {
-    // touch は返す前に呼ぶ（tx はその場で同期に作られる）。完了は待たない（R8）
+    // touch は返す前に呼ぶ（tx はその場で同期に作られる）。完了は待たない
     store.touch(input.key, t).catch(() => undefined);
     const parts = await useCached(entry);
     if (parts) return synthesize(parts, 'hit');
@@ -495,7 +495,7 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
     result = { kind: 'network', error };
   }
 
-  // 6・7 ネットワーク失敗
+  // ネットワーク失敗
   if (result.kind === 'network') {
     if (hooks) await runFetchDidFail(hooks, request, result.error);
     return (await stale('network'))
@@ -514,7 +514,7 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
   if (!response.ok || (!input.isStyleLike && response.status === 200 && isHtml(up.headers))) {
     return (await stale('upstream')) ?? synthesize(up, 'upstream-error', 'upstream');
   }
-  // 本体の書き換え（R28）。投げたら 4・5 と同じ扱いで、保存しない（読めない本体・除去に失敗した本体を固定しない）
+  // 本体の書き換え。投げたら上流の失敗と同じ扱いで、保存しない（読めない本体・除去に失敗した本体を固定しない）
   if (input.transform) {
     try {
       up = { ...up, body: await input.transform(up.body as Blob) };
@@ -523,7 +523,7 @@ const serveOnce = async (ctx: Context, input: ServeInput, t: number, plugins: re
     }
   }
 
-  // 3 上流が成功。2xx は 200 OK として配信・保存する（旧 API の miss と同じ。hit の再生とも揃う。Ruling）
+  // 上流が成功。2xx は 200 OK として配信・保存する（旧 API の miss と同じ。hit の再生とも揃う）
   // 保存しない要求は Entry を更新しないので refresh にしない
   const status: ServeStatus = entry && input.storable ? 'refresh' : 'miss';
   let failure: TileFailure | undefined;
@@ -641,7 +641,7 @@ export interface JobSpec<T> {
 
 /**
  * 現行の fetchAll の進め方（batchSize ずつ・各バッチの前に isAlive、次に isCanceled）。
- * isAlive・isCanceled・run・onBatch の例外は捕まえずに reject で返す（呼び出し側が stop を出す。第 1 回 O-4）。
+ * isAlive・isCanceled・run・onBatch の例外は捕まえずに reject で返す（呼び出し側が stop を出す）。
  * 途中で終わるときは tasks の反復子の return() を呼ぶ
  */
 export async function runJob<T>(job: JobSpec<T>): Promise<'finished' | 'canceled' | 'gone'> {
@@ -669,7 +669,7 @@ export async function runJob<T>(job: JobSpec<T>): Promise<'finished' | 'canceled
     exhausted = true;
     return 'finished';
   } finally {
-    // 途中で終わる（gone・canceled・例外）ときは生成器を閉じる（finally を走らせる。PR #75 L2）
+    // 途中で終わる（gone・canceled・例外）ときは生成器を閉じる（finally を走らせる。PR #75）
     if (!exhausted) it.return?.();
   }
 }

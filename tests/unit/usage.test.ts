@@ -42,7 +42,7 @@ const policy: ResourceMeta['policy'] = {
   cacheTtl: 60_000, store: true, outOfRange: { extent: 'not-found', zoom: 'not-found' }, credentialParams: [],
 };
 
-describe('usage（R19・#38）', () => {
+describe('usage（#38）', () => {
   it('Resource が無ければ 0 と空の byProvider', async () => {
     const h = harness();
     expect(await ok(h, 'usage')).toEqual({ count: 0, bytes: 0, byProvider: {} });

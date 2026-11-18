@@ -20,7 +20,7 @@
 //   スタイルの子の Resource は親の id で名指す
 // - usage は全 Resource（旧 API の map: も）を 1 つずつ数える。子の Resource も 1 回だけ（Source ごとに数えない）
 // - POST は送り手（event.clientId の client）の URL のオリジン（blob: は中のオリジン）が SW と同じときだけ受ける。
-//   違う・見つからないときは sw-not-controlling で何もしない（I6・R25）。URL が about:srcdoc・about:blank の client は受ける。
+//   違う・見つからないときは sw-not-controlling で何もしない。URL が about:srcdoc・about:blank の client は受ける。
 //   GET の /v2/ping は見ない
 import type { RouteHandlerCallbackOptions } from 'workbox-core';
 import { storedUserAgentOf, type Context } from './context';
@@ -39,7 +39,7 @@ import type { SourceInfo, SourceStats, UsageReport } from './weiwudi';
 
 declare const self: ServiceWorkerGlobalScope;
 
-/** package.json の版（vite の define と vitest の define で埋める。第 1 回 S13） */
+/** package.json の版（vite の define と vitest の define で埋める） */
 declare const __WEIWUDI_VERSION__: string;
 
 /** /v2/ping の api の値 */
@@ -244,8 +244,8 @@ const swOrigin = (): string | undefined => {
 };
 
 /**
- * usage の鍵（R19）: ResourceMeta.provider、無ければ先頭のテンプレートの origin（旧 API の相対の URL は SW の場所で解決する）。
- * テンプレートが無い・解決できない・origin を持たない（data: など）ときは 'unknown'（Ruling）
+ * usage の鍵: ResourceMeta.provider、無ければ先頭のテンプレートの origin（旧 API の相対の URL は SW の場所で解決する）。
+ * テンプレートが無い・解決できない・origin を持たない（data: など）ときは 'unknown'
  */
 const providerKeyOf = (m: ResourceMeta): string => {
   if (typeof m.provider === 'string' && m.provider !== '') return m.provider;
@@ -265,7 +265,7 @@ const providerKeyOf = (m: ResourceMeta): string => {
   }
 };
 
-/** 全 Resource の使用量（R19）。byProvider は null プロトタイプ（鍵が __proto__ でも壊れない） */
+/** 全 Resource の使用量。byProvider は null プロトタイプ（鍵が __proto__ でも壊れない） */
 const usageOf = async (store: Store): Promise<UsageReport> => {
   const byProvider: Record<string, { count: number; bytes: number }> = Object.create(null);
   let count = 0;
@@ -293,7 +293,7 @@ const originOf = (url: unknown): string | undefined => {
 };
 
 /**
- * 制御の POST の送り手が SW と同じオリジンの client か（I6・R25）。event.clientId の client を self.clients.get で引き、
+ * 制御の POST の送り手が SW と同じオリジンの client か。event.clientId の client を self.clients.get で引き、
  * その URL のオリジンを比べる。client・clientId・SW のオリジンのどれかが無ければ偽（fail-closed）
  */
 const fromOwnOrigin = async (event: unknown): Promise<boolean> => {
@@ -367,7 +367,7 @@ export function createControl(ctx: Context): Control {
     const credentials = await store.getCredentials(id);
     const style = styleSpecOf(rec);
     if (style) {
-      // スタイルは取り直して芋づるを作り直す（下位資源の衝突で例外にしない。P2・R10）
+      // スタイルは取り直して芋づるを作り直す（下位資源の衝突で例外にしない）
       const before = (await resourcesOf(store, await ownerIdsOf(store, rec))).map((m) => m.id);
       const out = await registerStyle(ctx, credentials ? { spec: style, credentials } : { spec: style },
         { mode: 'update', swOrigin: swOrigin() });
@@ -423,7 +423,7 @@ export function createControl(ctx: Context): Control {
     const before = (await resourcesOf(store, owners)).map((m) => m.id);
     await releaseAllOf(store, id, owners, { keep: true });
     // スタイルは子を全部外してから親を消す（親の記録が残っていれば、途中で止まっても remove() をやり直せる）
-    // parentId が親の id の孤児（段の途中で止まった子。R33）も外す（L1 M-1）
+    // parentId が親の id の孤児（段の途中で止まった子）も外す
     if (styleSpecOf(rec)) await removeStyleChildren(store, id, ownersOf(rec), { strict: true });
     await applyRemove(store, id);
     for (const rid of before) {
@@ -441,7 +441,7 @@ export function createControl(ctx: Context): Control {
     // スタイルは親の単位（子と孤児の子。remove() が外す範囲と同じ）で、ほかは自分で判定する
     const owners = await ownerIdsOf(store, rec);
     const m = await store.getResource(resourceId);
-    // sourceIds か rangeOnlySourceIds にあれば、共有でも範囲だけの参照でも消す（利用者が名指ししたため。R18・C-O13）
+    // sourceIds か rangeOnlySourceIds にあれば、共有でも範囲だけの参照でも消す（利用者が名指ししたため）
     const refers = !!m && owners.some((o) => m.sourceIds.indexOf(o) >= 0 || (m.rangeOnlySourceIds ?? []).indexOf(o) >= 0);
     if (!refers) {
       throw new WeiwudiError('resource-not-found', `Resource "${resourceId}" not found in source "${id}"`, { sourceId: id, resourceId });
@@ -463,7 +463,7 @@ export function createControl(ctx: Context): Control {
   const field = (body: unknown, name: string): unknown =>
     body !== null && typeof body === 'object' ? (body as Record<string, unknown>)[name] : undefined;
 
-  /** ジョブの client（開始の POST の event.clientId。I5c・R21）。無ければ sw-not-controlling */
+  /** ジョブの client（開始の POST の event.clientId）。無ければ sw-not-controlling */
   const jobClientOf = async (event: unknown): Promise<{ client: JobClient; waitUntil: (p: Promise<void>) => void }> => {
     const e = event as { clientId?: unknown; waitUntil?: unknown } | null | undefined;
     const clientId = e?.clientId;
@@ -605,7 +605,7 @@ export function createControl(ctx: Context): Control {
     },
     post: async ({ url, request, event }) => {
       try {
-        // 送り手の検査は本文を読む前（別オリジンの client の要求では何もしない。I6・R25）
+        // 送り手の検査は本文を読む前（別オリジンの client の要求では何もしない）
         if (!(await fromOwnOrigin(event))) {
           throw new WeiwudiError('sw-not-controlling', 'The request did not come from a client of the service worker origin');
         }

@@ -686,7 +686,7 @@ describe('レビューの指摘（PR #75）', () => {
     expect(res.headers.get('x-weiwudi-error')).toBe('storage');
   });
 
-  it('上流の x-weiwudi- で始まるヘッダは、合成した応答にも保存にも残らない（L2）', async () => {
+  it('上流の x-weiwudi- で始まるヘッダは、合成した応答にも保存にも残らない', async () => {
     const res = await run({
       upstream: async () => ({ kind: 'response', response: new Response(bodyOf(10), { status: 200, headers: { 'content-type': 'image/png', 'X-Weiwudi-Foo': 'f', 'x-weiwudi-error': 'quota' } }) }),
     });
@@ -720,7 +720,7 @@ describe('レビューの指摘（PR #75）', () => {
     expect(await store.getEntry(k('1_0_0'))).toBeUndefined();
   });
 
-  it('上流の 2xx は 200 OK として配信・保存する（Ruling。旧 API の miss と同じ）', async () => {
+  it('上流の 2xx は 200 OK として配信・保存する（旧 API の miss と同じ）', async () => {
     const res = await run({ upstream: async () => ({ kind: 'response', response: new Response(bodyOf(4), { status: 203, statusText: 'Non-Authoritative' }) }) });
     expect(res.status).toBe(200);
     expect(res.statusText).toBe('OK');
@@ -750,7 +750,7 @@ describe('レビューの指摘（PR #75）', () => {
     expect(res.headers.get('x-weiwudi-status')).toBe('offline-miss');
   });
 
-  it('runJob が gone・canceled で途中で終わるとき、生成器の return を呼ぶ（L2）', async () => {
+  it('runJob が gone・canceled で途中で終わるとき、生成器の return を呼ぶ', async () => {
     const closed: string[] = [];
     function* gen(name: string) {
       try { for (let i = 0; i < 20; i++) yield i; } finally { closed.push(name); }
@@ -995,7 +995,7 @@ import { IDBObjectStore } from 'fake-indexeddb';
 import { createSwHarness } from './sw-harness';
 
 describe('保存の土台', () => {
-  it('照合ルート: 退避の範囲の読み出し（sources の get）が失敗しても storage で配信し、上流の fetch は 1 回（I1a）', async () => {
+  it('照合ルート: 退避の範囲の読み出し（sources の get）が失敗しても storage で配信し、上流の fetch は 1 回', async () => {
     const h = createSwHarness();
     h.fetch.mockImplementation(async () => new Response(bodyOf(6, 4), { status: 200, headers: { 'content-type': 'image/png' } }));
     const c = createContext();
@@ -1027,7 +1027,7 @@ describe('保存の土台', () => {
     expect((await store.getEntry(k('1_1_0')))!.meta.pinned).toBe(0);
   });
 
-  it('上流を待つ間に固定されたキーは、通常の配信の保存の後も固定のまま（L1・R6）', async () => {
+  it('上流を待つ間に固定されたキーは、通常の配信の保存の後も固定のまま', async () => {
     await seed('1_0_0', { fetchedAt: T - TTL - 1 });
     let release!: () => void;
     const gate = new Promise<void>((r) => { release = r; });
@@ -1134,7 +1134,7 @@ describe('容量超過の再試行', () => {
 });
 
 // ---- PR #107（追記のみ） ----
-describe('容量超過の再試行の境界（PR #107 L1・L2）', () => {
+describe('容量超過の再試行の境界（PR #107）', () => {
   it('固定でない分が 5 byte のとき、退避の量は ceil(0.5) = 1（切り上げ）', async () => {
     await seed('a', { accessedAt: T - 1, size: 5 });
     await seed('p', { accessedAt: T - 2, size: 5, pinned: 1 });

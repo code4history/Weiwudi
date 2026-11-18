@@ -3,16 +3,16 @@
 // 保存と取得を store・core に置き換えた。キャッシュの処理（範囲外・鮮度・上流・保存・退避）は core.serve() だけが持つ。
 // 値の依存は core・context・store・tile_math・constants・errors だけ（migrate も可）。
 // 旧 DB（1.1.x）の移行は migrate.ts が持つ。ここは IndexedDB を直接触らず、第 1 段の待ち・読み通し・
-// clean／delete の旧 DB の始末を migrate の関数で呼ぶだけ。地図の登録と退避の範囲は migrationDeps で渡す（R50）。
+// clean／delete の旧 DB の始末を migrate の関数で呼ぶだけ。地図の登録と退避の範囲は migrationDeps で渡す。
 //
 // 決まり:
-// - Source と Resource の id はどちらも map:<mapID>（第 1 回 S6）。Source.legacy に現行の設定（query）をそのまま持つ
-// - Entry のキーは map:<mapID>\0<tileKeySuffix>（R2・第 2 回 O12）。照合表には入れない
-// - 上流は fetch(URL の文字列) の 1 引数。差し込み口が別の Request を返したときだけ fetch(その Request)（第 1 回 S8）。
+// - Source と Resource の id はどちらも map:<mapID>。Source.legacy に現行の設定（query）をそのまま持つ
+// - Entry のキーは map:<mapID>\0<tileKeySuffix>。照合表には入れない
+// - 上流は fetch(URL の文字列) の 1 引数。差し込み口が別の Request を返したときだけ fetch(その Request)。
 //   どちらも ctx.upstreamFetch を通す（同じオリジンの要求にだけ User-Agent を足し、それ以外は引数のまま fetch）
-// - 差し込み口へは選んだミラーを展開した URL の Request を渡す（疑似ホストの URL を渡さない。第 2 回 S-5）
+// - 差し込み口へは選んだミラーを展開した URL の Request を渡す（疑似ホストの URL を渡さない）
 // - Range つきの要求は serve() に入れず、上流のタイルの URL へそのまま素通しする
-// - fetchAll のジョブは開始の FetchEvent の waitUntil に渡す（R11・第 1 回 S11）。1 度に 1 ジョブ（context.job）
+// - fetchAll のジョブは開始の FetchEvent の waitUntil に渡す。1 度に 1 ジョブ（context.job）
 // - serve() の reject（store の読み出しの失敗。容量の判定の evictScopesFor を含む）は、包括の `Error: ${e}` の文にする。
 //   現行の getImage の読み出し（設定と Entry）の失敗と同じ経路・同じ形
 import type { RouteHandlerCallbackOptions } from 'workbox-core';
@@ -149,7 +149,7 @@ const getImage = async (ctx: Context, mapID: string, z: number, x: number, y: nu
   const setting = await getSetting(ctx, store, mapID);
   if (!setting) return legacyMessage('map-not-found', { mapID });
   if (range !== null) return passRange(ctx, setting, z, x, y, range);
-  // 移行の途中は、旧 Weiwudi_<mapID> にあれば新 DB へ移してから配信する（読み通し。R18。配信の経路は serve 1 つ）
+  // 移行の途中は、旧 Weiwudi_<mapID> にあれば新 DB へ移してから配信する（読み通し。配信の経路は serve 1 つ）
   await pullTile(ctx, migrationDeps, mapID, z, x, y);
   return serveTile(ctx, setting, z, x, y);
 };
@@ -222,7 +222,7 @@ const fetchAll = async (ctx: Context, job: JobState, client: Client, setting: Ma
     });
   } finally {
     release();
-    // fetchAll の waitUntil はジョブ 1 つのまま。掃除の失敗で終了イベントを変えない（R9・R56）。
+    // fetchAll の waitUntil はジョブ 1 つのまま。掃除の失敗で終了イベントを変えない。
     try { await sweepOnce(ctx, { force: true }); } catch (e) { console.error(e); }
   }
 };

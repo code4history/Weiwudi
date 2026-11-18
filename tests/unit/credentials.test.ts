@@ -195,7 +195,7 @@ describe('資格情報は差し込み口の後の要求が元と同じオリジ�
     expect((await run(original, original, undefined)).redirect).toBe('manual');
   });
 
-  it('no-cors の取り直しは、ヘッダの資格情報があっても元の redirect のまま（L1 M-1。no-cors は follow 以外だと network error）', async () => {
+  it('no-cors の取り直しは、ヘッダの資格情報があっても元の redirect のまま（no-cors は follow 以外だと network error）', async () => {
     fetchMock.mockImplementationOnce(async () => { throw new TypeError('cors failed'); });
     const original = new Request(TILE, { mode: 'no-cors', credentials: 'include' });
     const up = createUpstream(ctx, { resourceId: RID, original, credentials: { headers: { 'x-api-key': 'HTOKEN' } }, now: () => 0 });

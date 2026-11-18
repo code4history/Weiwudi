@@ -380,7 +380,7 @@ export const tileResponse = (bytes: number, contentType = 'image/png', fill = 1)
     headers: { 'content-type': contentType },
   });
 
-/** opaque な応答（no-cors の別オリジン）を真似る。type・status・ok を上書きした Response（R10） */
+/** opaque な応答（no-cors の別オリジン）を真似る。type・status・ok を上書きした Response */
 export const opaqueResponse = (): Response => {
   const res = new Response(null, { status: 200 });
   Object.defineProperty(res, 'type', { value: 'opaque' });

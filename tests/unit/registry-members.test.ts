@@ -51,7 +51,7 @@ const res = (id: string, over: Partial<ResourceMeta> = {}): ResourceMeta => ({
 
 const REGISTER: ApplyOptions = { throwOnConflict: false, resetCors: false };
 
-describe('子 Source の id と論理名（X1・O-N8）', () => {
+describe('子 Source の id と論理名', () => {
   it.each([
     ['source', 'a b/c', 'a%20b%2Fc'],
     ['tilejson-tiles', 'a/b', 'a%2Fb/tiles'],
@@ -70,7 +70,7 @@ describe('子 Source の id と論理名（X1・O-N8）', () => {
 });
 
 describe('純粋関数: 範囲の持ち主・型の違う衝突・isExclusiveTo', () => {
-  it('型の違う衝突（tile の Resource に data の指定）は resource-conflict だが rangeOnly に入らない（P1）', () => {
+  it('型の違う衝突（tile の Resource に data の指定）は resource-conflict だが rangeOnly に入らない', () => {
     const plan = planRegister(normalizeMember('data', [DATA], {}, { kind: 'asset', id: 'd', single: true }),
       undefined, [res(DATA, { sourceIds: ['t'] })]);
     expect(plan.warnings).toEqual([`resource-conflict: ${DATA}`]);
@@ -156,7 +156,7 @@ describe('store 上の合流（IndexedDB）', () => {
     expect(storedSpecOf(sources.find((s) => s.id === g.spec.id)!)).toMatchObject({ kind: 'child', type: 'glyph', logicalName: 'glyphs' });
   });
 
-  it('型の違う衝突（tile の Resource に data の指定）→ rangeOnly に入らず extents が変わらない（P1 の再現）', async () => {
+  it('型の違う衝突（tile の Resource に data の指定）→ rangeOnly に入らず extents が変わらない（再現）', async () => {
     const tileSpec = normalizeSpec({ kind: 'raster', id: 't', url: 'https://d.example/{z}/{x}/{y}.png', minZoom: 3, maxZoom: 5 });
     await store.putSource(rec(tileSpec, 1));
     const extents = [tileSpec.spec.extent!];
@@ -195,7 +195,7 @@ describe('store 上の合流（IndexedDB）', () => {
     expect(r?.extents).toContainEqual({ minZoom: 2, maxZoom: 4, sourceId: 'old' });
   });
 
-  it('X1: 同じ URL で bounds の違う 2 つの論理ソース → 子 2 つ・Resource 1 つ・extents は和。bounds を替えても子の id は変わらない', async () => {
+  it('同じ URL で bounds の違う 2 つの論理ソース → 子 2 つ・Resource 1 つ・extents は和。bounds を替えても子の id は変わらない', async () => {
     await store.putSource(styleRecord({}, 5));
     const a = child('tile', childLogicalName('source', 'a'), TILE, { bounds: [130, 30, 140, 40], maxZoom: 8 });
     const b = child('tile', childLogicalName('source', 'b'), TILE, { bounds: [-10, -10, 0, 0], maxZoom: 8 });
@@ -216,7 +216,7 @@ describe('store 上の合流（IndexedDB）', () => {
     expect((await store.listSources()).filter((s) => s.parentId === P).map((s) => s.id).sort()).toEqual([a.spec.id, b.spec.id].sort());
   });
 
-  it('同じ id で kind を替えた登録は attribute-invalid で、何も変わらない（C-O5）', async () => {
+  it('同じ id で kind を替えた登録は attribute-invalid で、何も変わらない', async () => {
     await applyRegister(store, normalizeSpec({ kind: 'raster', id: 'k', url: TILE }));
     const before = { source: await store.getSource('k'), resources: await store.listResources() };
     const err = await applyRegister(store, normalizeSpec({ kind: 'vector', id: 'k', url: TILE })).catch((e: unknown) => e);
@@ -226,7 +226,7 @@ describe('store 上の合流（IndexedDB）', () => {
     expect({ source: await store.getSource('k'), resources: await store.listResources() }).toEqual(before);
   });
 
-  it('apply を { throwOnConflict: false, resetCors: true } で呼ぶと、衝突しても例外にならず合流先の corsOk・corslessUntil が消える（C-O12）', async () => {
+  it('apply を { throwOnConflict: false, resetCors: true } で呼ぶと、衝突しても例外にならず合流先の corsOk・corslessUntil が消える', async () => {
     await store.putSource(styleRecord({}, 5));
     const t = child('tile', childLogicalName('source', 'base'), TILE);
     const g = child('glyph', childLogicalName('glyphs'), GLYPH);
@@ -240,7 +240,7 @@ describe('store 上の合流（IndexedDB）', () => {
     await applyChild(g);
     expect(await store.getResource(GLYPH)).toMatchObject({ corsOk: true, corslessUntil: 99 });
 
-    // スタイルの update()（P2）: tile の子は credentialParams が広がって衝突（keep）、glyph の子は合流し直す
+    // スタイルの update(): tile の子は credentialParams が広がって衝突（keep）、glyph の子は合流し直す
     const P2: Partial<ApplyOptions> = { resetCors: true };
     const conflicted = await applyChild(child('tile', childLogicalName('source', 'base'), TILE, { credentialParams: ['sig'] }), P2);
     expect(conflicted.warnings).toEqual([`resource-conflict: ${TILE}`]);

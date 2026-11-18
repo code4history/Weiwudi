@@ -29,8 +29,8 @@ const STYLE_URL = `${UPSTREAM}/style/basic.json`;
 const TILEJSON_URL = `${UPSTREAM}/style/tiles.json`;
 const FONTSTACK = 'Open Sans Regular,Arial Unicode MS Regular';
 
-// 外へ出た要求を数える（style.spec.js と同じ。C-O8）。数えるのは Chromium だけ（WebKit の context.route は SW の要求を
-// 拾わない。O-N5）。ほかのエンジンでは route を置かず、空の並びを返す
+// 外へ出た要求を数える（style.spec.js と同じ）。数えるのは Chromium だけ（WebKit の context.route は SW の要求を
+// 拾わない）。ほかのエンジンでは route を置かず、空の並びを返す
 async function guardNetwork(context) {
     const external = [];
     if (test.info().project.name !== 'chromium') return { external, pseudo: [] };

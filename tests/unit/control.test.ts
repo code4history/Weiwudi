@@ -61,7 +61,7 @@ const fetchTile = async (h: SwHarness, url = TILE) => {
 /** ハーネスの IndexedDB（大域の indexedDB はハーネスが差し替える） */
 const storeOf = (_h: SwHarness): Promise<Store> => openStore();
 
-describe('ping（GET /v2/ping。第 2 回 O12）', () => {
+describe('ping（GET /v2/ping）', () => {
   it('疑似ホストの GET のルートの振り分けで control に届き、{ api: 2, version: package.json の版 }', async () => {
     const h = harness();
     const res = await h.dispatch('https://weiwudi.example.com/v2/ping');
@@ -126,7 +126,7 @@ describe('register', () => {
     expect(all[0].sourceIds.slice().sort()).toEqual(['a', 'b']);
   });
 
-  it('S-I: 同じ id に credentialParams を足して再登録（自分の Resource に Entry あり）→ 成功し warnings に resource-conflict', async () => {
+  it('同じ id に credentialParams を足して再登録（自分の Resource に Entry あり）→ 成功し warnings に resource-conflict', async () => {
     const h = harness();
     await ok(h, 'register', { kind: 'raster', id: 's', url: TPL });
     await fetchTile(h);
@@ -168,7 +168,7 @@ describe('register', () => {
   });
 });
 
-describe('旧 API の地図と新 API（第 1 回 S6・第 2 回 S-6・O1）', () => {
+describe('旧 API の地図と新 API', () => {
   const addLegacy = (h: SwHarness) =>
     h.request(`/api/add?mapID=m&type=xyz&url=${encodeURIComponent(TPL)}&width=1024&height=1024`);
 
@@ -359,7 +359,7 @@ describe('update', () => {
   });
 });
 
-describe('照合表の作り直しの失敗（Ruling）', () => {
+describe('照合表の作り直しの失敗', () => {
   it('登録は成功させ、古い表を捨てて門番に読み直させる', async () => {
     let failing = false;
     const { ctx, post } = direct(async () => {
@@ -468,7 +468,7 @@ describe('旧い版の記録（spec.type なし）の update()', () => {
 /** Resource の Entry の件数（store の count。Entry の増減と同じ tx で直る） */
 const countOf = async (id: string): Promise<number | undefined> => (await (await openStore()).getResource(id))?.count;
 
-describe('removeResource（R18・#38）', () => {
+describe('removeResource（#38）', () => {
   it('Entry だけを消す。Resource の記録と捕捉は残り、次の要求は miss で、また保存する', async () => {
     const h = harness();
     await ok(h, 'register', { kind: 'raster', id: 's', url: TPL });
@@ -496,7 +496,7 @@ describe('removeResource（R18・#38）', () => {
     expect((await (await storeOf(h)).getResource(TPL))!.sourceIds.slice().sort()).toEqual(['a', 'b']);
   });
 
-  it('範囲だけ（rangeOnlySourceIds）で参照している Resource の Entry も消す（C-O13）', async () => {
+  it('範囲だけ（rangeOnlySourceIds）で参照している Resource の Entry も消す', async () => {
     const h = harness();
     await ok(h, 'register', { kind: 'raster', id: 'a', url: TPL });
     await fetchTile(h);
@@ -610,7 +610,7 @@ describe('removeResource（R18・#38）', () => {
       expect(await store.getEntry(`${GLYPHS}\u0000B`)).toBeUndefined();
     });
 
-    it('親の children に載らない子（parentId が親の孤児。R33）の Resource も親の id で消せる（remove() が外す範囲と同じ）', async () => {
+    it('親の children に載らない子（parentId が親の孤児）の Resource も親の id で消せる（remove() が外す範囲と同じ）', async () => {
       const h = styleHarness();
       await ok(h, 'register', { kind: 'style', id: 'st', url: STYLE });
       await get(h, 'https://v.example/3/1/2.pbf');
@@ -626,7 +626,7 @@ describe('removeResource（R18・#38）', () => {
   });
 });
 
-describe('制御の POST の送り手（I6・R25）', () => {
+describe('制御の POST の送り手', () => {
   it('別オリジンの client の POST は sw-not-controlling で、何も変えない', async () => {
     const h = harness();
     const evil = { id: 'x', url: 'https://evil.example/page.html', type: 'window' };

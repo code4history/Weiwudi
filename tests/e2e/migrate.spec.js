@@ -4,7 +4,7 @@ import { PAGE_HOST } from './fixtures/page-origin.mjs';
 // 1.1.x の旧 DB からの移行を実ブラウザで確かめる。legacy-seed.html が 1.1.1 の形の旧 DB
 // （Weiwudi.mapSetting と Weiwudi_x.tileCache に Blob）を IndexedDB に直接作ってから SW を登録し、旧 API の
 // /api/cache/x/z/x/y を読む。外部へ出ない構成（上流は tile-server.mjs の localhost:5174）。WebKit・Firefox でも走らせる
-// （R14'）。Chromium だけで成り立つものは @chromium-only で外す
+// 。Chromium だけで成り立つものは @chromium-only で外す
 const UPSTREAM = 'http://localhost:5174';
 const PAGE = '/tests/e2e/fixtures/legacy-seed.html';
 const PSEUDO = 'weiwudi.example.com';
