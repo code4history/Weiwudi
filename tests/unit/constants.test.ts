@@ -1,4 +1,4 @@
-// constants.ts の値と store.ts の SourceRecord の補助が、m2 までの各ファイルの挙動と同じであることを確かめる（m3-t1・I5）
+// constants.ts の値と store.ts の SourceRecord の補助が、移動前の各ファイルの挙動と同じであることを確かめる
 import { describe, expect, it } from 'vitest';
 import { DAY_MS, LEGACY_PREFIX, PSEUDO_HOST, V2_PREFIX } from '../../src/constants';
 import { isLegacyRecord, nextOrder, storedSpecOf, templatesOf, type SourceRecord } from '../../src/store';
@@ -10,7 +10,7 @@ const rec = (over: Partial<SourceRecord>): SourceRecord => ({
 const spec = { kind: 'raster', type: 'tile', id: 'a', templates: ['https://t.example/{z}/{x}/{y}.png'] } as unknown as StoredSpec;
 
 describe('constants', () => {
-  it('値は m2 までの各ファイルの定数と同じ', () => {
+  it('値は移動前の各ファイルの定数と同じ', () => {
     expect(PSEUDO_HOST).toBe('weiwudi.example.com');
     expect(LEGACY_PREFIX).toBe('map:');
     expect(DAY_MS).toBe(86400000);
@@ -40,12 +40,12 @@ describe('store の SourceRecord の補助', () => {
   });
 });
 
-// ---- m4-t1（DROPPED_HEADERS・OWN_PREFIX を core.ts から移した。F24）。追記のみ ----
+// ---- DROPPED_HEADERS・OWN_PREFIX を core.ts から移した。追記のみ ----
 // 既存の行を変えないため、import はここに足す（import 宣言は巻き上げられる）
 import { DROPPED_HEADERS, OWN_PREFIX } from '../../src/constants';
 
-describe('constants（m4-t1）', () => {
-  it('保存と合成で落とす 4 ヘッダと自前のヘッダの接頭辞は、m3 までの core.ts の値と同じ', () => {
+describe('core.ts から移した定数', () => {
+  it('保存と合成で落とす 4 ヘッダと自前のヘッダの接頭辞は、移動前の core.ts の値と同じ', () => {
     expect([...DROPPED_HEADERS]).toEqual(['content-encoding', 'content-length', 'transfer-encoding', 'set-cookie']);
     expect(OWN_PREFIX).toBe('x-weiwudi-');
   });

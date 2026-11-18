@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 import { PAGE_ORIGIN, PAGE_PORT } from './tests/e2e/fixtures/page-origin.mjs';
 
-// WebKit・Firefox は環境変数 WEIWUDI_E2E_ENGINES（webkit・firefox をカンマで）があるときだけ足す（m3-t10・R14'）。
+// WebKit・Firefox は環境変数 WEIWUDI_E2E_ENGINES（webkit・firefox をカンマで）があるときだけ足す。
 // 手元は Chromium だけ（共有キャッシュに playwright install をしない）。CI の e2e-engines の job が足して走らせる。
 // Chromium だけで成り立つ試験（CDP・context.setOffline・SW の要求を context.route で数えるもの）は @chromium-only で外す
 const ENGINE_DEVICES = { webkit: 'Desktop Safari', firefox: 'Desktop Firefox' };
@@ -49,7 +49,7 @@ export default defineConfig({
             url: 'http://localhost:5174/__health',
             // 5174 に別のものが居るときに取り違えず、失敗させる（申し送り 3）
             reuseExistingServer: false,
-            // SIGTERM で止め、上流サーバが一時ディレクトリを消せるようにする（無いと SIGKILL。第 1 回 S14）
+            // SIGTERM で止め、上流サーバが一時ディレクトリを消せるようにする（無いと SIGKILL）
             gracefulShutdown: { signal: 'SIGTERM', timeout: 5000 },
         },
     ],

@@ -22,7 +22,7 @@ export default defineConfig({
     },
     plugins: [
         dts({
-            // weiwudi.d.ts が辿る先（errors・新 API の公開の型の spec・store・tile_math。#33・m2-t8）もすべて出す。
+            // weiwudi.d.ts が辿る先（errors・新 API の公開の型の spec・store・tile_math。#33）もすべて出す。
             // 辿れることは tests/dts/check-dts.mjs で確かめる
             include: ['src/weiwudi.ts', 'src/errors.ts', 'src/spec.ts', 'src/store.ts', 'src/tile_math.ts', 'src/user_agent.ts'],
             outDir: 'dist',

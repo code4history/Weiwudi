@@ -1,4 +1,4 @@
-// m4-t2・仕様 §7.1: 実物の store/core と SW の dispatch で保持期間の掃除を確かめる。
+// 実物の store/core と SW の dispatch で保持期間の掃除を確かめる。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import * as contexts from '../../src/context';
@@ -242,7 +242,7 @@ const harnessContext = () => {
 };
 const addMap = (h: ReturnType<typeof createSwHarness>) => h.request('/api/add?mapID=x&type=xyz&url=https://tile.example/{z}/{x}/{y}.png&width=256&height=256');
 
-describe('保守の契機（R9）', () => {
+describe('保守の契機', () => {
   it('info の dispatch は waitUntil に結び付き、掃除は起動後 1 回だけ', async () => {
     const { h, captured } = harnessContext();
     await addMap(h);

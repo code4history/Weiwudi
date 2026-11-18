@@ -1,4 +1,4 @@
-// src/control.ts の試験（m2-t8・仕様 §4.1・§5.6・§12）。ハーネスの post と dispatch で SW の外形から確かめる。
+// src/control.ts の試験。ハーネスの post と dispatch で SW の外形から確かめる。
 // context に触る試験（連続数・表の作り直しの失敗）だけは createControl を直接呼ぶ。
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -61,7 +61,7 @@ const fetchTile = async (h: SwHarness, url = TILE) => {
 /** ハーネスの IndexedDB（大域の indexedDB はハーネスが差し替える） */
 const storeOf = (_h: SwHarness): Promise<Store> => openStore();
 
-describe('ping（GET /v2/ping。第 2 回 O12）', () => {
+describe('ping（GET /v2/ping）', () => {
   it('疑似ホストの GET のルートの振り分けで control に届き、{ api: 2, version: package.json の版 }', async () => {
     const h = harness();
     const res = await h.dispatch('https://weiwudi.example.com/v2/ping');
@@ -79,7 +79,7 @@ describe('ping（GET /v2/ping。第 2 回 O12）', () => {
   });
 });
 
-describe('POST の形（仕様 §9）', () => {
+describe('POST の形', () => {
   it('未知の op は api-not-found、JSON でない本文は attribute-invalid（どちらも HTTP 200 の { ok: false }）', async () => {
     const h = harness();
     await fails(h, 'nope', {}, 'api-not-found');
@@ -93,7 +93,7 @@ describe('POST の形（仕様 §9）', () => {
   });
 });
 
-describe('register（仕様 §5.6・§12）', () => {
+describe('register', () => {
   it('成功は SourceInfo。直後の要求から照合ルートで捕捉する（表の作り直し）', async () => {
     const h = harness();
     const info = await ok(h, 'register', { kind: 'raster', id: 's', url: `${TPL}?access_token=pk.x` });
@@ -114,7 +114,7 @@ describe('register（仕様 §5.6・§12）', () => {
     expect(await ok(h, 'sources')).toHaveLength(1);
   });
 
-  it('同時の 2 つの register は直列に通り、同じテンプレートは 1 つの Resource に合流する（m2-t6 の申し送り）', async () => {
+  it('同時の 2 つの register は直列に通り、同じテンプレートは 1 つの Resource に合流する', async () => {
     const h = harness();
     const [a, b] = await Promise.all([
       call(h, 'register', { kind: 'raster', id: 'a', url: TPL }),
@@ -126,7 +126,7 @@ describe('register（仕様 §5.6・§12）', () => {
     expect(all[0].sourceIds.slice().sort()).toEqual(['a', 'b']);
   });
 
-  it('S-I: 同じ id に credentialParams を足して再登録（自分の Resource に Entry あり）→ 成功し warnings に resource-conflict', async () => {
+  it('同じ id に credentialParams を足して再登録（自分の Resource に Entry あり）→ 成功し warnings に resource-conflict', async () => {
     const h = harness();
     await ok(h, 'register', { kind: 'raster', id: 's', url: TPL });
     await fetchTile(h);
@@ -136,7 +136,7 @@ describe('register（仕様 §5.6・§12）', () => {
     expect((await ok(h, 'source', { id: 's' })).warnings).toEqual([`resource-conflict: ${TPL}`]);
   });
 
-  it('style・asset も受ける（m3-t7 で unsupported-kind は出なくなった）。知らない kind は attribute-invalid', async () => {
+  it('style・asset も受ける（unsupported-kind はどの kind にも出ない）。知らない kind は attribute-invalid', async () => {
     const h = harness();
     h.fetch.mockImplementation(async () => new Response(JSON.stringify({ version: 8, sources: {}, layers: [] }),
       { status: 200, headers: { 'content-type': 'application/json' } }));
@@ -145,7 +145,7 @@ describe('register（仕様 §5.6・§12）', () => {
     await fails(h, 'register', { kind: 'video', url: 'https://s.example/a.mp4' }, 'attribute-invalid');
   });
 
-  it('sk. の資格情報は credential-rejected で、credentials ストアにも sources にも何も書かない（第 1 回 C6）', async () => {
+  it('sk. の資格情報は credential-rejected で、credentials ストアにも sources にも何も書かない', async () => {
     const h = harness();
     await fails(h, 'register', { kind: 'raster', id: 's', url: TPL, credentials: { query: { access_token: 'sk.secret' } } }, 'credential-rejected');
     await fails(h, 'register', { kind: 'raster', id: 's', url: `${TPL}?access_token=sk.secret` }, 'credential-rejected');
@@ -163,12 +163,12 @@ describe('register（仕様 §5.6・§12）', () => {
     expect(second.warnings).toEqual([`template-shadowed: ${other}`]);
     expect((await ok(h, 'source', { id: 'b' })).warnings).toEqual([`template-shadowed: ${other}`]);
     expect((await ok(h, 'source', { id: 'a' })).warnings).toEqual([]);
-    // 関わりの無い登録の warnings に他の Resource の影を入れない（m2-t7 の申し送り）
+    // 関わりの無い登録の warnings に他の Resource の影を入れない
     expect((await ok(h, 'register', { kind: 'raster', id: 'c', url: 'https://c.example/{z}/{x}/{y}.png' })).warnings).toEqual([]);
   });
 });
 
-describe('旧 API の地図と新 API（第 1 回 S6・第 2 回 S-6・O1）', () => {
+describe('旧 API の地図と新 API', () => {
   const addLegacy = (h: SwHarness) =>
     h.request(`/api/add?mapID=m&type=xyz&url=${encodeURIComponent(TPL)}&width=1024&height=1024`);
 
@@ -242,7 +242,7 @@ describe('source・sources・stats', () => {
     expect(s).toMatchObject({ count: 1, total: 5, percent: 20 });
   });
 
-  it('範囲だけの Resource も resources に rangeOnly: true で、byResource にも含める（仕様 §5.6）', async () => {
+  it('範囲だけの Resource も resources に rangeOnly: true で、byResource にも含める', async () => {
     const h = harness();
     await ok(h, 'register', { kind: 'raster', id: 'a', url: TPL });
     await fetchTile(h);
@@ -254,7 +254,7 @@ describe('source・sources・stats', () => {
   });
 });
 
-describe('clean・remove（仕様 §5.6。共有の Entry を残す）', () => {
+describe('clean・remove（共有の Entry を残す）', () => {
   it('2 つの Source が共有する Resource の Entry は、片方の clean・remove で消えない。単独になれば clean で消える', async () => {
     const h = harness();
     await ok(h, 'register', { kind: 'raster', id: 'a', url: TPL });
@@ -300,7 +300,7 @@ const direct = (open: () => Promise<Store> = openStore) => {
   const post = async (op: string, body: unknown): Promise<Reply> => {
     const url = new URL(`https://weiwudi.example.com/v2/${op}`);
     const request = new Request(url, { method: 'POST', headers: { 'content-type': 'text/plain;charset=UTF-8' }, body: JSON.stringify(body) });
-    // 送り手はハーネスのページの client（m3-t8・I6。event が無いと sw-not-controlling）
+    // 送り手はハーネスのページの client（event が無いと sw-not-controlling）
     return (await control.post({ url, request, event: { clientId: PAGE_CLIENT_ID } } as never)).json();
   };
   return { ctx, post };
@@ -312,7 +312,7 @@ const putTile = async (store: Store, resourceId: string) => {
     { key, blob: new Blob([new Uint8Array([1, 2, 3])]), headers: {} }, []);
 };
 
-describe('update（仕様 §4.5・§5.6）', () => {
+describe('update', () => {
   it('corsOk・corslessUntil・corslessStreak を消し、count には触らない', async () => {
     const { ctx, post } = direct();
     expect((await post('register', { kind: 'raster', id: 's', url: TPL })).ok).toBe(true);
@@ -359,7 +359,7 @@ describe('update（仕様 §4.5・§5.6）', () => {
   });
 });
 
-describe('照合表の作り直しの失敗（Ruling）', () => {
+describe('照合表の作り直しの失敗', () => {
   it('登録は成功させ、古い表を捨てて門番に読み直させる', async () => {
     let failing = false;
     const { ctx, post } = direct(async () => {
@@ -430,7 +430,7 @@ describe('直列の待ち行列', () => {
 });
 
 
-describe('子 Source は見せない（m3-t2）', () => {
+describe('子 Source は見せない', () => {
   it('kind: child の記録は sources() に出ず、source・stats・update・clean・remove は source-not-found', async () => {
     const h = harness();
     await ok(h, 'register', { kind: 'raster', id: 'a', url: TPL });
@@ -444,7 +444,7 @@ describe('子 Source は見せない（m3-t2）', () => {
   });
 });
 
-describe('m2 の記録（spec.type なし）の update()（m3-t2 L1 M1）', () => {
+describe('旧い版の記録（spec.type なし）の update()', () => {
   it('type の無い記録に update() をかけても成功し、scheme と範囲が残る', async () => {
     const h = harness();
     const box = { minX: 0, maxX: 1, minY: 0, maxY: 1 };
@@ -463,12 +463,12 @@ describe('m2 の記録（spec.type なし）の update()（m3-t2 L1 M1）', () =
   });
 });
 
-// ---- m3-t8: removeResource（R18・#38）と制御の POST の送り手の検査（I6・R25） ----
+// ---- removeResource（#38）と制御の POST の送り手の検査 ----
 
 /** Resource の Entry の件数（store の count。Entry の増減と同じ tx で直る） */
 const countOf = async (id: string): Promise<number | undefined> => (await (await openStore()).getResource(id))?.count;
 
-describe('removeResource（R18・#38）', () => {
+describe('removeResource（#38）', () => {
   it('Entry だけを消す。Resource の記録と捕捉は残り、次の要求は miss で、また保存する', async () => {
     const h = harness();
     await ok(h, 'register', { kind: 'raster', id: 's', url: TPL });
@@ -496,7 +496,7 @@ describe('removeResource（R18・#38）', () => {
     expect((await (await storeOf(h)).getResource(TPL))!.sourceIds.slice().sort()).toEqual(['a', 'b']);
   });
 
-  it('範囲だけ（rangeOnlySourceIds）で参照している Resource の Entry も消す（C-O13）', async () => {
+  it('範囲だけ（rangeOnlySourceIds）で参照している Resource の Entry も消す', async () => {
     const h = harness();
     await ok(h, 'register', { kind: 'raster', id: 'a', url: TPL });
     await fetchTile(h);
@@ -610,7 +610,7 @@ describe('removeResource（R18・#38）', () => {
       expect(await store.getEntry(`${GLYPHS}\u0000B`)).toBeUndefined();
     });
 
-    it('親の children に載らない子（parentId が親の孤児。R33）の Resource も親の id で消せる（remove() が外す範囲と同じ）', async () => {
+    it('親の children に載らない子（parentId が親の孤児）の Resource も親の id で消せる（remove() が外す範囲と同じ）', async () => {
       const h = styleHarness();
       await ok(h, 'register', { kind: 'style', id: 'st', url: STYLE });
       await get(h, 'https://v.example/3/1/2.pbf');
@@ -626,7 +626,7 @@ describe('removeResource（R18・#38）', () => {
   });
 });
 
-describe('制御の POST の送り手（I6・R25）', () => {
+describe('制御の POST の送り手', () => {
   it('別オリジンの client の POST は sw-not-controlling で、何も変えない', async () => {
     const h = harness();
     const evil = { id: 'x', url: 'https://evil.example/page.html', type: 'window' };
@@ -708,7 +708,7 @@ describe('制御の POST の送り手（I6・R25）', () => {
   });
 });
 
-describe('m4-t5 releaseRange control', () => {
+describe('releaseRange control', () => {
   it('validates regionId and serializes releaseRange with clean', async () => {
     const { ctx, post } = direct();
     expect(await post('register', { kind: 'raster', id: 's', url: TPL })).toMatchObject({ ok: true });
@@ -740,7 +740,7 @@ describe('m4-t5 releaseRange control', () => {
   });
 });
 
-describe('m4-t8 I2b（R38）: 表の作り直しを GATE_WAIT_MS で待つ', () => {
+describe('表の作り直しを GATE_WAIT_MS で待つ', () => {
   it('tableChanged が解決しない（buildTable が止まる）とき、register は GATE_WAIT_MS 後に成功し ctx.table.current が消える', async () => {
     const { GATE_WAIT_MS } = await import('../../src/hook');
     let stall = false;
@@ -775,7 +775,7 @@ describe('m4-t8 I2b（R38）: 表の作り直しを GATE_WAIT_MS で待つ', () 
   });
 });
 
-describe('m4-t8 I3（R41・第 1 回 M14）: stats の count・percent は範囲の中だけ', () => {
+describe('stats の count・percent は範囲の中だけ', () => {
   const putAt = async (store: Store, resourceId: string, z: number, x: number, y: number) => {
     const key = `${resourceId}\0${z}_${x}_${y}`;
     await store.putEntry({ key, resourceId, z, x, y, size: 3, fetchedAt: 1, accessedAt: 1, pinned: 0 },
@@ -828,7 +828,7 @@ describe('m4-t8 I3（R41・第 1 回 M14）: stats の count・percent は範囲
   });
 });
 
-describe('m4-t8 I4a（R39）: DOMException の失敗は storage', () => {
+describe('DOMException の失敗は storage', () => {
   const failing = (make: () => unknown) => direct(async () => {
     const s = await openStore();
     return { ...s, listSources: async () => { throw make(); } };
@@ -850,7 +850,7 @@ describe('m4-t8 I4a（R39）: DOMException の失敗は storage', () => {
   });
 });
 
-describe('m4-t8 I4b（R40）: 直列の op の途中の失敗の後も表を作り直す', () => {
+describe('直列の op の途中の失敗の後も表を作り直す', () => {
   it('register の途中の store の失敗の後に tableChanged が呼ばれている（表の世代が進む）', async () => {
     let fail = false;
     const { ctx, post } = direct(async () => {
@@ -893,7 +893,7 @@ describe('m4-t8 I4b（R40）: 直列の op の途中の失敗の後も表を作�
   });
 });
 
-describe('m4-t8 PR #106 M1: 範囲だけの Resource の scheme が Source と違うときも Resource の座標で数える', () => {
+describe('PR #106: 範囲だけの Resource の scheme が Source と違うときも Resource の座標で数える', () => {
   const putAt = async (store: Store, resourceId: string, z: number, x: number, y: number) => {
     const key = `${resourceId}\0${z}_${x}_${y}`;
     await store.putEntry({ key, resourceId, z, x, y, size: 3, fetchedAt: 1, accessedAt: 1, pinned: 0 },

@@ -1,5 +1,4 @@
-// 差し込み口（src/plugins.ts と core.serve の呼び出し）の試験（m2-t4・#36・仕様 §8）。
-// 計画 docs/superpowers/plans/2026-11-03-m2-core.md の m2-t4。
+// 差し込み口（src/plugins.ts と core.serve の呼び出し）の試験（#36）。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { addPlugin, getPlugins, _resetPluginsForTest, type WeiwudiPlugin } from '../../src/plugins';
@@ -90,7 +89,7 @@ describe('登録表', () => {
     expect(getPlugins()).toEqual([a, b]);
   });
 
-  it('同じオブジェクトの 2 回目の addPlugin は無視する（フックは 1 回だけ。第 2 回 D4）', async () => {
+  it('同じオブジェクトの 2 回目の addPlugin は無視する（フックは 1 回だけ）', async () => {
     const p = { fetchDidSucceed: vi.fn(async () => undefined) };
     addPlugin(p);
     addPlugin(p);
@@ -297,7 +296,7 @@ describe('渡すもの', () => {
     expect(states.b[0]).not.toBe(a1);
   });
 
-  it('fetchDidFail に error、fetchDidSucceed に上流の response が渡る（L1 m5）', async () => {
+  it('fetchDidFail に error、fetchDidSucceed に上流の response が渡る', async () => {
     const err = new TypeError('offline');
     let gotErr: unknown;
     addPlugin({ fetchDidFail: async ({ error }) => { gotErr = error; } });
@@ -312,7 +311,7 @@ describe('渡すもの', () => {
 });
 
 describe('レビューの指摘（PR #75）', () => {
-  it('fetchDidSucceed が本体を読んで何も返さなくても配信を続け、読む前の応答に戻して console.error に残す（L1 m1）', async () => {
+  it('fetchDidSucceed が本体を読んで何も返さなくても配信を続け、読む前の応答に戻して console.error に残す', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     addPlugin({ fetchDidSucceed: async ({ response }) => { await response.text(); } });
     const res = await run({ upstream: async () => ok('body-kept') });
@@ -329,7 +328,7 @@ describe('レビューの指摘（PR #75）', () => {
     expect(await res.text()).toBe('body-kept');
   });
 
-  it('hit で cachedResponseWillBeUsed が null でも、保存し直す Entry は保存済みの pinned を引き継ぐ（L1 m2）', async () => {
+  it('hit で cachedResponseWillBeUsed が null でも、保存し直す Entry は保存済みの pinned を引き継ぐ', async () => {
     const blob = new Blob(['cached']);
     await store.putEntry(
       { key: KEY, resourceId: RID, size: blob.size, fetchedAt: T, accessedAt: T, pinned: 1 },
@@ -344,7 +343,7 @@ describe('レビューの指摘（PR #75）', () => {
     expect(saved?.meta.pinned).toBe(1);
   });
 
-  it('cacheWillUpdate が返した Response の本体が読めなければ、保存の失敗（storage）として配信を続ける（L2 推奨）', async () => {
+  it('cacheWillUpdate が返した Response の本体が読めなければ、保存の失敗（storage）として配信を続ける（推奨）', async () => {
     const used = new Response('used');
     await used.text();
     addPlugin({ cacheWillUpdate: async () => used });
@@ -356,7 +355,7 @@ describe('レビューの指摘（PR #75）', () => {
   });
 });
 
-describe('処理中の addPlugin（第 3 回 推奨）', () => {
+describe('処理中の addPlugin（推奨）', () => {
   it('処理中の要求には効かず、次の要求から効く', async () => {
     const early = vi.fn(async () => undefined);
     const late = { fetchDidSucceed: vi.fn(async () => undefined) };

@@ -1,21 +1,21 @@
 /// <reference lib="webworker" />
-// 照合表とルート（仕様 §4.2・§4.3。m2-t7）。実 URL の要求を照合ルートと門番で受け、core.serve へ渡す。
-// 値の依存は core・upstream・context・store・url_pattern・style_body・constants・errors だけ（仕様 §3）。registry は import できないので、
+// 照合表とルート。実 URL の要求を照合ルートと門番で受け、core.serve へ渡す。
+// 値の依存は core・upstream・context・store・url_pattern・style_body・constants・errors だけ。registry は import できないので、
 // 資格情報の Source の選び方（registry.credentialSourceFor）は配線（weiwudi_gw_logic.ts）が installHook に渡す。
 //
 // 決まり:
 // - 照合表は context に持つ（モジュール変数を置かない）。読み込みの Promise は 1 つだけ持って共有する
-// - 候補の条件（isCandidate）は照合ルートと門番の両方に当てる（第 1 回 O-8・R19）
+// - 候補の条件（isCandidate）は照合ルートと門番の両方に当てる
 // - 照合表は map: で始まらない Resource から作る。weiwudi.example.com のテンプレートは入れない
-// - 読み込みは最初の候補の要求で始める（Weiwudi_Internal の呼び出しでは IndexedDB を開かない。Ruling）
-// - Range つきの要求は照合しても serve に入れず core.passThrough で素通し（範囲外の判定より前。仕様 §11・Ruling）
+// - 読み込みは最初の候補の要求で始める（Weiwudi_Internal の呼び出しでは IndexedDB を開かない）
+// - Range つきの要求は照合しても serve に入れず core.passThrough で素通し（範囲外の判定より前）
 // - 規則の順: 固定値のクエリ項目が多いもの → 座標のクエリ項目が多いもの → 早く登録された Source の Resource →
-//   Resource の id → テンプレートの順（Ruling）。同じ要求に当たる別の照合の形は warnings に出す
-// - 資格情報は、要求のオリジンをテンプレートに持つ Source だけから credentialSourceFor で選ぶ（別ホストへ送らない。I2）
-// - Resource の provider の提供元を ctx.providers() から引いて upstream へ渡す（m3-t5）
-// - 資格情報の選び方は credentialsForResource 1 つ（照合ルートと範囲取得が共有する。m4-t3・R3）
-// - ServeInput を作るのは serveResource 1 つ（照合ルート・門番・t7 の登録時の取得・範囲取得が共有する。C-O12）。
-//   style・tilejson は isStyleLike と transform（style_body の rewrite*）を付け、sprite のキーは {spriteSuffix} で作る（m3-t6・I3）
+//   Resource の id → テンプレートの順。同じ要求に当たる別の照合の形は warnings に出す
+// - 資格情報は、要求のオリジンをテンプレートに持つ Source だけから credentialSourceFor で選ぶ（別ホストへ送らない）
+// - Resource の provider の提供元を ctx.providers() から引いて upstream へ渡す
+// - 資格情報の選び方は credentialsForResource 1 つ（照合ルートと範囲取得が共有する）
+// - ServeInput を作るのは serveResource 1 つ（照合ルート・門番・登録時の取得・範囲取得が共有する）。
+//   style・tilejson は isStyleLike と transform（style_body の rewrite*）を付け、sprite のキーは {spriteSuffix} で作る
 import type { RouteHandlerCallback, RouteHandlerCallbackOptions, RouteMatchCallback } from 'workbox-core';
 import type { Context, CredentialSourcePicker, LoadedTable, TableState } from './context';
 import { passThrough, serve, type GlyphCollector, type ServeInput } from './core';
@@ -27,12 +27,12 @@ import { credentialTargetOf, rewriteStyleBody, rewriteTileJsonBody, type StripRu
 import { LEGACY_PREFIX, PSEUDO_HOST } from './constants';
 import { MatchTable, compileTemplate, entryKey, type CompiledTemplate, type MatchResult, type MatchRule } from './url_pattern';
 
-/** 表の更新を伝える BroadcastChannel の名前と通知（仕様 §4.3） */
+/** 表の更新を伝える BroadcastChannel の名前と通知 */
 export const TABLE_CHANNEL = 'weiwudi';
 export const TABLE_MESSAGE: Readonly<{ type: 'table' }> = Object.freeze({ type: 'table' });
-/** 門番が読み込みを待つ上限（仕様 §4.3） */
+/** 門番が読み込みを待つ上限 */
 export const GATE_WAIT_MS = 3000;
-/** 表の更新の通知をまとめる間隔（最後の変更から。m4-t8・I8b・R34） */
+/** 表の更新の通知をまとめる間隔（最後の変更から） */
 export const NOTIFY_DEBOUNCE_MS = 100;
 /** 読み込みのやり直しの間隔（1 秒から倍々に 30 秒まで） */
 export const RETRY_MIN_MS = 1000;
@@ -45,7 +45,7 @@ export interface TableHit {
   m: MatchResult;
 }
 
-/** 候補の条件（仕様 §4.3）: GET・navigate でない・destination が '' か 'image'。照合ルートと門番で 1 つ */
+/** 候補の条件: GET・navigate でない・destination が '' か 'image'。照合ルートと門番で 1 つ */
 export const isCandidate = (request: Request): boolean =>
   request.method === 'GET' && request.mode !== 'navigate' && (request.destination === '' || request.destination === 'image');
 
@@ -64,7 +64,7 @@ const originOf = (template: string): string | undefined => {
   }
 };
 
-/** 規則の順（Ruling）。具体的な形を先に、同じ具体さなら早く登録されたものを先に */
+/** 規則の順。具体的な形を先に、同じ具体さなら早く登録されたものを先に */
 const compareRules = (a: RankedRule, b: RankedRule): number =>
   b.compiled.queryFixed.length - a.compiled.queryFixed.length
   || b.compiled.queryTokens.length - a.compiled.queryTokens.length
@@ -82,7 +82,7 @@ const requestShape = (c: CompiledTemplate): string => JSON.stringify([
 
 /**
  * 先に評価される規則と同じ要求の URL に当たる、別の Resource の規則（`{y}` と `{-y}`、`{z}/{x}` と `{x}/{z}` など）。
- * 後の規則は影になり、黙って捕捉されない（m2-t6 の申し送り）。"template-shadowed: <影になった Resource.id>"
+ * 後の規則は影になり、黙って捕捉されない。"template-shadowed: <影になった Resource.id>"
  */
 const shadowWarnings = (rules: readonly RankedRule[]): string[] => {
   const first = new Map<string, string>();
@@ -99,7 +99,7 @@ const shadowWarnings = (rules: readonly RankedRule[]): string[] => {
   return out;
 };
 
-/** store から照合表を作る（仕様 §4.2）。失敗は reject */
+/** store から照合表を作る。失敗は reject */
 const buildTable = async (ctx: Context): Promise<LoadedTable> => {
   const store = await ctx.store();
   const [resources, sources] = await Promise.all([store.listResources(), store.listSources()]);
@@ -129,7 +129,7 @@ const buildTable = async (ctx: Context): Promise<LoadedTable> => {
     if (!pick || withCredentials.length === 0) continue;
     const byOrigin = new Map<string, string>();
     for (const origin of origins) {
-      // そのオリジンをテンプレートに持つ Source だけを候補にする（別ホストへ資格情報を送らない。I2）
+      // そのオリジンをテンプレートに持つ Source だけを候補にする（別ホストへ資格情報を送らない）
       const candidates = live.filter((s) => templatesOf(s).some((t) => originOf(t) === origin));
       const id = pick(r, candidates, withCredentials);
       if (id !== undefined) byOrigin.set(origin, id);
@@ -140,7 +140,7 @@ const buildTable = async (ctx: Context): Promise<LoadedTable> => {
   return { table: new MatchTable(rules), credentialSources, warnings: shadowWarnings(rules) };
 };
 
-// ---- 読み込み・失敗と停止（仕様 §4.3） ----
+// ---- 読み込み・失敗と停止 ----
 
 const fail = (s: TableState, t: number): void => {
   s.failures++;
@@ -179,7 +179,7 @@ const ensureLoad = (ctx: Context, t: number): Promise<LoadedTable> | undefined =
   return startLoad(ctx);
 };
 
-/** p を ms まで待つ。超えたら Error('timeout') で reject（門番と control.refreshTable が使う。m4-t8・F34） */
+/** p を ms まで待つ。超えたら Error('timeout') で reject（門番と control.refreshTable が使う） */
 export const withTimeout = <T>(p: Promise<T>, ms: number): Promise<T> => new Promise<T>((resolve, reject) => {
   const timer = setTimeout(() => reject(new Error('timeout')), ms);
   p.then((v) => { clearTimeout(timer); resolve(v); }, (e: unknown) => { clearTimeout(timer); reject(e); });
@@ -192,9 +192,9 @@ const reload = (ctx: Context): Promise<LoadedTable> => {
 };
 
 /**
- * 登録の書き換え（registry の applyRegister・applyUpdate・applyRemove）の後に呼ぶ（t8 の control）。
+ * 登録の書き換え（registry の applyRegister・applyUpdate・applyRemove）の後に呼ぶ（control）。
  * この SW の表を即時に作り直し、同じオリジンの別の SW へ { type: 'table' } を伝える。照合表の warnings を返す。
- * 通知は NOTIFY_DEBOUNCE_MS でまとめる（最後の変更から 1 回。ctx.table.notifyTimer。m4-t8・I8b・R34）
+ * 通知は NOTIFY_DEBOUNCE_MS でまとめる（最後の変更から 1 回。ctx.table.notifyTimer）
  */
 export async function tableChanged(ctx: Context): Promise<string[]> {
   const p = reload(ctx);
@@ -226,7 +226,7 @@ const channelOf = (ctx: Context): BroadcastChannel | undefined => {
 // ---- 配信 ----
 
 /**
- * 資格情報の選び方の唯一の関数（照合ルートと範囲取得が共有する。m4-t3・R3・第 1 回 M4）。照合表の credentialSources の
+ * 資格情報の選び方の唯一の関数（照合ルートと範囲取得が共有する）。照合表の credentialSources の
  * Resource × オリジンから Source を選び、その資格情報と id を返す。loaded が無ければ ctx.table.current、それも無ければ
  * 門番と同じ ensureLoad の読み込みを待つ（やり直しの間隔の中・読めなければ {}）。資格情報が空なら credentials を入れない
  */
@@ -249,32 +249,32 @@ export async function credentialsForResource(
   return hasCredentials(c) ? { credentials: c, credentialSourceId } : { credentialSourceId };
 }
 
-/** Resource の provider の提供元（評価の順で最初に id が同じもの）。登録表に無ければ undefined（汎用の足し方。m3-t5） */
+/** Resource の provider の提供元（評価の順で最初に id が同じもの）。登録表に無ければ undefined（汎用の足し方） */
 const providerOf = (ctx: Context, resource: ResourceMeta): WeiwudiProvider | undefined =>
   resource.provider === undefined ? undefined : ctx.providers().find((p) => p.id === resource.provider);
 
 /** serveResource の任意の指定 */
 export interface ServeResourceOptions {
-  /** §6 の 2（hit）を飛ばして上流へ出す（update() の取り直し。R4） */
+  /** hit を飛ばして上流へ出す（update() の取り直し） */
   revalidate?: boolean;
   /**
    * この Resource に資格情報を持つ Source の id（照合表の credentialSources が要求のオリジンで選んだもの）。
-   * style・tilejson の本体の除去の親をここから引く（O-N3）。無ければ sourceIds の Source を登録順に見て、資格情報を持つ最初のもの
+   * style・tilejson の本体の除去の親をここから引く。無ければ sourceIds の Source を登録順に見て、資格情報を持つ最初のもの
    */
   credentialSourceId?: string;
   /**
-   * 本体の除去の親を直接渡す（m3-t7・O-N2。スタイルの登録時の取得）。あれば store を読まずに、この親の URL のオリジンと
+   * 本体の除去の親を直接渡す（スタイルの登録時の取得）。あれば store を読まずに、この親の URL のオリジンと
    * 提供元・policy で除去の規則を作る。除くのは credentials（足す資格情報）があるときだけ（保存した資格情報を見ないので、
    * update() でスタイルの URL が変わって Resource に当たらないときも、新しい正規化の値で除ける）
    */
   parent?: { url: string; provider?: string; policy: Pick<ResourcePolicy, 'credentialParams'> };
-  /** グリフの束ね書き（範囲取得の 1 fontstack の単位。m4-t4・L4・第 1 回 M4）。glyph の範囲の要求だけに渡す */
+  /** グリフの束ね書き（範囲取得の 1 fontstack の単位）。glyph の範囲の要求だけに渡す */
   collect?: GlyphCollector;
 }
 
 const byOrder = (a: SourceRecord, b: SourceRecord): number => a.order - b.order || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
-/** 資格情報を持つ Source（指定が無ければ sourceIds を登録順に見て最初のもの。credentialSourceFor と同じ順。O-N3） */
+/** 資格情報を持つ Source（指定が無ければ sourceIds を登録順に見て最初のもの。credentialSourceFor と同じ順） */
 const credentialOwnerOf = async (ctx: Context, resource: ResourceMeta, given: string | undefined): Promise<SourceRecord | undefined> => {
   const store = await ctx.store();
   if (given !== undefined) return store.getSource(given);
@@ -288,8 +288,8 @@ const credentialOwnerOf = async (ctx: Context, resource: ResourceMeta, given: st
 };
 
 /**
- * 本体の資格情報の除去の規則（R32）。資格情報を持つ Source の親（スタイル）の URL のオリジンと、親の提供元の matches で
- * credentialTargetOf を作る（t7 の子の資格情報の配り先と同じ関数。R5）。除く値はその Source の credentials（§10 R32）。
+ * 本体の資格情報の除去の規則。資格情報を持つ Source の親（スタイル）の URL のオリジンと、親の提供元の matches で
+ * credentialTargetOf を作る（子の資格情報の配り先と同じ関数）。除く値はその Source の credentials。
  * 資格情報を持つ Source が無い・親が引けなければ除かない
  */
 const stripRuleOf = async (ctx: Context, resource: ResourceMeta, credentialSourceId: string | undefined): Promise<StripRule | undefined> => {
@@ -304,7 +304,7 @@ const stripRuleOf = async (ctx: Context, resource: ResourceMeta, credentialSourc
 
 /**
  * 親（スタイルの URL・提供元・policy）と資格情報から作る除去の規則。accepts は親の credentialParams で判定する
- * （子作りと同じ。m3-t7）。除く値は credentials.query（同じ値の項目だけを除き、違う値＝子の固有の値は残す。§10 R32）。
+ * （子作りと同じ）。除く値は credentials.query（同じ値の項目だけを除き、違う値＝子の固有の値は残す）。
  * credentials は、登録時の取得では直接渡された資格情報、照合ルートでは資格情報を持つ Source のもの。
  * 親の URL が読めなければ除かない
  */
@@ -329,9 +329,9 @@ const ruleOfParent = (
 };
 
 /**
- * style・tilejson の本体の書き換え（R28）。base は要求の URL（相対 URL の解決）。style には Resource の提供元の rewriteStyle を当てる。
- * 除去の規則は transform の中で初めて計算する（hit では transform が呼ばれず、IndexedDB を読まない。L1 Minor-4）。
- * 読めない本体は style_body が投げ、core が上流の失敗として扱う（保存しない。C-S4）。規則の計算の失敗も同じ扱い
+ * style・tilejson の本体の書き換え。base は要求の URL（相対 URL の解決）。style には Resource の提供元の rewriteStyle を当てる。
+ * 除去の規則は transform の中で初めて計算する（hit では transform が呼ばれず、IndexedDB を読まない）。
+ * 読めない本体は style_body が投げ、core が上流の失敗として扱う（保存しない）。規則の計算の失敗も同じ扱い
  */
 const bodyTransformOf = (
   type: 'style' | 'tilejson', base: string, rewriteStyle: ((s: unknown) => unknown) | undefined,
@@ -346,7 +346,7 @@ const bodyTransformOf = (
 };
 
 /**
- * ServeInput を作って core.serve へ渡す唯一の関数（照合ルート・門番・t7 の登録時の取得が共有する。C-O12）。
+ * ServeInput を作って core.serve へ渡す唯一の関数（照合ルート・門番・登録時の取得が共有する）。
  * credentials は足す資格情報（認証付きの要求では渡さない）。store などの失敗は reject で返す（照合ルートは素通しへ直す）
  */
 export async function serveResource(
@@ -367,11 +367,11 @@ export async function serveResource(
   }
   const input: ServeInput = {
     resourceId: resource.id,
-    // 鍵は読み直した Resource の credentialParams で作る（資格情報をキーに残さない。§10）。sprite は {spriteSuffix} の値で作る
+    // 鍵は読み直した Resource の credentialParams で作る（資格情報をキーに残さない）。sprite は {spriteSuffix} の値で作る
     key: entryKey(resource.id, resource.type, m, url, resource.policy.credentialParams),
     ...(resource.type === 'tile' && m.z !== undefined && m.x !== undefined && m.y !== undefined
       ? { coord: { z: m.z, x: m.x, y: m.y } } : {}),
-    // グリフは範囲を渡す（同じ fontstack の範囲を 1 レコードへ束ねるのは core と store。仕様 §11）
+    // グリフは範囲を渡す（同じ fontstack の範囲を 1 レコードへ束ねるのは core と store）
     ...(resource.type === 'glyph' && m.range !== undefined ? { part: m.range, ...(opts.collect ? { collect: opts.collect } : {}) } : {}),
     ...styleLike,
     ...(opts.revalidate === true ? { revalidate: true } : {}),
@@ -384,7 +384,7 @@ export async function serveResource(
 
 /** 照合した要求を配信する。store の失敗などで配信できなければ素通し（要求を止めない） */
 const serveHit = async (ctx: Context, request: Request, url: URL, hit: TableHit, loaded: LoadedTable | undefined): Promise<Response> => {
-  // Range つきは serve に入れない（範囲外の判定より前。仕様 §11）
+  // Range つきは serve に入れない（範囲外の判定より前）
   if (request.headers.has('range')) return passThrough(() => ctx.upstreamFetch(request));
   let resource: ResourceMeta | undefined;
   let credentials: Credentials | undefined;
@@ -395,7 +395,7 @@ const serveHit = async (ctx: Context, request: Request, url: URL, hit: TableHit,
     if (resource) {
       const picked = await credentialsForResource(ctx, resource, url.origin, loaded);
       credentialSourceId = picked.credentialSourceId;
-      // 認証付きの要求には足さない（§4.6）
+      // 認証付きの要求には足さない
       if (!isAuthenticated(request)) credentials = picked.credentials;
     }
   } catch (_e) {
@@ -414,11 +414,11 @@ export interface HookDeps {
   pickCredentialSource: CredentialSourcePicker;
 }
 
-/** workbox-routing の registerRoute（第 1 引数は RegExp か RouteMatchCallback。仕様 §4.3） */
+/** workbox-routing の registerRoute（第 1 引数は RegExp か RouteMatchCallback） */
 export type RegisterRoute = (capture: RegExp | RouteMatchCallback, handler: RouteHandlerCallback, method?: 'GET' | 'POST') => unknown;
 
 /**
- * 照合ルート（同期）と門番（queueMicrotask。同じ評価中に登録された利用者のルートより後ろ）を登録する（仕様 §4.3）。
+ * 照合ルート（同期）と門番（queueMicrotask。同じ評価中に登録された利用者のルートより後ろ）を登録する。
  * 旧 API・制御のルートより後に呼ぶ
  */
 export function installHook(ctx: Context, registerRoute: RegisterRoute, deps: HookDeps): void {

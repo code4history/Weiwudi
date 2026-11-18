@@ -1,6 +1,5 @@
-// registry の一般化の試験（m3-t2）。子 Source（R1・X1）・資源の型（conflictOf）・範囲の持ち主（P1・R9）・
-// apply の引数（C-O12）・isExclusiveTo の一覧（C-S7）・同じ id の kind の替え（C-O5）・StyleSpec の保存と読み出し。
-// 計画 docs/superpowers/plans/2026-11-04-m3-vector.md の m3-t2。
+// registry の一般化の試験。子 Source・資源の型（conflictOf）・範囲の持ち主・
+// apply の引数・isExclusiveTo の一覧・同じ id の kind の替え・StyleSpec の保存と読み出し。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import {
@@ -24,7 +23,7 @@ const GLYPH = 'https://g.example/fonts/{fontstack}/{range}.pbf';
 const DATA = 'https://d.example/points.json';
 const CREDS = ['access_token', 'token', 'key', 'api_key', 'apikey', 'sku'];
 
-/** 子の指定（t7 がスタイルの下位資源から作る形） */
+/** 子の指定（スタイルの下位資源から作る形） */
 const child = (type: ResourceType, logicalName: string, url: string, common: Record<string, unknown> = {}): NormalizedSpec =>
   normalizeMember(type, [url], common, {
     kind: 'child', internalId: childSourceId(P, type, logicalName), single: true, logicalName,
@@ -52,7 +51,7 @@ const res = (id: string, over: Partial<ResourceMeta> = {}): ResourceMeta => ({
 
 const REGISTER: ApplyOptions = { throwOnConflict: false, resetCors: false };
 
-describe('子 Source の id と論理名（X1・O-N8）', () => {
+describe('子 Source の id と論理名', () => {
   it.each([
     ['source', 'a b/c', 'a%20b%2Fc'],
     ['tilejson-tiles', 'a/b', 'a%2Fb/tiles'],
@@ -71,7 +70,7 @@ describe('子 Source の id と論理名（X1・O-N8）', () => {
 });
 
 describe('純粋関数: 範囲の持ち主・型の違う衝突・isExclusiveTo', () => {
-  it('型の違う衝突（tile の Resource に data の指定）は resource-conflict だが rangeOnly に入らない（P1）', () => {
+  it('型の違う衝突（tile の Resource に data の指定）は resource-conflict だが rangeOnly に入らない', () => {
     const plan = planRegister(normalizeMember('data', [DATA], {}, { kind: 'asset', id: 'd', single: true }),
       undefined, [res(DATA, { sourceIds: ['t'] })]);
     expect(plan.warnings).toEqual([`resource-conflict: ${DATA}`]);
@@ -80,7 +79,7 @@ describe('純粋関数: 範囲の持ち主・型の違う衝突・isExclusiveTo'
     expect(plan.join).toBeUndefined();
   });
 
-  it('tile どうしの encoding 違いは範囲だけ足す（m2 と同じ）', () => {
+  it('tile どうしの encoding 違いは範囲だけ足す（これまでと同じ）', () => {
     const plan = planRegister(normalizeSpec({ kind: 'vector', id: 'v', url: TILE }), undefined,
       [res(TILE, { encoding: 'raster' })]);
     expect(plan.warnings).toEqual([`resource-conflict: ${TILE}`]);
@@ -102,7 +101,7 @@ describe('純粋関数: 範囲の持ち主・型の違う衝突・isExclusiveTo'
     expect(isExclusiveTo(r, ['c1', 'c2'])).toBe(want);
   });
 
-  it('isExclusiveTo の文字列は 1 つの一覧として読む（m2 の呼び出しのまま）', () => {
+  it('isExclusiveTo の文字列は 1 つの一覧として読む（これまでの呼び出しのまま）', () => {
     expect(isExclusiveTo(res(TILE, { sourceIds: ['c1'] }), 'c1')).toBe(true);
     expect(isExclusiveTo(res(TILE, { sourceIds: ['c1', 'c2'] }), 'c1')).toBe(false);
   });
@@ -128,7 +127,7 @@ describe('store 上の合流（IndexedDB）', () => {
     expect((await store.putEntry(meta, { key: meta.key, blob: new Blob([new Uint8Array(size)]), headers: {} }, [])).saved).toBe(true);
   };
 
-  /** 子を親の order で登録する（t7 の register の子の扱い） */
+  /** 子を親の order で登録する（register の子の扱い） */
   const applyChild = async (n: NormalizedSpec, opts: Partial<ApplyOptions> = {}) =>
     apply(store, n, await store.getSource(n.spec.id), { ...REGISTER, order: 5, parentId: P, ...opts });
 
@@ -157,7 +156,7 @@ describe('store 上の合流（IndexedDB）', () => {
     expect(storedSpecOf(sources.find((s) => s.id === g.spec.id)!)).toMatchObject({ kind: 'child', type: 'glyph', logicalName: 'glyphs' });
   });
 
-  it('型の違う衝突（tile の Resource に data の指定）→ rangeOnly に入らず extents が変わらない（P1 の再現）', async () => {
+  it('型の違う衝突（tile の Resource に data の指定）→ rangeOnly に入らず extents が変わらない（再現）', async () => {
     const tileSpec = normalizeSpec({ kind: 'raster', id: 't', url: 'https://d.example/{z}/{x}/{y}.png', minZoom: 3, maxZoom: 5 });
     await store.putSource(rec(tileSpec, 1));
     const extents = [tileSpec.spec.extent!];
@@ -170,11 +169,11 @@ describe('store 上の合流（IndexedDB）', () => {
     expect(r?.sourceIds).toEqual(['t']);
   });
 
-  it('tile でない Resource の範囲だけの計算し直しは extents を書かない（L1 m1）', async () => {
+  it('tile でない Resource の範囲だけの計算し直しは extents を書かない', async () => {
     const d = normalizeMember('data', [DATA], {}, { kind: 'asset', id: 'd', single: true });
     await store.putSource(rec(d, 1));
     await store.putSource(rec(normalizeSpec({ kind: 'raster', id: 'x', url: TILE }), 2));
-    // 範囲だけの参加者 x を持つ data の Resource（m2 の形）。x の再登録で参照が消え、範囲だけを計算し直す
+    // 範囲だけの参加者 x を持つ data の Resource（旧い版の形）。x の再登録で参照が消え、範囲だけを計算し直す
     await store.createResource(res(DATA, { type: 'data', sourceIds: ['d'], rangeOnlySourceIds: ['x'] }));
     await applyRegister(store, normalizeSpec({ kind: 'raster', id: 'x', url: 'https://x.example/{z}/{x}/{y}.png' }));
     const r = await store.getResource(DATA);
@@ -182,7 +181,7 @@ describe('store 上の合流（IndexedDB）', () => {
     expect(r && 'extents' in r).toBe(false);
   });
 
-  it('m2 の型の記録（type が無い spec）を読んで tile として合成できる', async () => {
+  it('旧い版の型の記録（type が無い spec）を読んで tile として合成できる', async () => {
     const n = normalizeSpec({ kind: 'raster', id: 'old', url: TILE, minZoom: 2, maxZoom: 4 });
     const legacyShape = { ...n.spec } as Partial<StoredSpec>;
     delete legacyShape.type;
@@ -196,7 +195,7 @@ describe('store 上の合流（IndexedDB）', () => {
     expect(r?.extents).toContainEqual({ minZoom: 2, maxZoom: 4, sourceId: 'old' });
   });
 
-  it('X1: 同じ URL で bounds の違う 2 つの論理ソース → 子 2 つ・Resource 1 つ・extents は和。bounds を替えても子の id は変わらない', async () => {
+  it('同じ URL で bounds の違う 2 つの論理ソース → 子 2 つ・Resource 1 つ・extents は和。bounds を替えても子の id は変わらない', async () => {
     await store.putSource(styleRecord({}, 5));
     const a = child('tile', childLogicalName('source', 'a'), TILE, { bounds: [130, 30, 140, 40], maxZoom: 8 });
     const b = child('tile', childLogicalName('source', 'b'), TILE, { bounds: [-10, -10, 0, 0], maxZoom: 8 });
@@ -217,7 +216,7 @@ describe('store 上の合流（IndexedDB）', () => {
     expect((await store.listSources()).filter((s) => s.parentId === P).map((s) => s.id).sort()).toEqual([a.spec.id, b.spec.id].sort());
   });
 
-  it('同じ id で kind を替えた登録は attribute-invalid で、何も変わらない（C-O5）', async () => {
+  it('同じ id で kind を替えた登録は attribute-invalid で、何も変わらない', async () => {
     await applyRegister(store, normalizeSpec({ kind: 'raster', id: 'k', url: TILE }));
     const before = { source: await store.getSource('k'), resources: await store.listResources() };
     const err = await applyRegister(store, normalizeSpec({ kind: 'vector', id: 'k', url: TILE })).catch((e: unknown) => e);
@@ -227,7 +226,7 @@ describe('store 上の合流（IndexedDB）', () => {
     expect({ source: await store.getSource('k'), resources: await store.listResources() }).toEqual(before);
   });
 
-  it('apply を { throwOnConflict: false, resetCors: true } で呼ぶと、衝突しても例外にならず合流先の corsOk・corslessUntil が消える（C-O12）', async () => {
+  it('apply を { throwOnConflict: false, resetCors: true } で呼ぶと、衝突しても例外にならず合流先の corsOk・corslessUntil が消える', async () => {
     await store.putSource(styleRecord({}, 5));
     const t = child('tile', childLogicalName('source', 'base'), TILE);
     const g = child('glyph', childLogicalName('glyphs'), GLYPH);
@@ -241,7 +240,7 @@ describe('store 上の合流（IndexedDB）', () => {
     await applyChild(g);
     expect(await store.getResource(GLYPH)).toMatchObject({ corsOk: true, corslessUntil: 99 });
 
-    // スタイルの update()（P2）: tile の子は credentialParams が広がって衝突（keep）、glyph の子は合流し直す
+    // スタイルの update(): tile の子は credentialParams が広がって衝突（keep）、glyph の子は合流し直す
     const P2: Partial<ApplyOptions> = { resetCors: true };
     const conflicted = await applyChild(child('tile', childLogicalName('source', 'base'), TILE, { credentialParams: ['sig'] }), P2);
     expect(conflicted.warnings).toEqual([`resource-conflict: ${TILE}`]);

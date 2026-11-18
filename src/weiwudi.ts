@@ -7,15 +7,15 @@ import type { Credentials, OutOfRange, ResourceInfo, ResourceType } from './stor
 import type { CommonPolicy, FetchRangeOptions, RangeSpec, RegionInfo, SourceSpec } from './spec';
 import type { TileBox } from './tile_math';
 
-// 旧 API は文字列で reject し続ける（仕様 §9）。WeiwudiError.from(e) で code を得られる（#33）
+// 旧 API は文字列で reject し続ける。WeiwudiError.from(e) で code を得られる（#33）
 export { WeiwudiError, type WeiwudiErrorCode, type TileFailure } from './errors';
 
-// 新 API の公開の型（仕様 §12。名前つきで export する。第 1 回 C4・第 2 回 D3）。ResourceMeta は公開しない（第 1 回 C5）
+// 新 API の公開の型（名前つきで export する）。ResourceMeta は公開しない
 export type { CommonPolicy, Credentials, OutOfRange, ResourceInfo, ResourceType, SourceSpec, TileBox };
-// 範囲取得の型（m4-t3・§7.2・§12）
+// 範囲取得の型
 export type { FetchRangeOptions, RangeSpec, RegionInfo };
 
-/** 登録した Source の公開の形（仕様 §12） */
+/** 登録した Source の公開の形 */
 export interface SourceInfo {
     id: string;
     kind: SourceSpec['kind'];
@@ -38,7 +38,7 @@ export interface WeiwudiRegistrationOptions extends RegistrationOptions {
     userAgent?: string;
 }
 
-/** Source の統計（仕様 §12） */
+/** Source の統計 */
 export interface SourceStats {
     count: number;
     size: number;
@@ -50,7 +50,7 @@ export interface SourceStats {
 }
 
 /**
- * 全体と提供元別の使用量（仕様 §12・#38。m3-t8）。全 Resource（旧 API の地図も）を 1 回ずつ数える。
+ * 全体と提供元別の使用量（#38）。全 Resource（旧 API の地図も）を 1 回ずつ数える。
  * byProvider の鍵は Resource の提供元（'mapbox' など）、無ければ先頭のテンプレートの origin。null プロトタイプ
  */
 export interface UsageReport {
@@ -63,15 +63,15 @@ const BASEURL = `https://${PSEUDO_HOST}/api/`;
 let swChecking: Promise<boolean> | undefined;
 let swChecked: boolean | undefined;
 
-// ---- 新 API の確認（ensureV2。仕様 §4.1。swCheck と別の関数で、旧 API の結果に触らない。第 1 回 C2） ----
+// ---- 新 API の確認（ensureV2。swCheck と別の関数で、旧 API の結果に触らない） ----
 // モジュール変数に置く理由: ページの 1 つの module 実例を使うのは 1 つのページだけ（module-state.test.ts の除外の理由と同じ）
 
 const V2URL = `https://${PSEUDO_HOST}${V2_PREFIX}`;
 /** HTTP キャッシュの 200 を成功と取り違えず、リダイレクトで本文を別オリジンへ移さない（PR #80） */
 const V2_FETCH: Readonly<RequestInit> = Object.freeze({ cache: 'no-store', redirect: 'error' });
-/** ping が成功した controller の実体（controllerchange で捨てる。第 2 回 D2） */
+/** ping が成功した controller の実体（controllerchange で捨てる） */
 let v2Verified = new WeakMap<ServiceWorker, true>();
-/** 進行中の確認（同時の呼び出しを ping 1 本にまとめる。第 3 回 推奨） */
+/** 進行中の確認（同時の呼び出しを ping 1 本にまとめる） */
 let v2Pending: Promise<void> | undefined;
 let v2Listening = false;
 
@@ -104,9 +104,9 @@ const pingOnce = async (): Promise<void> => {
 };
 
 /**
- * ping の前と後で controller の実体を比べ、違えば 1 回だけ確かめ直す。なお違えば sw-not-controlling（第 3 回 M2）。
+ * ping の前と後で controller の実体を比べ、違えば 1 回だけ確かめ直す。なお違えば sw-not-controlling。
  * ping が失敗したときも比べる: 替わっていれば失敗は前の controller のものなので確かめ直し、替わっていなければ
- * その失敗を返す（PR #80 水準 2 必須）
+ * その失敗を返す（PR #80）
  */
 const verify = async (): Promise<void> => {
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -129,7 +129,7 @@ const verify = async (): Promise<void> => {
 };
 
 /**
- * 新 API の確認（仕様 §4.1）。すべての POST の前に通す。controller が無ければ何も送らずに sw-not-controlling。
+ * 新 API の確認。すべての POST の前に通す。controller が無ければ何も送らずに sw-not-controlling。
  * 成功はその controller の実体に結び付けて記憶し、失敗は記憶しない（次の呼び出しで確かめ直す）
  */
 const ensureV2 = async (): Promise<void> => {
@@ -142,7 +142,7 @@ const ensureV2 = async (): Promise<void> => {
             v2Pending = undefined;
         });
     }
-    // 進行中の確認を待った後、今の controller が確認済みかを見直す。替わっていれば 1 回だけ確かめ直す（水準 1 Minor 6）
+    // 進行中の確認を待った後、今の controller が確認済みかを見直す。替わっていれば 1 回だけ確かめ直す（Minor 6）
     for (let round = 0; round < 2; round++) {
         const current = controllerOf();
         if (!current) throw notControlling('This page is not controlled by a service worker');
@@ -161,7 +161,7 @@ const ensureV2 = async (): Promise<void> => {
     if (!last || !v2Verified.has(last)) throw notControlling('The controlling service worker changed while checking /v2/ping');
 };
 
-/** POST /v2/<op>（text/plain;charset=UTF-8 の JSON。preflight の要らない単純要求。第 1 回 C1）。失敗は WeiwudiError */
+/** POST /v2/<op>（text/plain;charset=UTF-8 の JSON。preflight の要らない単純要求）。失敗は WeiwudiError */
 const postV2 = async <T>(op: string, body: unknown): Promise<T> => {
     await ensureV2();
     let res: Response;
@@ -185,7 +185,7 @@ const postV2 = async <T>(op: string, body: unknown): Promise<T> => {
     const e = reply && typeof reply.error === 'object' && reply.error !== null ? reply.error : {};
     const detail = e.detail !== null && typeof e.detail === 'object' && Object.keys(e.detail).length > 0
         ? e.detail as Record<string, unknown> : undefined;
-    // 新しい SW が増やした code もそのまま渡す（code は minor で増える）。書式に合わない code は internal（m3-t8 i-1）
+    // 新しい SW が増やした code もそのまま渡す（code は minor で増える）。書式に合わない code は internal
     throw new WeiwudiError(
         (isCodeFormat(e.code) ? e.code : 'internal') as WeiwudiErrorCode,
         typeof e.message === 'string' ? e.message : `/v2/${op} failed`,
@@ -193,7 +193,7 @@ const postV2 = async <T>(op: string, body: unknown): Promise<T> => {
     );
 };
 
-/** 相対の url をページの場所で絶対化する（仕様 §4.2。字句は符号化しない） */
+/** 相対の url をページの場所で絶対化する（字句は符号化しない） */
 const absolutizeSpec = (spec: SourceSpec): SourceSpec => {
     if (spec === null || typeof spec !== 'object') return spec;
     const base = typeof location !== 'undefined' ? location.href : undefined;
@@ -204,15 +204,15 @@ const absolutizeSpec = (spec: SourceSpec): SourceSpec => {
     return { ...spec, url: Array.isArray(url) ? url.map(abs) : abs(url) } as SourceSpec;
 };
 
-/** 範囲取得の待ちで、イベントが来ないときに job/resume を送るまでの時間（§7.2。U3） */
+/** 範囲取得の待ちで、イベントが来ないときに job/resume を送るまでの時間 */
 const RESUME_AFTER_MS = 30_000;
 /**
  * 覚えておく終わりのメッセージの数。fetchRange の待ちと cancel() の待ちが同じメッセージを読むので、使っても消さず、
- * 古いものから上限を超えた分と release() で捨てる（PR #102 M1・L5）
+ * 古いものから上限を超えた分と release() で捨てる（PR #102）
  */
 const ENDED_LIMIT = 64;
 
-/** SW から届く範囲取得のメッセージ（{ type, sourceId, regionId, … }。I5c） */
+/** SW から届く範囲取得のメッセージ（{ type, sourceId, regionId, … }） */
 interface JobMessage {
     type: string;
     regionId?: unknown;
@@ -294,7 +294,7 @@ export interface WeiwudiInternalOps {
 }
 
 /**
- * 新 API で登録した Source（仕様 §12）。resources と warnings は呼び出し時点の写しで、後の変化は stats() か
+ * 新 API で登録した Source。resources と warnings は呼び出し時点の写しで、後の変化は stats() か
  * Weiwudi.source() で読み直す（update() はこの実例の写しを update の時点のものに置き換える）
  */
 export class WeiwudiSource extends WeiwudiEventTarget {
@@ -381,16 +381,16 @@ export class WeiwudiSource extends WeiwudiEventTarget {
         this.release();
     }
 
-    /** タイルの枚数（§7.2。非タイルの資源は数えない。R29） */
+    /** タイルの枚数（非タイルの資源は数えない） */
     async estimate(range: RangeSpec): Promise<{ tiles: number }> {
         this.alive();
         return postV2<{ tiles: number }>('estimate', { id: this.id, range });
     }
 
     /**
-     * 範囲を取得して固定する（§7.2）。持続的な保存領域を求め（待たず、失敗は無視。I5b）、ratio の既定は devicePixelRatio > 1 なら
-     * '@2x'（R-ratio）。終わり（finish・canceled は resolve、stop は WeiwudiError で reject）まで待つ。30 秒イベントが来なければ
-     * job/resume を送る（R22・R45）
+     * 範囲を取得して固定する。持続的な保存領域を求め（待たず、失敗は無視）、ratio の既定は devicePixelRatio > 1 なら
+     * '@2x'。終わり（finish・canceled は resolve、stop は WeiwudiError で reject）まで待つ。30 秒イベントが来なければ
+     * job/resume を送る
      */
     async fetchRange(range: RangeSpec, opts: FetchRangeOptions = {}): Promise<RegionInfo> {
         this.alive();
@@ -408,7 +408,7 @@ export class WeiwudiSource extends WeiwudiEventTarget {
         return this.waitRegion(info);
     }
 
-    /** この Source の region の一覧（§12）。SW が止まって running のままのものは partial（R5） */
+    /** この Source の region の一覧。SW が止まって running のままのものは partial */
     async regions(): Promise<RegionInfo[]> {
         this.alive();
         return postV2<RegionInfo[]>('regions', { id: this.id });
@@ -416,7 +416,7 @@ export class WeiwudiSource extends WeiwudiEventTarget {
 
     /**
      * この Source の取得を止める。取り消したジョブの canceled（か終わりのイベント）を受けてから解決する（30 秒来なければ
-     * regions() を読んで解決する。R58・第 2 回 M4）。旧 API のジョブなど regionId が無ければすぐ解決。無ければ no-fetch-process
+     * regions() を読んで解決する）。旧 API のジョブなど regionId が無ければすぐ解決。無ければ no-fetch-process
      */
     async cancel(): Promise<void> {
         this.alive();
@@ -451,7 +451,7 @@ export class WeiwudiSource extends WeiwudiEventTarget {
         });
     }
 
-    /** fetchRange の待ち（R22・R45）。終わりのメッセージ・job/resume の終わりの status・release() のどれかで決まる */
+    /** fetchRange の待ち。終わりのメッセージ・job/resume の終わりの status・release() のどれかで決まる */
     private waitRegion(info: RegionInfo): Promise<RegionInfo> {
         return new Promise<RegionInfo>((resolve, reject) => {
             let timer: ReturnType<typeof setTimeout> | undefined;
@@ -608,7 +608,7 @@ export default class Weiwudi extends WeiwudiEventTarget {
     }
 
     /**
-     * 新 API の登録（仕様 §12）。資源の衝突では失敗せず warnings に書く（§5.6）。register の完了を待ってから
+     * 新 API の登録。資源の衝突では失敗せず warnings に書く。register の完了を待ってから
      * 地図を作る（先に作ると最初の要求が捕捉されない）
      */
     static async register(spec: SourceSpec): Promise<WeiwudiSource> {
@@ -639,7 +639,7 @@ export default class Weiwudi extends WeiwudiEventTarget {
     }
 
     /**
-     * 全体のキャッシュ上限（byte。m4-t6・仕様 §7.1）。固定でない Entry の和が超えると、Source をまたいで
+     * 全体のキャッシュ上限（byte）。固定でない Entry の和が超えると、Source をまたいで
      * 古い順に消す（各 Source の cacheMaxBytes と両方を満たす）。maxBytes: 0 は何も保存しない。省略で上限を外す。
      * 0 以上の有限の整数でなければ attribute-invalid
      */

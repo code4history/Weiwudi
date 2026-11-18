@@ -1,4 +1,4 @@
-// 標準の提供元 mapbox（src/providers/mapbox.ts。m3-t5・#40・仕様 §10）。実ネットワーク・実トークンは使わない。
+// 標準の提供元 mapbox（src/providers/mapbox.ts。#40）。実ネットワーク・実トークンは使わない。
 import { describe, expect, it } from 'vitest';
 import { createMapboxProvider, MAPBOX_API } from '../../src/providers/mapbox';
 import { appendQueryCredentials } from '../../src/upstream';
@@ -15,22 +15,22 @@ const codeOf = (fn: () => unknown): string | undefined => {
   }
 };
 
-// 計画の表の全行（F2 の 5 形）と、C-O3 で足した形（Studio の sprite の 3 区画・draft のスタイル）
+// 変換表の全行（5 形）と、後から足した形（Studio の sprite の 3 区画・draft のスタイル）
 const TABLE: [label: string, input: string, out: string][] = [
   ['スタイル', 'mapbox://styles/u1/s1', 'https://api.mapbox.com/styles/v1/u1/s1'],
-  ['スタイル（draft。C-O3）', 'mapbox://styles/u1/s1/draft', 'https://api.mapbox.com/styles/v1/u1/s1/draft'],
+  ['スタイル（draft）', 'mapbox://styles/u1/s1/draft', 'https://api.mapbox.com/styles/v1/u1/s1/draft'],
   ['スプライト', 'mapbox://sprites/u1/s1', 'https://api.mapbox.com/styles/v1/u1/s1/sprite'],
-  ['スプライト（Studio の 3 区画。C-O3）', 'mapbox://sprites/u1/s1/abc123hash', 'https://api.mapbox.com/styles/v1/u1/s1/abc123hash/sprite'],
+  ['スプライト（Studio の 3 区画）', 'mapbox://sprites/u1/s1/abc123hash', 'https://api.mapbox.com/styles/v1/u1/s1/abc123hash/sprite'],
   ['フォント（字句のまま）', 'mapbox://fonts/u1/{fontstack}/{range}.pbf', 'https://api.mapbox.com/fonts/v1/u1/{fontstack}/{range}.pbf'],
   ['フォント（具体の値）', 'mapbox://fonts/u1/Open%20Sans%20Regular/0-255.pbf', 'https://api.mapbox.com/fonts/v1/u1/Open%20Sans%20Regular/0-255.pbf'],
   ['タイル（字句のまま）', 'mapbox://tiles/mapbox.satellite/{z}/{x}/{y}.png', 'https://api.mapbox.com/v4/mapbox.satellite/{z}/{x}/{y}.png'],
   ['タイル（@2x）', 'mapbox://tiles/mapbox.satellite/{z}/{x}/{y}@2x.jpg90', 'https://api.mapbox.com/v4/mapbox.satellite/{z}/{x}/{y}@2x.jpg90'],
   ['タイル（具体の値）', 'mapbox://tiles/u1.t1/3/1/2.vector.pbf', 'https://api.mapbox.com/v4/u1.t1/3/1/2.vector.pbf'],
-  ['ソース（1 つ。F3）', 'mapbox://mapbox.mapbox-streets-v8', 'https://api.mapbox.com/v4/mapbox.mapbox-streets-v8.json?secure'],
-  ['ソース（複合。F3）', 'mapbox://mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2', 'https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2.json?secure'],
+  ['ソース（1 つ）', 'mapbox://mapbox.mapbox-streets-v8', 'https://api.mapbox.com/v4/mapbox.mapbox-streets-v8.json?secure'],
+  ['ソース（複合）', 'mapbox://mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2', 'https://api.mapbox.com/v4/mapbox.mapbox-streets-v8,mapbox.mapbox-terrain-v2.json?secure'],
 ];
 
-describe('resolve（計画の表）', () => {
+describe('resolve（変換表）', () => {
   it.each(TABLE)('%s', (_l, input, out) => {
     expect(mapbox.matches(input)).toBe(true);
     expect(mapbox.resolve(input)).toBe(out);
@@ -218,7 +218,7 @@ describe('資格情報', () => {
 });
 
 // BeatBox 0.1.1 の toHttpUrl（code4history/BeatBox の src/index.ts。accessToken: 'pk.T' で作ったときの出力）を写した表。
-// 依存は足さない（R15）。違うのは、TileJSON に ?secure を付ける点と、トークンを足さない点だけ
+// 依存は足さない。違うのは、TileJSON に ?secure を付ける点と、トークンを足さない点だけ
 describe('BeatBox 0.1.1 の toHttpUrl との突き合わせ', () => {
   const BEATBOX: [input: string, beatbox: string][] = [
     ['mapbox://styles/u1/s1', 'https://api.mapbox.com/styles/v1/u1/s1?access_token=pk.T'],

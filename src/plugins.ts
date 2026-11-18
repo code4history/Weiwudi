@@ -1,14 +1,14 @@
-// 差し込み口（#36・仕様 §8）。SW 側だけ。`@c4h/weiwudi/sw` の名前付き export（UMD は self.Weiwudi_SW）。
-// 提供元の登録表（#40・仕様 §10。m3-t5）もここに置く。
+// 差し込み口（#36）。SW 側だけ。`@c4h/weiwudi/sw` の名前付き export（UMD は self.Weiwudi_SW）。
+// 提供元の登録表（#40）もここに置く。
 // SW のスクリプトが指定する User-Agent（setUserAgent）もここに置く。
-// 値の依存は user_agent・errors だけ（仕様 §3）。ResourceInfo・Credentials は store.ts の型を import type で使う。
+// 値の依存は user_agent・errors だけ。ResourceInfo・Credentials は store.ts の型を import type で使う。
 //
 // 決まり:
-// - モジュール変数はこのファイルの登録表だけ（計画「実行中の状態」）。試験用の _resetPluginsForTest で空にする
-// - 同じオブジェクトの 2 回目の addPlugin・addProvider は無視する（冪等。第 2 回 D4）
+// - モジュール変数はこのファイルの登録表だけ。試験用の _resetPluginsForTest で空にする
+// - 同じオブジェクトの 2 回目の addPlugin・addProvider は無視する（冪等）
 // - addPlugin は以後に始まる要求にだけ効く。core は要求の始めに getPlugins() の写しを取り、それで進める
-// - 標準の提供元（providers/mapbox.ts）はこのファイルからは import できない（§3）。配線が context に渡し、
-//   利用者の提供元（getProviders()）を先に評価する（R13）
+// - 標準の提供元（providers/mapbox.ts）はこのファイルからは import できない。配線が context に渡し、
+//   利用者の提供元（getProviders()）を先に評価する
 import type { Credentials, ResourceInfo } from './store';
 import { validateUserAgent } from './user_agent';
 
@@ -32,7 +32,7 @@ export interface WeiwudiPlugin {
 }
 
 /**
- * 提供元（仕様 §10）。独自スキーム（mapbox:// など）を登録の時点で https へ解決し、上流へ出す直前に資格情報を足す。
+ * 提供元。独自スキーム（mapbox:// など）を登録の時点で https へ解決し、上流へ出す直前に資格情報を足す。
  * - 登録の URL が matches に当たれば resolve してから検査する。先に登録したもの（利用者の提供元は標準より先）が勝つ
  * - resolve が解決できない形は WeiwudiError('unsupported-template') を投げる
  */

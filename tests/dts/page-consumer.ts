@@ -1,4 +1,4 @@
-// 配布の dist/weiwudi.d.ts（@c4h/weiwudi の型）を利用者の立場で使う（m2-t8・第 1 回 S12・C4・第 2 回 D3）。
+// 配布の dist/weiwudi.d.ts（@c4h/weiwudi の型）を利用者の立場で使う。
 // `node_modules/.bin/tsc -p tests/dts/tsconfig.json` で型検査する（build の後）。
 // 名前があるだけでは通らない: 各型の全項目へ型つきで代入し、形が違えば Equals の検査で型エラーになる。
 import Weiwudi, {
@@ -38,7 +38,7 @@ assertType<Equals<UsageReport, {
   byProvider: Record<string, { count: number; bytes: number }>;
 }>>();
 
-// 閉じた union は minor で増える。利用者は default を置いた switch で受ける（m3-t8・I4・O-N6）
+// 閉じた union は minor で増える。利用者は default を置いた switch で受ける
 const describeCode = (code: WeiwudiErrorCode): string => {
   switch (code) {
     case 'resource-not-found': return 'resource';
@@ -80,7 +80,7 @@ const info: SourceInfo = { id: 'r', kind: 'raster', url: 'https://a.example/{z}/
 const stats: SourceStats = { count: 1, size: 2, total: 3, percent: 33, byResource: { [resource.id]: { count: 1, bytes: 2 } } };
 void [info, stats];
 
-// Weiwudi.register の戻り値を WeiwudiSource として使う（m2 のメンバだけ）
+// Weiwudi.register の戻り値を WeiwudiSource として使う（既存のメンバだけ）
 const use = async (): Promise<void> => {
   const src: WeiwudiSource = await Weiwudi.register(raster);
   const id: string = src.id;
@@ -95,12 +95,12 @@ const use = async (): Promise<void> => {
   const again: WeiwudiSource = await Weiwudi.source(id);
   const all: SourceInfo[] = await Weiwudi.sources();
   void [url, resources, warnings, s, u, c, r, rel, again, all];
-  // kind: 'style'・'asset' の登録（m3-t7）。スタイルの url は地図ライブラリへ渡す https の URL
+  // kind: 'style'・'asset' の登録。スタイルの url は地図ライブラリへ渡す https の URL
   const st: WeiwudiSource = await Weiwudi.register(style);
   const styleUrl: string | string[] = st.url;
   const as: WeiwudiSource = await Weiwudi.register(asset);
   void [styleUrl, as];
-  // 資源単位の削除と使用量（m3-t8）
+  // 資源単位の削除と使用量
   const rr: void = await src.removeResource(resources[0].id);
   const usage: UsageReport = await Weiwudi.usage();
   const total: number = usage.count;
@@ -117,7 +117,7 @@ const use = async (): Promise<void> => {
 };
 void use;
 
-// 範囲取得（m4-t3・§7.2・§12）: RangeSpec・FetchRangeOptions・RegionInfo の全項目と 4 メソッド
+// 範囲取得: RangeSpec・FetchRangeOptions・RegionInfo の全項目と 4 メソッド
 assertType<Equals<RangeSpec,
   | { bounds: [west: number, south: number, east: number, north: number]; minZoom: number; maxZoom: number }
   | { box: TileBox; minZoom: number; maxZoom: number }
@@ -152,7 +152,7 @@ const useRange = async (src: WeiwudiSource): Promise<void> => {
 };
 void useRange;
 
-// m4-t5: these signatures must also survive declaration bundling.
+// these signatures must also survive declaration bundling.
 const useRelease = async (src: WeiwudiSource): Promise<void> => {
   const release: void = await src.releaseRange('region-id');
   const keep: void = await src.releaseRange('region-id', { keep: true });
@@ -163,7 +163,7 @@ const useRelease = async (src: WeiwudiSource): Promise<void> => {
 };
 void useRelease;
 
-// m4-t6: the global cache limit.
+// the global cache limit.
 const useLimits = async (): Promise<void> => {
   const set: void = await Weiwudi.setLimits({ maxBytes: 500 * 1024 * 1024 });
   const off: void = await Weiwudi.setLimits({});

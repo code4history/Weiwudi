@@ -1,6 +1,6 @@
-// src/weiwudi_gw_logic.ts のユニットテスト（Weiwudi#43・nov26-m1-t6）。
+// src/weiwudi_gw_logic.ts のユニットテスト（Weiwudi#43）。
 // Service Worker の環境は tests/unit/sw-harness.ts で差し替える。src/ は変えない。
-// describe 名は設計書 §3.4 の表の「対象関数」に対応させている。
+// describe 名は対象の関数に対応させている。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
 import { createSwHarness, tileResponse } from './sw-harness';

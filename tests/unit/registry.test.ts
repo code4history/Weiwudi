@@ -1,4 +1,4 @@
-// src/registry.ts の試験（m2-t6）。仕様 §5.1・§5.6、計画 docs/superpowers/plans/2026-11-03-m2-core.md の m2-t6。
+// src/registry.ts の試験。
 // 各 it が仕様の文 1 つ。planRegister・composePolicy・isExclusiveTo・credentialSourceFor の試験は IndexedDB を使わない。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
@@ -44,7 +44,7 @@ const res = (id: string, over: Partial<ResourceMeta> = {}): ResourceMeta => ({
 
 // ---- 純粋関数（IndexedDB を使わない） ----
 
-describe('composePolicy: 合成の 8 行（仕様 §5.6 の表）', () => {
+describe('composePolicy: 合成の 8 行', () => {
   const tokyo = ns({ id: 'tokyo', minZoom: 0, maxZoom: 10, box: { minX: 900, maxX: 910, minY: 400, maxY: 410 } });
   const osaka = ns({ id: 'osaka', minZoom: 5, maxZoom: 12, box: { minX: 3500, maxX: 3510, minY: 1600, maxY: 1610 } });
 
@@ -138,7 +138,7 @@ describe('composePolicy: 合成の 8 行（仕様 §5.6 の表）', () => {
   });
 });
 
-describe('planRegister: 拒否の 3 条件（仕様 §5.6）', () => {
+describe('planRegister: 拒否の 3 条件', () => {
   it('重ならなければ新しい Resource（id は先頭のテンプレートの正規化）', () => {
     const plan = planRegister(ns({ id: 'p', url: [B, A] }), undefined, [res(C)]);
     expect(plan.join).toEqual({ resourceId: B, create: true });
@@ -174,7 +174,7 @@ describe('planRegister: 拒否の 3 条件（仕様 §5.6）', () => {
     expect(plan.rangeOnly).toEqual([A, B]);
   });
 
-  it('既に属している Resource との衝突は keep（rangeOnly へ移さない。S-I）', () => {
+  it('既に属している Resource との衝突は keep（rangeOnly へ移さない）', () => {
     const p = ns({ id: 'p', credentialParams: ['foo'] });
     const plan = planRegister(p, rec(ns({ id: 'p' }), 1), [res(A, { sourceIds: ['p'], count: 2 })]);
     expect(plan.keep).toEqual([A]);
@@ -182,7 +182,7 @@ describe('planRegister: 拒否の 3 条件（仕様 §5.6）', () => {
     expect(plan.warnings).toEqual([`resource-conflict: ${A}`]);
   });
 
-  it('旧 API の Resource（map: の id）は合流の候補に入らない（第 2 回 S-6）', () => {
+  it('旧 API の Resource（map: の id）は合流の候補に入らない', () => {
     const legacy = res('map:m', { templates: [A], sourceIds: ['map:m'], policy: { ...res(A).policy, credentialParams: [] } });
     const plan = planRegister(ns({ id: 'p' }), undefined, [legacy]);
     expect(plan.join).toEqual({ resourceId: A, create: true });
@@ -261,7 +261,7 @@ describe('applyRegister・applyUpdate・applyRemove', () => {
     expect(await get(B)).toBeUndefined();
   });
 
-  it('S-I: 同じ id で credentialParams を足して再登録（Entry あり）は例外にせず warnings・sourceIds に残る・方針と範囲が古いまま', async () => {
+  it('同じ id で credentialParams を足して再登録（Entry あり）は例外にせず warnings・sourceIds に残る・方針と範囲が古いまま', async () => {
     await applyRegister(store, ns({ id: 'p', cacheTtl: 500, maxZoom: 5 }));
     await putTile(A);
     const before = await get(A);
@@ -276,7 +276,7 @@ describe('applyRegister・applyUpdate・applyRemove', () => {
     expect(after?.count).toBe(1);
   });
 
-  it('keep の Source の新しい spec は、後の合成でもテンプレートと方針に入らない（PR #77 水準 1 M1）', async () => {
+  it('keep の Source の新しい spec は、後の合成でもテンプレートと方針に入らない（PR #77）', async () => {
     await applyRegister(store, ns({ id: 'p', url: A, cacheTtl: 500, maxZoom: 5 }));
     await applyRegister(store, ns({ id: 'q', url: A, cacheTtl: 400 }));
     await applyRegister(store, ns({ id: 'r', url: B }));
@@ -455,7 +455,7 @@ describe('applyRegister・applyUpdate・applyRemove', () => {
     expect((await get(A))?.policy.credentialParams).not.toContain('foo');
   });
 
-  it('同じ id の再登録で、前の登録にだけあったテンプレートの Resource が sourceIds から外れ、空なら Entry ごと消える（第 1 回 O-11）', async () => {
+  it('同じ id の再登録で、前の登録にだけあったテンプレートの Resource が sourceIds から外れ、空なら Entry ごと消える', async () => {
     await applyRegister(store, ns({ id: 'p', url: A }));
     await applyRegister(store, ns({ id: 'p2', url: B }));
     await applyRegister(store, ns({ id: 'p', url: [A, B, C] })); // A と B の 2 つに重なる → 衝突
@@ -470,7 +470,7 @@ describe('applyRegister・applyUpdate・applyRemove', () => {
     expect((await get(C))?.sourceIds).toEqual(['p']);
   });
 
-  it('id と warnings に資格情報が入らない（第 1 回 C3）', async () => {
+  it('id と warnings に資格情報が入らない', async () => {
     await applyRegister(store, normalizeSpec({ kind: 'raster', url: `${A}?access_token=pk.SECRET1` }));
     // Entry を置いて、credentialParams を広げる登録で衝突させる（warnings を出す）
     const [only] = await store.listResources();
@@ -503,7 +503,7 @@ describe('applyRegister・applyUpdate・applyRemove', () => {
   });
 });
 
-describe('旧 API の Resource と合流しない（第 2 回 S-6・m2-t5 の申し送り）', () => {
+describe('旧 API の Resource と合流しない', () => {
   it('旧 API の地図と同じテンプレートを新 API で登録すると別の Resource ができ、旧 API の地図はそのまま動く', async () => {
     const h = createSwHarness();
     const add = await h.request(`/api/add?mapID=m&type=xyz&url=${encodeURIComponent(A)}&width=1024&height=1024`);

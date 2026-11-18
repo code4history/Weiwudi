@@ -1,4 +1,4 @@
-// src/url_pattern.ts の試験（m2-t3・第 1 回 S5・C3・O-18）。仕様 §4.2・§5.1・§5.3、計画の m2-t3。
+// src/url_pattern.ts の試験。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_CREDENTIAL_PARAMS, MatchTable, absolutizeTemplate, compileTemplate, entryKey, expandTemplate, matchUrl,
@@ -24,7 +24,7 @@ const codeOf = (fn: () => unknown): string | undefined => {
 };
 
 describe('DEFAULT_CREDENTIAL_PARAMS', () => {
-  it('仕様 §5.3 の 6 つ', () => {
+  it('既定の資格情報のクエリ項目は 6 つ', () => {
     expect([...CP]).toEqual(['access_token', 'token', 'key', 'api_key', 'apikey', 'sku']);
   });
 });
@@ -97,7 +97,7 @@ describe('照合と展開の往復（7 字句）', () => {
   });
 });
 
-describe('クエリの照合（仕様 §4.2）', () => {
+describe('クエリの照合', () => {
   const WMTS = 'https://w.example/wmts?TileMatrix={z}&TileCol={x}&TileRow={y}&layer=a';
 
   it('固定値の項目は一致を求める（layer=a と layer=b を分ける）', () => {
@@ -150,7 +150,7 @@ describe('compileTemplate の拒否（unsupported-template）', () => {
   });
 });
 
-describe('absolutizeTemplate（仕様 §4.2）', () => {
+describe('absolutizeTemplate', () => {
   it.each([
     ['相対', 'tiles/{z}/{x}/{y}.png', 'https://p.example/app/index.html', 'https://p.example/app/tiles/{z}/{x}/{y}.png'],
     ['../', '../tiles/{z}/{x}/{-y}.png', 'https://p.example/app/sub/', 'https://p.example/app/tiles/{z}/{x}/{-y}.png'],
@@ -165,7 +165,7 @@ describe('absolutizeTemplate（仕様 §4.2）', () => {
   });
 });
 
-describe('normalizeTemplate（仕様 §5.1。id の唯一の作り方）', () => {
+describe('normalizeTemplate（id の唯一の作り方）', () => {
   it('資格情報の項目を除き、残りを名前順にする', () => {
     expect(normalizeTemplate('https://a.example/{z}/{x}/{y}.png?access_token=x&b=1&a=2', CP))
       .toBe('https://a.example/{z}/{x}/{y}.png?a=2&b=1');
@@ -219,7 +219,7 @@ describe('templatesOverlap', () => {
     expect(templatesOverlap([A], ['https://a.example/{z}/{x}/{y}.jpg'], CP)).toBe(false);
   });
 
-  // m2-t3 の申し送り M4（m2-t6）: 文字列の正規化では別の形でも、照合（compileTemplate）が同じなら重なる
+  // 文字列の正規化では別の形でも、照合（compileTemplate）が同じなら重なる
   it.each([
     ['既定ポート', 'https://a.example:443/{z}/{x}/{y}.png', 'https://a.example/{z}/{x}/{y}.png', 'https://a.example/3/1/2.png'],
     ['..', 'https://a.example/x/../{z}/{x}/{y}.png', 'https://a.example/{z}/{x}/{y}.png', 'https://a.example/3/1/2.png'],
@@ -274,7 +274,7 @@ describe('stripParams', () => {
   });
 });
 
-describe('entryKey（仕様 §5.3・R2）', () => {
+describe('entryKey', () => {
   const T = 'https://a.example/{z}/{x}/{y}{ratio}.png';
 
   it('tile の suffix は tileKeySuffix と同じ。資格情報を除いた残りのクエリを名前順に ? で続ける', () => {
@@ -320,7 +320,7 @@ describe('entryKey（仕様 §5.3・R2）', () => {
   });
 });
 
-describe('MatchTable（仕様 §4.2）', () => {
+describe('MatchTable', () => {
   const rule = (resourceId: string, template: string) => ({ resourceId, type: 'tile' as const, compiled: compileTemplate(template) });
 
   it('一致した規則の resourceId・type・m を返す。登録順で先のものが勝つ', () => {
@@ -369,15 +369,15 @@ describe('MatchTable（仕様 §4.2）', () => {
   });
 });
 
-describe('m2-t3 水準 1 の指摘', () => {
-  it('M3: entryKey は大文字・percent-encode した名前の資格情報も除く', () => {
+describe('資格情報の除去とクエリの照合', () => {
+  it('entryKey は大文字・percent-encode した名前の資格情報も除く', () => {
     const t = 'https://a.example/{z}/{x}/{y}.png';
     const url = new URL('https://a.example/3/1/2.png?ACCESS_TOKEN=x&Key=y&%61pi_key=z&SKU=s&v=1');
     const m = matchUrl(compileTemplate(t), url)!;
     expect(entryKey('R', 'tile', m, url, CP)).toBe('R\x003_1_2?v=1');
   });
 
-  it('M5: 固定値の項目が要求に 2 つ以上あれば照合しない（?v=1 のテンプレートに ?v=1&v=2）', () => {
+  it('固定値の項目が要求に 2 つ以上あれば照合しない（?v=1 のテンプレートに ?v=1&v=2）', () => {
     const c = compileTemplate('https://a.example/{z}/{x}/{y}.png?v=1');
     expect(matchUrl(c, new URL('https://a.example/1/0/0.png?v=1'))).not.toBeNull();
     expect(matchUrl(c, new URL('https://a.example/1/0/0.png?v=1&v=2'))).toBeNull();
@@ -385,25 +385,25 @@ describe('m2-t3 水準 1 の指摘', () => {
     expect(matchUrl(c, new URL('https://a.example/1/0/0.png?v=1&v=1'))).toBeNull();
   });
 
-  it('M5: テンプレート自身が同じ名前を 2 つ持つときは、同じ値の組だけを照合する', () => {
+  it('テンプレート自身が同じ名前を 2 つ持つときは、同じ値の組だけを照合する', () => {
     const c = compileTemplate('https://a.example/{z}/{x}/{y}.png?b=2&b=1');
     expect(matchUrl(c, new URL('https://a.example/1/0/0.png?b=1&b=2'))).not.toBeNull();
     expect(matchUrl(c, new URL('https://a.example/1/0/0.png?b=1'))).toBeNull();
     expect(matchUrl(c, new URL('https://a.example/1/0/0.png?b=1&b=2&b=3'))).toBeNull();
   });
 
-  it('M5: 座標の項目が要求に 2 つ以上あれば照合しない', () => {
+  it('座標の項目が要求に 2 つ以上あれば照合しない', () => {
     const c = compileTemplate('https://w.example/wmts?TileMatrix={z}&TileCol={x}&TileRow={y}');
     expect(matchUrl(c, new URL('https://w.example/wmts?TileMatrix=1&TileCol=0&TileRow=1'))).not.toBeNull();
     expect(matchUrl(c, new URL('https://w.example/wmts?TileMatrix=1&TileCol=0&TileCol=1&TileRow=1'))).toBeNull();
   });
 });
 
-describe('スプライトの内部の字句 {spriteSuffix}（m3-t6・R6・仕様 §5.3）', () => {
+describe('スプライトの内部の字句 {spriteSuffix}', () => {
   const BASE = 'https://a.example/styles/s/sprite';
   const TPL = spriteTemplateOf(BASE);
 
-  it('スプライトのテンプレートは base ＋ {spriteSuffix} ＋ クエリ（MapLibre の要求の形。F3）', () => {
+  it('スプライトのテンプレートは base ＋ {spriteSuffix} ＋ クエリ（MapLibre の要求の形）', () => {
     expect(TPL).toBe(`${BASE}{spriteSuffix}`);
     expect(spriteTemplateOf(`${BASE}?v=1&fresh=true`)).toBe(`${BASE}{spriteSuffix}?v=1&fresh=true`);
   });
@@ -452,7 +452,7 @@ describe('スプライトの内部の字句 {spriteSuffix}（m3-t6・R6・仕様
   });
 });
 
-describe('expandTemplate（m4-t3・R2）', () => {
+describe('expandTemplate', () => {
   it('タイルの字句（{z}/{x}/{-y}・{quadkey}・{prefix}・{ratio} の 2 値）を全部の出現で置き換える', () => {
     expect(expandTemplate('https://a.example/{z}/{x}/{-y}.png', { z: 3, x: 1, y: 2 })).toBe('https://a.example/3/1/5.png');
     expect(expandTemplate('https://a.example/{quadkey}?p={prefix}', { z: 2, x: 1, y: 3 })).toBe('https://a.example/23?p=13');
@@ -491,7 +491,7 @@ describe('expandTemplate（m4-t3・R2）', () => {
   });
 });
 
-describe('m4-t8 L7（R35）: isSecretValue を spec と url_pattern で共有する', () => {
+describe('isSecretValue を spec と url_pattern で共有する', () => {
   it('Bearer・Token・Basic と空白を剥がして sk. で始まる値（大文字小文字を問わない）', async () => {
     const { isSecretValue } = await import('../../src/url_pattern');
     for (const v of ['sk.abc', 'SK.abc', 'Bearer sk.eyJabc', 'bearer  sk.x', ' Token sk.x', 'Basic sk.x']) expect(isSecretValue(v)).toBe(true);

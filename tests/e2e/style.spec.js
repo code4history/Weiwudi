@@ -1,11 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { PAGE_HOST } from './fixtures/page-origin.mjs';
 
-// スタイルの芋づる登録と捕捉を実ブラウザで確かめる（m3-t9・仕様 §5.5・§10・§12）。MapLibre は依存に足さない（R15）。
+// スタイルの芋づる登録と捕捉を実ブラウザで確かめる。MapLibre は依存に足さない。
 // ページの blob Worker から、MapLibre 6.9.0 が出すのと同じ形の要求（スタイル → TileJSON → タイル・sprite@2x・
 // {fontstack}/{range}）を fetch で出す。上流は tile-server.mjs（localhost:5174。ページは localhost:5173 で別オリジン）、
 // api.mapbox.com は context.route で tile-server の /style/mapbox*.json などを返す。外部へは出ない（各テストの最後に数える）。
-// WebKit・Firefox でも走らせる（m3-t10・R14'）。Chromium だけで成り立つものは @chromium-only で外し、理由をその試験に書く
+// WebKit・Firefox でも走らせる。Chromium だけで成り立つものは @chromium-only で外し、理由をその試験に書く
 const UPSTREAM = 'http://localhost:5174';
 const PAGE = '/tests/e2e/fixtures/style-page.html';
 const PSEUDO = 'weiwudi.example.com';
@@ -29,9 +29,9 @@ const MAPBOX_SPRITE = 'https://api.mapbox.com/styles/v1/u/s/sprite';
 const MAPBOX_FONTS = 'https://api.mapbox.com/fonts/v1/u';
 const mapboxTile = (z, x, y) => `https://api.mapbox.com/v4/u.tileset/${z}/${x}/${y}.vector.pbf`;
 
-// 外へ出た要求を数える（C-O8）。localhost:5173・5174 は通す。api.mapbox.com は routeMapbox が先に受けるので
+// 外へ出た要求を数える。localhost:5173・5174 は通す。api.mapbox.com は routeMapbox が先に受けるので
 // ここには来ない（後に足した route が先に評価される）。疑似ホストは countPseudoHits が数える。
-// 数えるのは Chromium だけ: WebKit の context.route は SW が出した要求を拾わず（O-N5）、ページの要求を SW より
+// 数えるのは Chromium だけ: WebKit の context.route は SW が出した要求を拾わず、ページの要求を SW より
 // 先に受けうるので、数が意味を持たない。ほかのエンジンでは route を置かず、空の並びを返す（expectNoLeaks は素通り）
 async function guardNetwork(context) {
     const external = [];
@@ -43,7 +43,7 @@ async function guardNetwork(context) {
         return route.abort();
     });
     const pseudo = [];
-    // 疑似ホストへの要求のうち、ネットワークへ出たものだけ（SW が受けたものはここに来ない。m2 の countPseudoHits）
+    // 疑似ホストへの要求のうち、ネットワークへ出たものだけ（SW が受けたものはここに来ない。hook.spec.js の countPseudoHits と同じ）
     await context.route(`**://${PSEUDO}/**`, (route) => {
         pseudo.push(`${route.request().method()} ${new URL(route.request().url()).pathname}`);
         return route.abort();
@@ -51,7 +51,7 @@ async function guardNetwork(context) {
     return { external, pseudo };
 }
 
-// 各テストの最後に呼ぶ。どちらも 0 件（C-O8。Chromium でだけ数える。guardNetwork を参照）
+// 各テストの最後に呼ぶ。どちらも 0 件（Chromium でだけ数える。guardNetwork を参照）
 function expectNoLeaks(guard) {
     expect(guard.external).toEqual([]);
     expect(guard.pseudo).toEqual([]);
@@ -175,7 +175,7 @@ test.describe('Weiwudi style (kind: style)', () => {
         expectNoLeaks(guard);
     });
 
-    // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた（仕様 §2 の 7）
+    // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた。
     test('serves the style offline after registering twice', { tag: '@chromium-only' }, async ({ page, context }) => {
         const guard = await guardNetwork(context);
         await openPage(page);
@@ -211,7 +211,7 @@ test.describe('Weiwudi style (kind: style)', () => {
             expect(res.wstatus).toBe('miss');
             expect(res.text).toBe(`glyph:${FONTSTACK}:${range}`);
         }
-        // 1 fontstack は 1 つの Entry にまとまる（仕様 §11）
+        // 1 fontstack は 1 つの Entry にまとまる
         await expect.poll(async () => (await byResource(page))[rid]?.count).toBe(1);
         for (const range of ['256-511', '0-255']) {
             const res = await getTile(page, glyph(range));
@@ -221,14 +221,14 @@ test.describe('Weiwudi style (kind: style)', () => {
         expectNoLeaks(guard);
     });
 
-    // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた（仕様 §2 の 7）
+    // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた。
     test('keeps entries when the tilejson is unreachable on update', { tag: '@chromium-only' }, async ({ page, context }) => {
         const guard = await guardNetwork(context);
         await openPage(page);
         const src = await register(page, { kind: 'style', url: STYLE_URL });
         const tilejson = resourceOf(src, 'tilejson').id;
         expect((await getTile(page, vtTile(4, 3, 5))).wstatus).toBe('miss');
-        // 先に TileJSON の Resource を空にする（キャッシュがあると古い本体で通ってしまう。C-S5）
+        // 先に TileJSON の Resource を空にする（キャッシュがあると古い本体で通ってしまう）
         await page.evaluate((rid) => window.src.removeResource(rid), tilejson);
         expect((await byResource(page))[tilejson]?.count ?? 0).toBe(0);
         await context.setOffline(true);
@@ -247,7 +247,7 @@ test.describe('Weiwudi style (kind: style)', () => {
         expectNoLeaks(guard);
     });
 
-    // WebKit の context.route は SW の要求を拾わず、SW が本物の api.mapbox.com へ出てしまう（O-N5）
+    // WebKit の context.route は SW の要求を拾わず、SW が本物の api.mapbox.com へ出てしまう
     test('resolves mapbox urls without leaking the token', { tag: '@chromium-only' }, async ({ page, context }) => {
         const guard = await guardNetwork(context);
         const seen = await routeMapbox(context);
@@ -257,7 +257,7 @@ test.describe('Weiwudi style (kind: style)', () => {
         });
         expect(src.url).toBe(MAPBOX_STYLE);
         expect(JSON.stringify(src)).not.toContain(MAPBOX_TOKEN);
-        // 登録の戻り値（url・resources のテンプレート）に mapbox:// が残らない（t9 L1 i-1）
+        // 登録の戻り値（url・resources のテンプレート）に mapbox:// が残らない
         expect(JSON.stringify(src)).not.toContain('mapbox://');
         // MapLibre の Worker と同じ順: スタイル → ?secure の TileJSON → タイル・sprite@2x・{fontstack}/{range}
         const urls = [
@@ -324,7 +324,7 @@ test.describe('Weiwudi style (kind: style)', () => {
         expectNoLeaks(guard);
     });
 
-    // WebKit の context.route は SW の要求を拾わず、SW が本物の api.mapbox.com へ出てしまう（O-N5）
+    // WebKit の context.route は SW の要求を拾わず、SW が本物の api.mapbox.com へ出てしまう
     test('reports usage by provider', { tag: '@chromium-only' }, async ({ page, context }) => {
         const guard = await guardNetwork(context);
         await routeMapbox(context);
@@ -334,13 +334,13 @@ test.describe('Weiwudi style (kind: style)', () => {
         expect((await getTile(page, vtTile(1, 1, 1))).wstatus).toBe('miss');
         expect((await getTile(page, mapboxTile(1, 0, 0))).wstatus).toBe('miss');
         const report = await usage(page);
-        // 鍵は提供元（mapbox）か、最初のテンプレートの origin（C-O12）
+        // 鍵は提供元（mapbox）か、最初のテンプレートの origin
         expect(Object.keys(report.byProvider).sort()).toEqual(['http://localhost:5174', 'mapbox']);
         expect(report.byProvider['http://localhost:5174'].count).toBeGreaterThan(0);
         expect(report.byProvider.mapbox.count).toBeGreaterThan(0);
         const sum = Object.values(report.byProvider).reduce((a, p) => ({ count: a.count + p.count, bytes: a.bytes + p.bytes }), { count: 0, bytes: 0 });
         expect(sum).toEqual({ count: report.count, bytes: report.bytes });
-        // 制御の POST は、blob Worker・同じオリジンの iframe・srcdoc の iframe からも通る（I6・t8 の申し送り）
+        // 制御の POST は、blob Worker・同じオリジンの iframe・srcdoc の iframe からも通る
         const fromWorker = await page.evaluate(() => window.inWorker('async () => control("usage", {})', null));
         expect(fromWorker, 'from a blob worker').toEqual({ ok: true, value: { ok: true, result: report } });
         const fromIframe = await page.evaluate(() => window.inIframe('usage', {}));

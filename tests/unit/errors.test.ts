@@ -1,5 +1,5 @@
 // src/errors.ts のユニットテスト（#33）。
-// 旧 API の文面は 1 字も変えない（仕様 §9）。文面の固定の試験だけは文字列を直書きする。
+// 旧 API の文面は 1 字も変えない。文面の固定の試験だけは文字列を直書きする。
 import { describe, expect, it, vi } from 'vitest';
 import { WeiwudiError, legacyMessage, type LegacyErrorCode } from '../../src/errors';
 import type { WeiwudiErrorCode } from '../../src/errors';
@@ -344,7 +344,7 @@ describe('新 API の code（#33 レビュー）', () => {
   });
 });
 
-// ---- 第 3 回レビュー: Error.isError の有無・偽装・from が throw しないこと ----
+// ---- レビュー: Error.isError の有無・偽装・from が throw しないこと ----
 
 type IsError = (v: unknown) => boolean;
 const ORIGINAL_IS_ERROR = Object.getOwnPropertyDescriptor(Error, 'isError');
@@ -534,7 +534,7 @@ describe.each(PATHS)('%s', (_label, impl) => {
   });
 });
 
-describe('文字列にできない値（第 3 回レビュー）', () => {
+describe('文字列にできない値', () => {
   it('String が投げる値は [unprintable] になる', () => {
     const proxy = new Proxy({}, { get: () => undefined });
     expect(WeiwudiError.from(proxy).message).toBe('[unprintable]');
@@ -551,7 +551,7 @@ describe('Error.isError(DOMException) が false の環境（Firefox・WebKit の
   });
 });
 
-describe('照合の速さ: apiName・target（第 3 回レビュー）', () => {
+describe('照合の速さ: apiName・target', () => {
   it.each([
     ['api-not-found', 'apiName'],
     ['attribute-missing', 'target'],
@@ -567,7 +567,7 @@ describe('照合の速さ: apiName・target（第 3 回レビュー）', () => {
   });
 });
 
-describe('unsupported-kind（m2-t3・第 2 回 S-2）', () => {
+describe('unsupported-kind', () => {
   it('WeiwudiErrorCode にあり、new WeiwudiError で作れる', () => {
     const code: WeiwudiErrorCode = 'unsupported-kind';
     expect(new WeiwudiError(code, 'x').code).toBe('unsupported-kind');
@@ -580,7 +580,7 @@ describe('unsupported-kind（m2-t3・第 2 回 S-2）', () => {
   });
 });
 
-describe('未知の code を保つ（m3-t8・I4・R24）', () => {
+describe('未知の code を保つ', () => {
   it('印のある WeiwudiError は、未知の code でも /^[a-z][a-z0-9-]*$/ に合えばそのまま返す（別のコピーも）', async () => {
     const e = new WeiwudiError('future-code' as WeiwudiErrorCode, 'x', { a: 1 });
     expect(WeiwudiError.from(e)).toBe(e);

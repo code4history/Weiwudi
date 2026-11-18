@@ -1,4 +1,4 @@
-// 配布の d.ts が、入口から相対で辿れる先をすべて持つことを確かめる（m2-t4・第 1 回 S12・第 2 回 D3）。
+// 配布の d.ts が、入口から相対で辿れる先をすべて持つことを確かめる。
 // 使い方: node tests/dts/check-dts.mjs dist/weiwudi_gw.d.ts（build の後に走らせる。vitest は拾わない）
 //
 // 辿るもの: `import … from '…'`・`export … from '…'`・`import '…'`・`import('…')`・

@@ -1,6 +1,6 @@
-// src/ の値の依存が、仕様 §3 の表の許可先だけであることを確かめる（m2-t1・第 1 回 O-2）。
-// 正本は docs/superpowers/specs/2026-11-02-new-interface-spec.md §3 の表。ここはその全行を写したデータ。
-// 後のタスクはこのファイルを触らない（表の全行を t1 で持つ。m2-t1・m3-t1）。
+// src/ の値の依存が、依存の決まりの表の許可先だけであることを確かめる。
+// 正本は依存の決まりの表。ここはその全行を写したデータ。
+// 後の作業はこのファイルを触らない（表の全行をここで持つ）。
 //
 // 数えるもの: `import … from`・`export … from`・`import '…'`（複数行も）・動的な `import('…')`。
 // 数えないもの: `import type`・`export type`・型だけの指定子（`import { type A }`）だけの import・相対でない行き先。
@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 
 const SRC = fileURLToPath(new URL('../../src', import.meta.url));
 
-// 表の 1 行 = 1 モジュール。providers/ の下の全ファイルが providers の行（m3-t1 で plugins と行を分けた）。
+// 表の 1 行 = 1 モジュール。providers/ の下の全ファイルが providers の行（plugins は別行）。
 // constants は全ファイルが import してよい（表の注。constants 自身は何も import しない）
 const ABOVE_ALL = [
   'constants', 'tile_math', 'errors', 'user_agent', 'url_pattern', 'spec', 'style_body', 'plugins', 'providers', 'store', 'context',
@@ -36,10 +36,10 @@ const DEPS_TABLE: Record<string, readonly string[]> = {
   core: ['context', 'store', 'plugins', 'url_pattern', 'tile_math', 'constants', 'errors'],
   hook: ['core', 'upstream', 'context', 'store', 'url_pattern', 'style_body', 'constants', 'errors'],
   style: ['hook', 'core', 'registry', 'spec', 'style_body', 'url_pattern', 'context', 'store', 'constants', 'errors'],
-  // m4 で range を足す（m4-t1。range.ts は t3 で作る）
+  // range は後から足した
   range: ['hook', 'core', 'upstream', 'registry', 'context', 'store', 'spec', 'url_pattern', 'tile_math', 'style_body', 'constants', 'errors'],
   control: ['hook', 'core', 'registry', 'spec', 'style', 'range', 'context', 'store', 'tile_math', 'user_agent', 'constants', 'errors'],
-  // m4 で migrate を足す（表の「（m4 で migrate）」）
+  // migrate は後から足した
   legacy: ['core', 'context', 'store', 'tile_math', 'constants', 'errors', 'migrate'],
   migrate: ['store', 'constants', 'errors'],
   // 「上の全部」
@@ -134,7 +134,7 @@ describe('依存の読み取り（自己確認）', () => {
   });
 });
 
-describe('仕様 §3 の依存の表', () => {
+describe('依存の決まりの表', () => {
   const files = listSources();
 
   it('src/ のファイルはすべて表にある', () => {

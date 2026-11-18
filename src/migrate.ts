@@ -1,6 +1,6 @@
-// 旧 DB（1.1.x の Weiwudi・Weiwudi_<mapID>）からの移行（仕様 §14.2・m4-t7・R17〜R19・R50・R51・R59・R60）。
+// 旧 DB（1.1.x の Weiwudi・Weiwudi_<mapID>）からの移行。
 // 旧 DB を触るのはこのファイルだけ（legacy.ts は IndexedDB を直接触らない）。値の依存は store・constants・errors だけ
-// （仕様 §3。legacy・core は import できない。F27）。地図の登録と退避の範囲は MigrateDeps で受ける（R50）。
+// （legacy・core は import できない）。地図の登録と退避の範囲は MigrateDeps で受ける。
 //
 // 1.1.x の形:
 // - Weiwudi.mapSetting（keyPath: mapID）: /api/add の MapSetting
@@ -53,7 +53,7 @@ const BATCH = 200;
 /** この数のバッチの開始の失敗で failed */
 const MAX_BATCH_FAILURES = 3;
 /**
- * deleteDatabase の success・blocked を待つ上限（R51）。超えたら blocked と同じ扱い（blockedDeletes に入れ、呼び出し側が
+ * deleteDatabase の success・blocked を待つ上限。超えたら blocked と同じ扱い（blockedDeletes に入れ、呼び出し側が
  * pendingDelete に足す）。前の削除・開く要求の後ろに並んだ要求は blocked も来ず返らないので、旧 API の clean・delete
  * （進行中の migrateStep を待つ）が止まらないように切る。値は門番が読み込みを待つ上限（hook.GATE_WAIT_MS）とそろえる
  */
@@ -63,7 +63,7 @@ const STATUSES: readonly MigrationMapStatus[] = ['pending', 'copying', 'done', '
 
 const mapDbName = (mapID: string): string => `${MAP_DB_PREFIX}${mapID}`;
 const resourceIdOf = (mapID: string): string => `${LEGACY_PREFIX}${mapID}`;
-/** 新 DB の Entry のキー（legacy.keyOf と同じ形。旧キー z_x_y は新 DB のタイルのキーの suffix と同じ形なので、そのまま使う。仕様 §5.3） */
+/** 新 DB の Entry のキー（legacy.keyOf と同じ形。旧キー z_x_y は新 DB のタイルのキーの suffix と同じ形なので、そのまま使う） */
 const entryKeyOf = (mapID: string, oldKey: string): string => `${resourceIdOf(mapID)}\0${oldKey}`;
 const isLegacyDbName = (name: string): boolean => name === SETTINGS_DB || name.startsWith(MAP_DB_PREFIX);
 const isActive = (m: MigrationMap): boolean => m.status === 'pending' || m.status === 'copying';
@@ -149,7 +149,7 @@ const remember = (ctx: Context, s: MigrationState): void => {
 
 // ---- 旧 DB ----
 
-/** 旧 DB の名前の一覧。indexedDB.databases() が無い環境（古い Firefox）では undefined（R17） */
+/** 旧 DB の名前の一覧。indexedDB.databases() が無い環境（古い Firefox）では undefined */
 const listLegacyDbs = async (): Promise<string[] | undefined> => {
   if (typeof indexedDB.databases !== 'function') return undefined;
   try {
@@ -203,7 +203,7 @@ const deleteLegacyDb = (ctx: Context, name: string): Promise<'deleted' | 'blocke
   });
 
 /**
- * 旧 DB を版なしで開く。無かった（自分で作った）ら閉じて消し、undefined を返す（R17）。
+ * 旧 DB を版なしで開く。無かった（自分で作った）ら閉じて消し、undefined を返す。
  * 削除が待ちになっている名前は開かない（削除の後ろに並んで止まる）
  */
 const openExisting = (ctx: Context, name: string): Promise<IDBDatabase | undefined> => {
@@ -344,7 +344,7 @@ const convert = async (mapID: string, oldKey: string, value: unknown): Promise<{
 
 const copySettings = async (ctx: Context, deps: MigrateDeps): Promise<void> => {
   const store = await ctx.store();
-  // 起動後の点検（R59。やり直すかの判定だけ）を先に済ませる。旧 API の最初の要求は契機（runMaintenance）より先に
+  // 起動後の点検（やり直すかの判定だけ）を先に済ませる。旧 API の最初の要求は契機（runMaintenance）より先に
   // ここへ来るので、done のまま読むと現れた旧 DB の mapSetting を見ずに migrated にしてしまう
   await ensureBooted(ctx, store);
   const prev = await readState(store);
@@ -353,9 +353,9 @@ const copySettings = async (ctx: Context, deps: MigrateDeps): Promise<void> => {
     return;
   }
   const names = await listLegacyDbs();
-  // pendingDelete の名前（消し終えた後の残り）は開かず、消し直し（retryPendingDeletes）に任せる。やり直し（R59）では
+  // pendingDelete の名前（消し終えた後の残り）は開かず、消し直し（retryPendingDeletes）に任せる。やり直しでは
   // 前の SW の削除が裏で並んだままのことがあり、開く・消すとその後ろに並んで旧 API の最初の要求が止まる。
-  // 既知の制約（R59）: 1.1.x に戻している間にその名前が作り直されていても読まない（新しい地図の設定・増えたタイルは
+  // 既知の制約: 1.1.x に戻している間にその名前が作り直されていても読まない（新しい地図の設定・増えたタイルは
   // 移らず、旧 DB は消し直しで消える）
   const pending = (name: string) => prev.pendingDelete.indexOf(name) >= 0;
   let settings: unknown[] = [];
@@ -380,30 +380,30 @@ const copySettings = async (ctx: Context, deps: MigrateDeps): Promise<void> => {
     const s = raw as MapSetting | undefined;
     if (!s || typeof s.mapID !== 'string' || ids.indexOf(s.mapID) >= 0) continue;
     ids.push(s.mapID);
-    // NUL を含む mapID は add が拒否する名前なので登録しない（failed にして旧 DB に残す。R19）
+    // NUL を含む mapID は add が拒否する名前なので登録しない（failed にして旧 DB に残す）
     if (s.mapID.indexOf('\0') >= 0) continue;
     // 既に sources にあれば触らない（新しい版で先に add した地図を上書きしない）
     if (!(await store.getSource(resourceIdOf(s.mapID)))) await deps.registerMap(store, s, t);
   }
 
-  // やり直し（R59）でも failed の地図は failed のまま残す（その地図だけ読み通しを続ける）
+  // やり直しでも failed の地図は failed のまま残す（その地図だけ読み通しを続ける）
   const failed = prev.maps.filter((x) => x.status === 'failed');
   const maps: MigrationMap[] = ids.map((mapID) => {
     const kept = failed.find((x) => x.mapID === mapID);
     if (kept) return kept;
     let status: MigrationMapStatus = 'pending';
     if (mapID.indexOf('\0') >= 0) status = 'failed';
-    // pendingDelete の Weiwudi_<mapID> は、1.1.x の間に増えたタイルがあっても移さない（既知の制約。R59）
+    // pendingDelete の Weiwudi_<mapID> は、1.1.x の間に増えたタイルがあっても移さない（既知の制約）
     else if (isForgotten(ctx, mapID) || pending(mapDbName(mapID)) || (names && names.indexOf(mapDbName(mapID)) < 0)) status = 'done';
     return { mapID, status, recordFailures: 0, batchFailures: 0 };
   });
   for (const f of failed) if (ids.indexOf(f.mapID) < 0) maps.push(f);
 
   // mapSetting に無い Weiwudi_<mapID> のうち、sources に地図があるもの（移行の後に Weiwudi_<mapID> だけが残った・
-  // 作り直された）は移す。sources にも無いもの（孤児）は配信できないのでその場で消す（PR #103 L2）
+  // 作り直された）は移す。sources にも無いもの（孤児）は配信できないのでその場で消す（PR #103）
   const blocked: string[] = [];
   for (const name of names ?? []) {
-    // pendingDelete の名前は作り直されていても移さない（既知の制約。R59）
+    // pendingDelete の名前は作り直されていても移さない（既知の制約）
     if (name === SETTINGS_DB || pending(name)) continue;
     const mapID = name.slice(MAP_DB_PREFIX.length);
     if (maps.some((x) => x.mapID === mapID)) continue;
@@ -415,7 +415,7 @@ const copySettings = async (ctx: Context, deps: MigrateDeps): Promise<void> => {
   }
 
   // 旧 DB が 1 つも無ければ（新しく入れた利用者）、kv に書かずにメモリだけで完了する（消すものが無い。次の SW も
-  // databases() を 1 回見るだけ。R-t7-3）
+  // databases() を 1 回見るだけ）
   if (!hadSettingsDb && maps.length === 0 && blocked.length === 0 && prev.pendingDelete.length === 0) {
     remember(ctx, { ...prev, stage: 'done' });
     return;
@@ -525,7 +525,7 @@ const copyBatch = async (
     await patchMap(ctx, store, mapID, (e) => { e.status = 'failed'; });
     return { done: true, read: 0 };
   }
-  // Resource の無い書き込みは捨てられる（F29）。バッチを止め、旧レコードは残す（第 2 回 L2）
+  // Resource の無い書き込みは捨てられる。バッチを止め、旧レコードは残す
   const resource = await store.getResource(resourceId);
   if (!resource) {
     await batchFailed(ctx, store, mapID);
@@ -568,14 +568,14 @@ const copyBatch = async (
         failures++;
         continue;
       }
-      // 変換を待つ間に clean・delete が来たら書かない（第 2 回 M2）
+      // 変換を待つ間に clean・delete が来たら書かない
       if (isForgotten(ctx, mapID)) return { done: false };
       let saved: boolean;
       try {
         ({ saved } = await store.putEntry(entry.meta, entry.body, evict));
       } catch (e) {
         // 書き込みの例外（QuotaExceededError など）はバッチの失敗: そこで止め、lastKey を進めず旧レコードを残す
-        // （レコードの失敗として飛ばすと、読み尽くしたときに旧 DB ごと消えて移っていないタイルを失う。PR #103 M1）
+        // （レコードの失敗として飛ばすと、読み尽くしたときに旧 DB ごと消えて移っていないタイルを失う。PR #103）
         console.error(e);
         putFailed = true;
         break;
@@ -601,7 +601,7 @@ const copyBatch = async (
       await mapDone(ctx, store, mapID, lastKey, failures);
       return { done: true, read: records.length };
     }
-    // 成功したバッチで batchFailures を 0 に戻す（failed は連続 3 回。PR #103 L1）
+    // 成功したバッチで batchFailures を 0 に戻す（failed は連続 3 回。PR #103）
     await patchMap(ctx, store, mapID, (e) => {
       e.status = 'copying';
       if (lastKey !== undefined) e.lastKey = lastKey;
@@ -625,7 +625,7 @@ const finish = async (ctx: Context, store: Store): Promise<void> => {
 };
 
 /**
- * 起動後の点検（R59）: stage が done でも、旧 DB（pendingDelete と failed の地図のものを除く）があれば移行をやり直す
+ * 起動後の点検: stage が done でも、旧 DB（pendingDelete と failed の地図のものを除く）があれば移行をやり直す
  * （1.1.x に戻している間に作り直された旧 DB）。旧 DB を消さないので、旧 API の要求が待っても止まらない
  */
 const boot = async (ctx: Context, store: Store): Promise<void> => {
@@ -658,7 +658,7 @@ const ensureBooted = (ctx: Context, store: Store): Promise<void> => {
 };
 
 /**
- * pendingDelete の消し直し（R51）。起動後の最初の契機（waitUntil）だけが行う。同じ名前の削除が待ちのままだと
+ * pendingDelete の消し直し。起動後の最初の契機（waitUntil）だけが行う。同じ名前の削除が待ちのままだと
  * deleteDatabase が返らないことがあるので、旧 API の要求には待たせない。返らない削除は DELETE_WAIT_MS で切って
  * pendingDelete に残す（次の起動で消し直す）。名前ごとの削除は並べて出す（待つのは上限 1 回ぶん）
  */
@@ -708,7 +708,7 @@ const stepOnce = async (ctx: Context, deps: MigrateDeps): Promise<void> => {
 };
 
 /**
- * 移行の契機（runMaintenance の中。仕様 §14.2）。第 1 段が終わっていなければ第 1 段、終わっていれば 1 バッチ（200 件）
+ * 移行の契機（runMaintenance の中）。第 1 段が終わっていなければ第 1 段、終わっていれば 1 バッチ（200 件）
  * だけ進める。進行中の Promise は 1 つ（ctx.maintenance.migrating。同時の契機で 2 バッチ走らせない）
  */
 export function migrateStep(ctx: Context, deps: MigrateDeps): Promise<void> {
@@ -721,7 +721,7 @@ export function migrateStep(ctx: Context, deps: MigrateDeps): Promise<void> {
   return p;
 }
 
-// ---- 読み通し（R18） ----
+// ---- 読み通し ----
 
 const pullOnce = async (ctx: Context, deps: MigrateDeps, mapID: string, oldKey: string): Promise<void> => {
   const store = await ctx.store();
@@ -773,7 +773,7 @@ export async function pullTile(ctx: Context, deps: MigrateDeps, mapID: string, z
   }
 }
 
-// ---- 旧 API の clean・delete（第 1 回 M6・第 2 回 M2） ----
+// ---- 旧 API の clean・delete ----
 
 /**
  * 旧 API の clean（remove: false）・delete（remove: true）の前に呼ぶ。(1) 忘れた地図に入れて kv を done にする

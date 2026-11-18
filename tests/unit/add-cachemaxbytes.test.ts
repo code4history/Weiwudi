@@ -1,6 +1,6 @@
-// add API の cacheMaxBytes の検査（Weiwudi#44・nov26-m1-t8）。
+// add API の cacheMaxBytes の検査（Weiwudi#44）。
 // xyz でも wmts と同じく、無効な cacheMaxBytes はエラーになり設定を保存しない（#29 の契約）。
-// Service Worker の環境は t6 の tests/unit/sw-harness.ts で差し替える（harness は変えない）。
+// Service Worker の環境は tests/unit/sw-harness.ts で差し替える（harness は変えない）。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSwHarness, tileResponse } from './sw-harness';
 
@@ -66,13 +66,13 @@ describe('#44 add の無効な cacheMaxBytes（xyz・wmts）', () => {
   });
 });
 
-// t6 の実装レビューの申し送り（MIN-1・M31）。cacheMaxBytes が効く保存の側の検出力の穴を埋める
+// cacheMaxBytes が効く保存の側の検出力の穴を埋める
 const T0 = 1_760_000_000_000;
 // 512 では maxZoom=1 になり z=2 が範囲外になる ∴ 1024（maxZoom=2）で登録する
 const addLruMap = (extra: string) =>
   `/api/add?mapID=m&type=xyz&url=${TEMPLATE}&width=1024&height=1024${extra}`;
 
-describe('#44 申し送り: cacheMaxBytes の LRU（t6 実装レビュー MIN-1・M31）', () => {
+describe('#44 申し送り: cacheMaxBytes の LRU', () => {
   it('古く取得したが最近読んだタイルは残り、読まれていないタイルが消える（hit で accessedAt を更新）', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     const h = createSwHarness();

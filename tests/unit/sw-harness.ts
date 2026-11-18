@@ -1,4 +1,4 @@
-// Service Worker の環境を Node の上で差し替えて Weiwudi_Internal を呼ぶ補助（Weiwudi#43・m2-t1）。
+// Service Worker の環境を Node の上で差し替えて Weiwudi_Internal を呼ぶ補助（Weiwudi#43）。
 // *.test.ts ではないので vitest は収集しない。
 //
 // - self: addEventListener（登録を記録）・skipWaiting・clients（claim・get）・location を持つ偽物
@@ -15,7 +15,7 @@ import { vi, type Mock } from 'vitest';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { Weiwudi_Internal } from '../../src/weiwudi_gw_logic';
 
-// 差し込み口の登録表（t4 で入る src/plugins.ts）。無いあいだは何もしない。
+// 差し込み口の登録表（src/plugins.ts）。無いあいだは何もしない。
 // 行き先を変数にして、ファイルが無いときに型検査とバンドラの解決で落ちないようにする
 const PLUGINS_MODULE = '../../src/plugins';
 // 握るのは「plugins そのものが見つからない」ときだけ。plugins.ts の中の例外（構文・初期化の誤り、
@@ -38,7 +38,7 @@ export const SW_ORIGIN = 'https://weiwudi.example.com';
 /** SW 自身のオリジン（Workbox の RegExpRoute が「同じオリジンか」を見るのに使う） */
 export const SW_SELF_ORIGIN = 'http://localhost:5173';
 /**
- * 制御の POST を出すページの client の id（m3-t8・I6）。self.clients.get はこの id に SW と同じオリジンの
+ * 制御の POST を出すページの client の id。self.clients.get はこの id に SW と同じオリジンの
  * WindowClient の偽物を返す（ほかの id は既定で undefined のまま。旧 API の試験の clientId 'client-1' は変わらない）
  */
 export const PAGE_CLIENT_ID = 'weiwudi-page';
@@ -95,7 +95,7 @@ export interface SwHarness {
   dispatch: (request: Request | string, opts?: { event?: unknown; client?: unknown }) => Promise<Response | undefined>;
   /**
    * text/plain;charset=UTF-8 の POST を dispatch する（本文が文字列でなければ JSON にする）。送り手は既定で PAGE_CLIENT。
-   * opts.client を渡すと、その client から送ったものにする（null は clients.get で見つからない client。m3-t8・I6）
+   * opts.client を渡すと、その client から送ったものにする（null は clients.get で見つからない client）
    */
   post: (path: string, body: unknown, opts?: { client?: unknown }) => Promise<Response | undefined>;
   /** self.addEventListener で登録されたハンドラ（種別ごと） */
@@ -244,7 +244,7 @@ const normalizeParams = (result: unknown): unknown => {
 };
 
 export const createSwHarness = (opts: { factory?: IDBFactory } = {}): SwHarness => {
-  // 差し込み口の登録表はモジュール変数なので、試験ごとに空にする（t4 から）
+  // 差し込み口の登録表はモジュール変数なので、試験ごとに空にする
   pluginsModule?._resetPluginsForTest?.();
 
   const factory = opts.factory ?? new IDBFactory();
@@ -380,7 +380,7 @@ export const tileResponse = (bytes: number, contentType = 'image/png', fill = 1)
     headers: { 'content-type': contentType },
   });
 
-/** opaque な応答（no-cors の別オリジン）を真似る。type・status・ok を上書きした Response（R10） */
+/** opaque な応答（no-cors の別オリジン）を真似る。type・status・ok を上書きした Response */
 export const opaqueResponse = (): Response => {
   const res = new Response(null, { status: 200 });
   Object.defineProperty(res, 'type', { value: 'opaque' });

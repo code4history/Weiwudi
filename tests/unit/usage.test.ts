@@ -1,4 +1,4 @@
-// Weiwudi.usage() の SW 側（POST /v2/usage。m3-t8・R19・#38・仕様 §12）。ハーネスの SW の制御と照合ルートで確かめる。
+// Weiwudi.usage() の SW 側（POST /v2/usage。#38）。ハーネスの SW の制御と照合ルートで確かめる。
 // 実ネットワーク・実トークンは使わない（標準の mapbox の提供元は偽の fetch で答える）。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSwHarness, SW_SELF_ORIGIN, type SwHarness } from './sw-harness';
@@ -42,7 +42,7 @@ const policy: ResourceMeta['policy'] = {
   cacheTtl: 60_000, store: true, outOfRange: { extent: 'not-found', zoom: 'not-found' }, credentialParams: [],
 };
 
-describe('usage（R19・#38）', () => {
+describe('usage（#38）', () => {
   it('Resource が無ければ 0 と空の byProvider', async () => {
     const h = harness();
     expect(await ok(h, 'usage')).toEqual({ count: 0, bytes: 0, byProvider: {} });

@@ -1,4 +1,4 @@
-// kind: 'asset'（m3-t7・仕様 §5.1・§5.6・§12・R8・P1・R9）。子を持たない 1 つの Source（type: 'data'）。ハーネスの SW の制御と照合ルートで確かめる。
+// kind: 'asset'。子を持たない 1 つの Source（type: 'data'）。ハーネスの SW の制御と照合ルートで確かめる。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSwHarness, type SwHarness } from './sw-harness';
 import { openStore, type SourceRecord } from '../../src/store';
@@ -46,7 +46,7 @@ describe('asset', () => {
     expect(h.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('URL 配列はミラー（R8）: 2 つのミラーが 1 つの Resource の同じ Entry', async () => {
+  it('URL 配列はミラー: 2 つのミラーが 1 つの Resource の同じ Entry', async () => {
     const h = setup();
     const info = await ok(h, 'register', { kind: 'asset', id: 'pts', url: [A, B] });
     expect(info.url).toEqual([A, B]);
@@ -67,10 +67,10 @@ describe('asset', () => {
     expect((await ok(h, 'stats', { id: 'pts' })).total).toBeUndefined();
   });
 
-  it('P1: tile の Resource と衝突しても、その Resource の範囲は変わらない（rangeOnly にも入らない）', async () => {
+  it('tile の Resource と衝突しても、その Resource の範囲は変わらない（rangeOnly にも入らない）', async () => {
     const h = setup();
     const store = await openStore();
-    // tile の Resource が同じ URL の形を持つ（m2 で作られうる形を直接置く）
+    // tile の Resource が同じ URL の形を持つ（旧い版が作りうる形を直接置く）
     const tile = normalizeSpec({ kind: 'raster', id: 't', url: 'https://a.example/{z}/{x}/{y}.png', minZoom: 3, maxZoom: 5 }) as NormalizedSpec;
     const rec: SourceRecord = { id: 't', kind: 'raster', spec: tile.spec, order: 1, warnings: [], createdAt: 0 };
     await store.putSource(rec);

@@ -1,4 +1,4 @@
-// SW 側の src/ にモジュール変数（可変の状態）を置かないことを確かめる（m2-t1・第 1 回 S1・第 2 回 O7）。
+// SW 側の src/ にモジュール変数（可変の状態）を置かないことを確かめる。
 // 可変の状態は Weiwudi_Internal の呼び出しごとの実行文脈（context.ts）に置く。これで 1 試験 1 SW になる。
 //
 // 見るもの（ファイルの最上位の宣言だけ）:
@@ -11,7 +11,7 @@
 // 見ないもの:
 // - plugins.ts（差し込み口の登録表だけはモジュール変数に置く。試験用の _resetPluginsForTest つき）
 // - ページ側の weiwudi.ts（1 つのページの 1 つの module 実例が 1 つの利用者で、SW のように 1 プロセスに
-//   複数の実行文脈が同居しない。swCheck の記憶と t8 の ensureV2() の記憶はここに置く。第 3 回 S-A）
+//   複数の実行文脈が同居しない。swCheck の記憶と ensureV2() の記憶はここに置く）
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -162,7 +162,7 @@ describe('SW 側の src/ にモジュール変数が無い', () => {
     expect(found).toEqual([]);
   });
 
-  it('errors.ts の正規表現（PLACEHOLDER の /…/g）と LEGACY_TABLE.map(...) の MATCHERS は検査に掛からない（第 4 回 O-4 の実測）', () => {
+  it('errors.ts の正規表現（PLACEHOLDER の /…/g）と LEGACY_TABLE.map(...) の MATCHERS は検査に掛からない（実測）', () => {
     const found = findModuleState(readFileSync(join(SRC, 'errors.ts'), 'utf8'), 'errors.ts').map((f) => f.name);
     expect(found).not.toContain('PLACEHOLDER');
     expect(found).not.toContain('MATCHERS');

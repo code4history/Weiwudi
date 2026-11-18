@@ -305,7 +305,7 @@ describe('SW の配信（新 API）', () => {
     const h = harness();
     await registerBoth();
     await h.flushRoutes();
-    // §4.5: 匿名の no-cors はまず cors に組み替えて取る。組み替えた要求は cors なので付く（失敗すれば付けずに 1 回取り直す）。
+    // 匿名の no-cors はまず cors に組み替えて取る。組み替えた要求は cors なので付く（失敗すれば付けずに 1 回取り直す）。
     // 元の形（no-cors）での取り直しには付けない
     h.fetch.mockImplementationOnce(async () => { throw new TypeError('cors failed'); });
     h.fetch.mockImplementationOnce(async () => { throw new TypeError('cors failed'); });

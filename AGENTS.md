@@ -36,7 +36,7 @@ Unit tests use Vitest (`pnpm run test:unit`); specs live in `tests/unit/` and ex
 
 ## Commit & Pull Request Guidelines
 
-Recent `git log` shows a mix of subject-only commits, `docs:`-prefixed messages, and task-ID-prefixed messages (e.g. `m15-t1:`, `m14-t2:`, `c2-m4-t3:`) tied to this project's internal task tracking, plus issue-referencing subjects (`#2, #22`). Keep commits scoped to one concern; when a message is not part of a tracked task, prefer a Conventional Commits prefix and reference issue numbers when relevant. Pull requests should describe the cache behavior affected and confirm lint, typecheck, and the Playwright suite pass locally before requesting review.
+Recent `git log` shows a mix of subject-only commits, `docs:`-prefixed messages, and messages prefixed with internal task identifiers, plus issue-referencing subjects (`#2, #22`). Keep commits scoped to one concern; when a message is not part of a tracked task, prefer a Conventional Commits prefix and reference issue numbers when relevant. Pull requests should describe the cache behavior affected and confirm lint, typecheck, and the Playwright suite pass locally before requesting review.
 
 ## Release & Configuration Tips
 

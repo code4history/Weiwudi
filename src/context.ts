@@ -1,6 +1,6 @@
-// 実行中の状態の入れ物（仕様 §3・計画「実行中の状態」・第 1 回 S1）。Weiwudi_Internal の呼び出しごとに 1 つ作る。
+// 実行中の状態の入れ物。Weiwudi_Internal の呼び出しごとに 1 つ作る。
 // モジュール変数を置かないので、1 試験 1 SW（同じプロセスに複数の SW の実行文脈が同居しても混ざらない）。
-// 値の依存は store・user_agent・errors だけ（仕様 §3）。照合表と連続数は t7、ジョブは t5 で足した。
+// 値の依存は store・user_agent・errors だけ。
 // 上流への取得（upstreamFetch）もここに置く。upstream・legacy・hook が同じ 1 つの関数を通す（User-Agent）
 import { KV_USER_AGENT, openStore, type ResourceMeta, type ResourceType, type SourceRecord, type Store } from './store';
 import { composeUserAgent, shouldAttachUserAgent, withUserAgent } from './user_agent';
@@ -8,7 +8,7 @@ import type { TileFailure } from './errors';
 import type { MatchTable } from './url_pattern';
 import type { WeiwudiProvider } from './plugins';
 
-/** 動いているジョブ（1 度に 1 つ。現行の fetchAllBlocker。仕様 §7.2） */
+/** 動いているジョブ（1 度に 1 つ。現行の fetchAllBlocker） */
 export interface JobState {
   /** ジョブの Source の id（旧 API は map:<mapID>） */
   sourceId: string;
@@ -22,11 +22,11 @@ export interface JobState {
   /** 失敗の種類ごとの数（#33） */
   failures: Record<TileFailure, number>;
   cancel: boolean;
-  /** 範囲取得のジョブの region（m4-t3・R23。旧 API の fetchAll は持たない） */
+  /** 範囲取得のジョブの region（旧 API の fetchAll は持たない） */
   regionId?: string;
 }
 
-/** opaque イベントの知らせ（m4-t3・R20。upstream と範囲取得が呼び、配線が range.createNotifier を入れる） */
+/** opaque イベントの知らせ（upstream と範囲取得が呼び、配線が range.createNotifier を入れる） */
 export interface OpaqueNotice {
   type: 'opaque';
   resourceId: string;
@@ -34,22 +34,22 @@ export interface OpaqueNotice {
 }
 
 /**
- * 資格情報を使う Source を選ぶ（registry.credentialSourceFor。hook は registry を import できないので配線が渡す。仕様 §3）
+ * 資格情報を使う Source を選ぶ（registry.credentialSourceFor。hook は registry を import できないので配線が渡す）
  */
 export type CredentialSourcePicker = (
   resource: ResourceMeta, sources: readonly SourceRecord[], withCredentials: readonly string[],
 ) => string | undefined;
 
-/** 読み込んだ照合表（仕様 §4.2・§4.3。hook.ts が作る） */
+/** 読み込んだ照合表（hook.ts が作る） */
 export interface LoadedTable {
   table: MatchTable;
-  /** Resource の id → 要求のオリジン → 資格情報を足す Source の id（足さないものは入れない。I2） */
+  /** Resource の id → 要求のオリジン → 資格情報を足す Source の id（足さないものは入れない） */
   credentialSources: Map<string, Map<string, string>>;
   /** 照合表の作成時に見つけた注意（"<code>: <Resource.id>"） */
   warnings: string[];
 }
 
-/** 照合表の状態（仕様 §4.3 の読み込み・失敗と停止） */
+/** 照合表の状態（読み込み・失敗と停止） */
 export interface TableState {
   /** 読み込み済みの表。これがあれば loaded */
   current?: LoadedTable;
@@ -65,7 +65,7 @@ export interface TableState {
   pickCredentialSource?: CredentialSourcePicker;
   /** BroadcastChannel('weiwudi')。無い環境では undefined */
   channel?: BroadcastChannel;
-  /** 表の更新の通知をまとめるタイマ（hook.tableChanged。m4-t8・I8b・R34） */
+  /** 表の更新の通知をまとめるタイマ（hook.tableChanged） */
   notifyTimer?: ReturnType<typeof setTimeout>;
 }
 
@@ -74,24 +74,24 @@ export interface Context {
   store(): Promise<Store>;
   /** 同じキーの同時要求を 1 本にまとめる（core.serve が使う） */
   inflight: Map<string, Promise<Response>>;
-  /** store を使う要求が起こす保守。配線が waitUntil と結び付ける（m4-t2・R9） */
+  /** store を使う要求が起こす保守。配線が waitUntil と結び付ける */
   maintain?: (event: ExtendableEvent) => void;
-  /** SW の生存期間だけ持つ保守の状態。migrated は m4-t7 が使う */
+  /** SW の生存期間だけ持つ保守の状態。migrated は migrate.ts が使う */
   maintenance: {
     swept: boolean;
     running?: Promise<void>;
     migrated?: boolean;
-    /** 旧 DB の移行（m4-t7・仕様 §14.2）: 第 1 段（mapSetting の写し）の進行中の Promise。旧 API のハンドラが待つ */
+    /** 旧 DB の移行: 第 1 段（mapSetting の写し）の進行中の Promise。旧 API のハンドラが待つ */
     settings?: Promise<void>;
     /** 第 1 段が済んだ（kv の stage が tiles か done） */
     settingsDone?: boolean;
     /** 進行中の migrateStep（同時の契機で 2 バッチ走らせない。clean・delete が待つ） */
     migrating?: Promise<void>;
-    /** 起動後の点検（やり直すかの判定。R59）が済んだ。起動後の最初の契機か、旧 API の最初の要求（ping を除く）で点検する */
+    /** 起動後の点検（やり直すかの判定）が済んだ。起動後の最初の契機か、旧 API の最初の要求（ping を除く）で点検する */
     migrationBooted?: boolean;
     /** 進行中の起動後の点検（第 1 段と契機が共有する。どちらが先でも点検は 1 回） */
     migrationBooting?: Promise<void>;
-    /** 起動後の最初の契機で pendingDelete を消し直した（R51。契機だけが行い、旧 API の要求には待たせない。返らない削除は DELETE_WAIT_MS で切る） */
+    /** 起動後の最初の契機で pendingDelete を消し直した（契機だけが行い、旧 API の要求には待たせない。返らない削除は DELETE_WAIT_MS で切る） */
     pendingDeletesRetried?: boolean;
     /** mapID → 進行中の pullTile（clean・delete が待つ） */
     pulls?: Map<string, Set<Promise<void>>>;
@@ -116,23 +116,23 @@ export interface Context {
     };
   };
   /**
-   * opaque イベントを送る（m4-t3・R20）。配線（weiwudi_gw_logic）が range.createNotifier(ctx) を入れる。
+   * opaque イベントを送る。配線（weiwudi_gw_logic）が range.createNotifier(ctx) を入れる。
    * 子 Source は親に読み替えて、全 window の client へ { type: 'opaque', sourceId, resourceId } を送る。無ければ送らない
    */
   notify?: (m: OpaqueNotice) => void;
   /** 動いているジョブ。無ければ undefined */
   job?: JobState;
-  /** 照合表（t7） */
+  /** 照合表 */
   table: TableState;
-  /** Resource の id → CORS 非対応の候補の連続数（仕様 §4.5-3。メモリだけ・保存しない） */
+  /** Resource の id → CORS 非対応の候補の連続数（メモリだけ・保存しない） */
   corslessStreak: Map<string, number>;
   /**
-   * 提供元の一覧（評価の順。利用者の提供元が先、標準の mapbox が後。m3-t5・R13）。呼ぶたびに今の登録表から作る。
+   * 提供元の一覧（評価の順。利用者の提供元が先、標準の mapbox が後）。呼ぶたびに今の登録表から作る。
    * 配線（weiwudi_gw_logic）が渡す。渡さなければ空
    */
   providers(): readonly WeiwudiProvider[];
   /**
-   * 子の URL の組を normalizeMember が受けるか（spec.acceptsMember。m3-t7）。hook は spec を import できないので配線が渡す。
+   * 子の URL の組を normalizeMember が受けるか（spec.acceptsMember）。hook は spec を import できないので配線が渡す。
    * 本体の資格情報の除去（style_body）が、子作り（style.ts）と同じ組だけを除くのに使う。無ければ字句の許可だけで見る
    */
   acceptsMember?: MemberAcceptorWithParams;

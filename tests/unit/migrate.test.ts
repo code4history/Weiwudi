@@ -1,5 +1,5 @@
-// 旧 DB（Weiwudi・Weiwudi_<mapID>）からの移行（m4-t7・仕様 §14.2・R17〜R19・R50・R51・R59）。
-// fake-indexeddb の IDBFactory に 1.1.x の形の旧 DB を作り（F22）、契機（migrateStep）を 1 回ずつ進めて確かめる。
+// 旧 DB（Weiwudi・Weiwudi_<mapID>）からの移行。
+// fake-indexeddb の IDBFactory に 1.1.x の形の旧 DB を作り、契機（migrateStep）を 1 回ずつ進めて確かめる。
 // 「SW の起動」は新しい Context（メモリの状態が空）で表す。旧 API の要求は同じ Context の handleLegacy に渡す。
 // 旧レコードの epoch は試験の今の時刻にする（24 時間を過ぎると stale・refresh になり hit を確かめられない）。
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -101,7 +101,7 @@ const steps = async (ctx: Context, n: number) => {
   for (let i = 0; i < n; i++) await step(ctx);
 };
 
-describe('第 1 段と第 2 段（仕様 §14.2・R51）', () => {
+describe('第 1 段と第 2 段', () => {
   it('mapSetting 2 件・a 450 件・b 0 件: 1 回目で第 1 段、続く 3 回で 200・200・50 を移し、旧 DB を順に消す', async () => {
     const factory = new IDBFactory();
     setup(factory);
@@ -247,7 +247,7 @@ describe('第 1 段と第 2 段（仕様 §14.2・R51）', () => {
   });
 });
 
-describe('読み通し（R18・第 1 回 M5）', () => {
+describe('読み通し', () => {
   it('最初の要求: 旧 DB だけで SW を起動し、契機を待たずに /api/cache を 1 回 → 第 1 段を待って読み通しで hit（オフライン）', async () => {
     const factory = new IDBFactory();
     const { fetch } = setup(factory);
@@ -334,7 +334,7 @@ describe('読み通し（R18・第 1 回 M5）', () => {
   });
 });
 
-describe('失敗の数え方（第 1 回 M6・第 2 回 L2）', () => {
+describe('失敗の数え方', () => {
   it('先頭の 250 件が壊れた記録（blob が無い）でも lastKey で最後まで進み、recordFailures 250・batchFailures 0', async () => {
     const factory = new IDBFactory();
     setup(factory);
@@ -398,8 +398,8 @@ describe('失敗の数え方（第 1 回 M6・第 2 回 L2）', () => {
   });
 });
 
-describe('PR #103 のレビュー（M1・L1・L2）', () => {
-  it('M1: putEntry が 3 回 reject すると failed になり、Weiwudi_a と旧レコードが残る（lastKey は進めない）', async () => {
+describe('PR #103 のレビュー', () => {
+  it('putEntry が 3 回 reject すると failed になり、Weiwudi_a と旧レコードが残る（lastKey は進めない）', async () => {
     const factory = new IDBFactory();
     setup(factory);
     await makeSettings(factory, [setting('a')]);
@@ -419,7 +419,7 @@ describe('PR #103 のレビュー（M1・L1・L2）', () => {
     expect(await oldCount(factory, 'a')).toBe(3);
   });
 
-  it('L1: 失敗と成功のバッチを交互に繰り返しても failed にならない（連続 3 回で failed）', async () => {
+  it('失敗と成功のバッチを交互に繰り返しても failed にならない（連続 3 回で failed）', async () => {
     const factory = new IDBFactory();
     setup(factory);
     await makeSettings(factory, [setting('a')]);
@@ -440,7 +440,7 @@ describe('PR #103 のレビュー（M1・L1・L2）', () => {
     expect((await resourceOf(ctx, 'a'))!.count).toBe(700);
   });
 
-  it('L2: done の後に Weiwudi_a だけが残る（Weiwudi が無い）とき、sources に地図があれば孤児にせず移す', async () => {
+  it('done の後に Weiwudi_a だけが残る（Weiwudi が無い）とき、sources に地図があれば孤児にせず移す', async () => {
     const factory = new IDBFactory();
     setup(factory);
     await makeSettings(factory, [setting('a')]);
@@ -457,7 +457,7 @@ describe('PR #103 のレビュー（M1・L1・L2）', () => {
     expect(await names(factory)).not.toContain('Weiwudi_a');
   });
 
-  it('L2: sources にも無い Weiwudi_c は従来どおり孤児として消す', async () => {
+  it('sources にも無い Weiwudi_c は従来どおり孤児として消す', async () => {
     const factory = new IDBFactory();
     setup(factory);
     await makeTiles(factory, 'c', [record('2_1_1')]);
@@ -468,7 +468,7 @@ describe('PR #103 のレビュー（M1・L1・L2）', () => {
   });
 });
 
-describe('旧 API の clean・delete との順（第 1 回 M6・第 2 回 M2）', () => {
+describe('旧 API の clean・delete との順', () => {
   it('第 2 段の途中の clean の後、契機を重ねても消したタイルが新 DB に戻らない', async () => {
     const factory = new IDBFactory();
     setup(factory);
@@ -561,7 +561,7 @@ describe('旧 API の clean・delete との順（第 1 回 M6・第 2 回 M2）'
   });
 });
 
-describe('戻して上げ直す・blocked・databases() の無い環境（R17・R59）', () => {
+describe('戻して上げ直す・blocked・databases() の無い環境', () => {
   it('done の後に旧 DB を作り直して SW を起動し直すと、最初の契機で databases() が見つけて移行をやり直す', async () => {
     const factory = new IDBFactory();
     setup(factory);
@@ -596,7 +596,7 @@ describe('戻して上げ直す・blocked・databases() の無い環境（R17・
     await makeSettings(factory, [setting('b')]);
     await makeTiles(factory, 'b', [record('2_2_2')]);
     const next = startSw();
-    // migrateStep（R59 の boot）を先に呼ばず、旧 API の要求を最初に受ける
+    // migrateStep の boot を先に呼ばず、旧 API の要求を最初に受ける
     const res = await get(next, '/api/info?mapID=b');
     expect(await res.text()).not.toMatch(/not found/);
     expect(await (await next.store()).getSource('map:b')).toBeDefined();
@@ -663,7 +663,7 @@ describe('戻して上げ直す・blocked・databases() の無い環境（R17・
     expect((await stateOf(next)).pendingDelete).toContain('Weiwudi_a');
   }, DELETE_WAIT_MS + 5000);
 
-  it('消し直しの削除が返らなくても、別の地図の旧 API の clean・delete は上限のうちに返り、契機も終わる（R51）', async () => {
+  it('消し直しの削除が返らなくても、別の地図の旧 API の clean・delete は上限のうちに返り、契機も終わる', async () => {
     const factory = new IDBFactory();
     setup(factory);
     await makeSettings(factory, [setting('a'), setting('b'), setting('c')]);
@@ -703,7 +703,7 @@ describe('戻して上げ直す・blocked・databases() の無い環境（R17・
     expect(st.pendingDelete).toEqual(['Weiwudi_a']);
   }, DELETE_WAIT_MS + 5000);
 
-  it('やり直し（R59）の第 1 段は pendingDelete の名前を開かず・消さず、前の削除が裏で並んだままでも最初の旧 API の要求が止まらない', async () => {
+  it('やり直しの第 1 段は pendingDelete の名前を開かず・消さず、前の削除が裏で並んだままでも最初の旧 API の要求が止まらない', async () => {
     const factory = new IDBFactory();
     setup(factory);
     await makeSettings(factory, [setting('a')]);
@@ -743,7 +743,7 @@ describe('戻して上げ直す・blocked・databases() の無い環境（R17・
     for (const h of holders) h.close();
   });
 
-  it('起動後の点検の kvPut が 1 回失敗しても、旧 API の要求は readLegacySetting で補い、次の呼び出しで点検をやり直す（R51）', async () => {
+  it('起動後の点検の kvPut が 1 回失敗しても、旧 API の要求は readLegacySetting で補い、次の呼び出しで点検をやり直す', async () => {
     const factory = new IDBFactory();
     setup(factory);
     await makeSettings(factory, [setting('a')]);
@@ -773,7 +773,7 @@ describe('戻して上げ直す・blocked・databases() の無い環境（R17・
     expect(await store.getSource('map:b')).toBeDefined();
   });
 
-  it('Weiwudi が pendingDelete にあり、その削除が並んでいる間に第 1 段が失敗しても、readLegacySetting は Weiwudi を開かずに上限のうちに返る（R51）', async () => {
+  it('Weiwudi が pendingDelete にあり、その削除が並んでいる間に第 1 段が失敗しても、readLegacySetting は Weiwudi を開かずに上限のうちに返る', async () => {
     const factory = new IDBFactory();
     setup(factory);
     await makeSettings(factory, [setting('a')]);
@@ -809,7 +809,7 @@ describe('戻して上げ直す・blocked・databases() の無い環境（R17・
     holder.close();
   });
 
-  it('上限を過ぎて blocked とした削除に success が遅れて届くと、blockedDeletes から外れる（R51）', async () => {
+  it('上限を過ぎて blocked とした削除に success が遅れて届くと、blockedDeletes から外れる', async () => {
     const factory = new IDBFactory();
     setup(factory);
     await makeSettings(factory, [setting('a')]);
@@ -866,7 +866,7 @@ describe('戻して上げ直す・blocked・databases() の無い環境（R17・
     setup(noList);
     const ctx = startSw();
     await step(ctx);
-    // 旧 DB が無いので kv に書かずにメモリだけで完了する（R-t7-3）
+    // 旧 DB が無いので kv に書かずにメモリだけで完了する
     expect(ctx.maintenance.migrated).toBe(true);
     expect(await stateOf(ctx)).toBeUndefined();
     expect(await names(factory)).not.toContain('Weiwudi');
@@ -891,7 +891,7 @@ describe('戻して上げ直す・blocked・databases() の無い環境（R17・
   });
 });
 
-describe('NUL を含む mapID（I7c・R19）', () => {
+describe('NUL を含む mapID', () => {
   it('移行では failed にして飛ばし、旧 DB にも残す', async () => {
     const factory = new IDBFactory();
     setup(factory);

@@ -1,10 +1,10 @@
 import { test, expect } from '@playwright/test';
 import { PAGE_HOST } from './fixtures/page-origin.mjs';
 
-// 範囲取得・解放・全体上限を実ブラウザで確かめる（m4-t10・仕様 §7.2・§12）。外部へ出ない構成で、上流は tile-server.mjs
-// （localhost:5174。ページは localhost:5173 で別オリジン）。WebKit・Firefox でも走らせる（R14'）。Chromium だけで成り立つ
+// 範囲取得・解放・全体上限を実ブラウザで確かめる。外部へ出ない構成で、上流は tile-server.mjs
+// （localhost:5174。ページは localhost:5173 で別オリジン）。WebKit・Firefox でも走らせる。Chromium だけで成り立つ
 // ものは @chromium-only で外し、理由をその試験に書く。上流の受信数は tile-server の記録で数える（Playwright の
-// context.on('request') はページの要求と SW の要求を両方数える。t9 の申し送り）
+// context.on('request') はページの要求と SW の要求を両方数える）
 const UPSTREAM = 'http://localhost:5174';
 const PAGE = '/tests/e2e/fixtures/range-page.html';
 const PSEUDO = 'weiwudi.example.com';
@@ -29,8 +29,8 @@ const STYLE_URL = `${UPSTREAM}/style/basic.json`;
 const TILEJSON_URL = `${UPSTREAM}/style/tiles.json`;
 const FONTSTACK = 'Open Sans Regular,Arial Unicode MS Regular';
 
-// 外へ出た要求を数える（style.spec.js と同じ。C-O8）。数えるのは Chromium だけ（WebKit の context.route は SW の要求を
-// 拾わない。O-N5）。ほかのエンジンでは route を置かず、空の並びを返す
+// 外へ出た要求を数える（style.spec.js と同じ）。数えるのは Chromium だけ（WebKit の context.route は SW の要求を
+// 拾わない）。ほかのエンジンでは route を置かず、空の並びを返す
 async function guardNetwork(context) {
     const external = [];
     if (test.info().project.name !== 'chromium') return { external, pseudo: [] };
@@ -114,7 +114,7 @@ test.describe('Weiwudi range (fetchRange・releaseRange・setLimits)', () => {
         await request.get(`${UPSTREAM}/__log?reset=1`);
     });
 
-    // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた（仕様 §2 の 7）
+    // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた。
     test('fetches a range and serves it offline', { tag: '@chromium-only' }, async ({ page, context, request }) => {
         const guard = await guardNetwork(context);
         await openPage(page);
@@ -187,7 +187,7 @@ test.describe('Weiwudi range (fetchRange・releaseRange・setLimits)', () => {
         expect((await getTile(page, at('tiles', 1, 0, 0))).wstatus).toBe('miss');
         // 解放した region の id は attribute-invalid
         expect(await call(page, 'releaseRange', [r.value.id])).toMatchObject({ ok: false, code: 'attribute-invalid' });
-        // keep: true は固定だけを外し、本体を残す（t9 の申し送り）
+        // keep: true は固定だけを外し、本体を残す
         const kept = await fetchRange(page, range);
         expect(kept).toMatchObject({ ok: true, value: { status: 'complete' } });
         expect(await call(page, 'releaseRange', [kept.value.id, { keep: true }])).toMatchObject({ ok: true });
@@ -218,7 +218,7 @@ test.describe('Weiwudi range (fetchRange・releaseRange・setLimits)', () => {
         expectNoLeaks(guard);
     });
 
-    // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた（仕様 §2 の 7）
+    // context.setOffline が SW の fetch まで切るのは Chromium でだけ確かめた。
     test('fetches a style range with glyphs', { tag: '@chromium-only' }, async ({ page, context, request }) => {
         const guard = await guardNetwork(context);
         await openPage(page);

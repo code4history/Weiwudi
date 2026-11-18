@@ -120,7 +120,7 @@ describe('expandTileTemplate', () => {
   });
 });
 
-// ---- m2-t3: 展開の拡張（R6）と tileKeySuffix（R2） ----
+// ---- 展開の拡張と tileKeySuffix ----
 
 // BASE（f08046a）の expandTileTemplate の本体をそのまま写したもの。opts なしの呼び出しはこれと 1 字も変わらない
 const baseExpand = (template: string, z: number, x: number, y: number) => {

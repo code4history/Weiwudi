@@ -1,4 +1,4 @@
-// m4-t5: real store/control integration; every upstream response is local to the harness.
+// real store/control integration; every upstream response is local to the harness.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSwHarness, PAGE_CLIENT_ID } from './sw-harness';
 import { createContext } from '../../src/context';
@@ -56,7 +56,7 @@ const setup = async () => {
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-describe('releaseRange: geometry and holders (R11/R12)', () => {
+describe('releaseRange: geometry and holders', () => {
   it.each([false, true])('same-source overlap survives; keep=%s controls exclusive body deletion', async (keep) => {
     const e = await setup();
     await e.ok('register', SOURCE);
@@ -133,7 +133,7 @@ describe('releaseRange: geometry and holders (R11/R12)', () => {
   });
 });
 
-describe('clean/remove and fetch-busy (P1/R47-R49)', () => {
+describe('clean/remove and fetch-busy', () => {
   it('clean(range) deletes only unpinned exclusive tiles; force deletes pins and marks only overlapping own regions partial', async () => {
     const e = await setup();
     await e.ok('register', SOURCE);
@@ -187,7 +187,7 @@ describe('clean/remove and fetch-busy (P1/R47-R49)', () => {
     expect(await e.pins()).toEqual([[0, 0], [1, 1], [2, 1]]);
   });
 
-  it('a range-only holder region protects the overlap when releasing the sourceIds holder (R12)', async () => {
+  it('a range-only holder region protects the overlap when releasing the sourceIds holder', async () => {
     const e = await setup();
     await e.ok('register', SOURCE);
     await e.ok('register', { ...SOURCE, id: 't' });

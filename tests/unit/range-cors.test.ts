@@ -1,4 +1,4 @@
-// 範囲取得の CORS・認証の規則の試験（m4-t3・P6・R4。仕様 §4.5-3・§4.6 の文ごとに）。
+// 範囲取得の CORS・認証の規則の試験（規則の文ごとに）。
 // cors の取得（Request）と no-cors の確かめ（upstream.probeNoCors の fetch(文字列, init)）を偽の上流で分けて答える。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSwHarness, PAGE_CLIENT, PAGE_CLIENT_ID, SW_SELF_ORIGIN, opaqueResponse, type SwHarness } from './sw-harness';
@@ -82,7 +82,7 @@ const noCorsCalls = (env: Env) => env.h.fetch.mock.calls.filter(([r]) => typeof 
 
 const typeError = (): Response => { throw new TypeError('Failed to fetch'); };
 
-describe('§4.5-3 jobOpaqueStreak と 5 枚の確かめ', () => {
+describe('jobOpaqueStreak と 5 枚の確かめ', () => {
   it('実績の無い Resource で cors が TypeError・no-cors が opaque を 3 枚 → 5 枚の確かめ → 全部 opaque → stop（opaque）・opaque イベントが 1 回', async () => {
     const env = await setup({ cors: typeError, noCors: () => opaqueResponse() });
     await ok(env, 'register', SOURCE);
@@ -148,7 +148,7 @@ describe('§4.5-3 jobOpaqueStreak と 5 枚の確かめ', () => {
   });
 });
 
-describe('§4.6 範囲取得の認証', () => {
+describe('範囲取得の認証', () => {
   it('count === 0 で 401 が 3 回 → stop（upstream）', async () => {
     const env = await setup({ cors: () => png(401), noCors: () => opaqueResponse() });
     await ok(env, 'register', SOURCE);
@@ -191,8 +191,8 @@ describe('probeNoCors の要求', () => {
   });
 });
 
-describe('確かめの数え直しと固定（PR #102 L1・L2）', () => {
-  it('確かめで取れたタイルが列挙で失敗と数えたものなら、その場で成功に数え直して固定する（L2）', async () => {
+describe('確かめの数え直しと固定（PR #102）', () => {
+  it('確かめで取れたタイルが列挙で失敗と数えたものなら、その場で成功に数え直して固定する', async () => {
     const FIRST = 'https://t.example/2/0/0.png';
     let firstCalls = 0;
     const env = await setup({ cors: (u) => (u === FIRST && ++firstCalls >= 2 ? png() : typeError()), noCors: () => opaqueResponse() });
@@ -206,7 +206,7 @@ describe('確かめの数え直しと固定（PR #102 L1・L2）', () => {
     expect((await env.store.getEntry(`${TPL}\x002_0_0`))!.meta.pinned).toBe(1);
   });
 
-  it('確かめが stop を投げても、そのバッチで取れたタイルは固定する（L1）', async () => {
+  it('確かめが stop を投げても、そのバッチで取れたタイルは固定する', async () => {
     // スタイルの 2 つの子: a.example（CORS なし）と b.example（取れる）。1 つ目のバッチに a の 3 枚と b の 1 枚が入る
     const A = 'https://a.example/{z}/{x}/{y}.png';
     const B = 'https://b.example/{z}/{x}/{y}.png';

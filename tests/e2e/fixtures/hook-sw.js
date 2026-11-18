@@ -1,4 +1,4 @@
-// 実 URL の捕捉の e2e（m2-t9）の Service Worker。offline-sw.js と同じく workbox はローカルの上流サーバから読む。
+// 実 URL の捕捉の e2e の Service Worker。offline-sw.js と同じく workbox はローカルの上流サーバから読む。
 // - 既定: /weiwudi-sw.js を読み、その後で同期に利用者のルート（/precached/）を登録する（門番より前に評価される）
 // - ?mode=outdated: Weiwudi の新 API を持たない古い SW の代わり（/v2/ping は 404・POST は受けない）。
 //   controllerchange の後に確かめ直すことを見る試験が使う

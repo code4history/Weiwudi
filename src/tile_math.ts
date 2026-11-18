@@ -77,7 +77,7 @@ export const pixelSizeToTileBox = (width: number, height: number, tileSize: numb
   };
 };
 
-/** expandTileTemplate の新 API 向けの指定（R6。展開の実装は新旧で 1 つ） */
+/** expandTileTemplate の新 API 向けの指定（展開の実装は新旧で 1 つ） */
 export interface ExpandOptions {
   /** 全出現を置換する。無ければ各字句の最初の出現だけ */
   all?: boolean;
@@ -127,6 +127,6 @@ export const expandTileTemplate = (template: string, z: number, x: number, y: nu
   return pairs.reduce((s, [token, value]) => replaceToken(s, token, value, all), template);
 };
 
-/** タイルのキーの suffix（仕様 §5.3・R2。新旧で 1 つ）。`<z>_<x>_<y>`、ratio が '@2x' なら `<z>_<x>_<y>@2x` */
+/** タイルのキーの suffix（新旧で 1 つ）。`<z>_<x>_<y>`、ratio が '@2x' なら `<z>_<x>_<y>@2x` */
 export const tileKeySuffix = (z: number, x: number, y: number, ratio?: string): string =>
   `${z}_${x}_${y}${ratio === '@2x' ? '@2x' : ''}`;

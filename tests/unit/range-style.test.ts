@@ -1,5 +1,5 @@
-// スタイルの範囲取得の試験（m4-t4・仕様 §7.2・§11・L4・R-G・R32・R53・第 1 回 M15）。range.test.ts と同じく、ハーネスで
-// 大域（self・fetch・indexedDB）を差し替え、context と control を直接作る。上流は style.test.ts（m3-t7）と同じ形の偽で、
+// スタイルの範囲取得の試験。range.test.ts と同じく、ハーネスで
+// 大域（self・fetch・indexedDB）を差し替え、context と control を直接作る。上流は style.test.ts と同じ形の偽で、
 // オリジン＋パスで本体を引く。実ネットワークは使わない。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSwHarness, PAGE_CLIENT, PAGE_CLIENT_ID, SW_SELF_ORIGIN, type SwHarness } from './sw-harness';
@@ -163,7 +163,7 @@ const register = async (env: Env, extra: Record<string, unknown> = {}) => {
   env.h.fetch.mockClear();
 };
 
-describe('スタイルの fetchRange（§7.2・m4-t4）', () => {
+describe('スタイルの fetchRange', () => {
   it('style・tilejson・tile・glyph・sprite（4 つ）・data が全部 Entry になり、固定される', async () => {
     const env = await setup();
     await register(env);
@@ -187,7 +187,7 @@ describe('スタイルの fetchRange（§7.2・m4-t4）', () => {
   });
 });
 
-describe('グリフ（§11・L4・R32）', () => {
+describe('グリフ', () => {
   it("fontstack 1 つ・'common' の 5 範囲で putGlyphParts が 1 回、evictScopesFor も 1 回、parts が 5 つ、各範囲の再生が上流の本体と同じ", async () => {
     const env = await setup({ [STYLE]: { ...FULL, layers: [layers[1]] }, [TJ]: TILEJSON });
     await register(env);
@@ -213,7 +213,7 @@ describe('グリフ（§11・L4・R32）', () => {
     for (const range of COMMON) expect(parts[range]).toBe(`Noto Sans Bold|${range}|1`);
   });
 
-  it("'all' で 256 範囲、配列はそのまま。並びに同じ範囲が 2 つあれば後勝ち（L4）", async () => {
+  it("'all' で 256 範囲、配列はそのまま。並びに同じ範囲が 2 つあれば後勝ち", async () => {
     const env = await setup({ [STYLE]: { ...FULL, layers: [layers[1]] }, [TJ]: TILEJSON });
     await register(env);
     await ok(env, 'fetchRange', { id: 'st', range: RANGE, options: { glyphRanges: 'all' } });
@@ -234,7 +234,7 @@ describe('グリフ（§11・L4・R32）', () => {
     expect(await glyphParts(env2, 'Noto Sans Bold')).toEqual({ '0-255': 'Noto Sans Bold|0-255|1', '512-767': 'Noto Sans Bold|512-767|2' });
   });
 
-  it('グリフの単位の途中で cancel() → その fontstack の取れた範囲は書かれ、次の単位から止まる（第 1 回 M15）', async () => {
+  it('グリフの単位の途中で cancel() → その fontstack の取れた範囲は書かれ、次の単位から止まる', async () => {
     const env = await setup({ [STYLE]: { ...FULL, layers: [] }, [TJ]: TILEJSON });
     await register(env);
     env.onGlyph = (g) => {
@@ -245,7 +245,7 @@ describe('グリフ（§11・L4・R32）', () => {
     expect(messages(env, 'canceled')).toHaveLength(1);
     const gotA = glyphFetches(env).filter((g) => g.fontstack === 'A').map((g) => g.range);
     expect(gotA.length).toBeGreaterThanOrEqual(2);
-    // 単位の途中で抜ける（範囲の間で取り消しを見る。PR #104 L1）
+    // 単位の途中で抜ける（範囲の間で取り消しを見る。PR #104）
     expect(gotA.length).toBeLessThan(COMMON.length);
     expect(Object.keys(await glyphParts(env, 'A')).sort()).toEqual([...gotA].sort());
     expect(glyphFetches(env).filter((g) => g.fontstack === 'B')).toEqual([]);
@@ -257,7 +257,7 @@ describe('グリフ（§11・L4・R32）', () => {
   it('flush が QuotaExceededError で失敗すると errors.quota が 1 増える（範囲の数ではない）', async () => {
     const env = await setup({ [STYLE]: { ...FULL, layers: [layers[1]] }, [TJ]: TILEJSON });
     await register(env);
-    // m4-t6: 容量超過は 1 回だけ再試行するので、再試行も失敗させる（R16）
+    // 容量超過は 1 回だけ再試行するので、再試行も失敗させる
     vi.spyOn(env.store, 'putGlyphParts').mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError')).mockRejectedValueOnce(new DOMException('full', 'QuotaExceededError'));
     await ok(env, 'fetchRange', { id: 'st', range: RANGE });
     await settle(env);
@@ -305,7 +305,7 @@ describe('グリフ（§11・L4・R32）', () => {
   });
 });
 
-describe('枚数と進み（§7.2・R29）', () => {
+describe('枚数と進み', () => {
   it('estimate と total はタイルだけ。タイルが残っている間は percent が 100 にならず、100 を超えない', async () => {
     const env = await setup();
     await register(env);
@@ -364,10 +364,10 @@ describe('枚数と進み（§7.2・R29）', () => {
   });
 });
 
-// ---- PR #104 のレビュー（L2・L3）。追記のみ ----
+// ---- PR #104 のレビュー。追記のみ ----
 
-describe('PR #104 のレビュー（L2・L3）', () => {
-  it('保存済みのスタイルの取り直しが失敗しても（stale）、記録は固定され、失敗は 1 件に数える（L2）', async () => {
+describe('PR #104 のレビュー', () => {
+  it('保存済みのスタイルの取り直しが失敗しても（stale）、記録は固定され、失敗は 1 件に数える', async () => {
     const env = await setup({ [STYLE]: { ...FULL, layers: [layers[1]] }, [TJ]: TILEJSON });
     // cacheTtl: 0 で、保存済みのスタイルも上流へ出る
     await register(env, { cacheTtl: 0 });
@@ -384,7 +384,7 @@ describe('PR #104 のレビュー（L2・L3）', () => {
     expect([...new Set(glyphFetches(env).map((g) => g.fontstack))]).toEqual(['Noto Sans Bold']);
   });
 
-  it('job.count はタイルの枚数で数える（job.total と同じ単位。L3）', async () => {
+  it('job.count はタイルの枚数で数える（job.total と同じ単位）', async () => {
     const env = await setup({ [STYLE]: { ...FULL, layers: [layers[1]] }, [TJ]: TILEJSON });
     await register(env);
     const seen: [number, number][] = [];

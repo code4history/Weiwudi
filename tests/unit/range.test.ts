@@ -1,6 +1,5 @@
-// src/range.ts と制御の op（estimate・fetchRange・regions・cancel・job/resume）の試験（m4-t3・仕様 §7.2・R2〜R5・R13・R23・
-// R45・R46・R55・R57・R58）。ハーネスで大域（self・fetch・indexedDB）を差し替え、context と control は直接作る（ctx.job と
-// ctx.inflight に触るため。control.test.ts の direct と同じ形）。仕様の文 1 つにつき 1 件。
+// src/range.ts と制御の op（estimate・fetchRange・regions・cancel・job/resume）の試験。ハーネスで大域（self・fetch・indexedDB）を差し替え、context と control は直接作る（ctx.job と
+// ctx.inflight に触るため。control.test.ts の direct と同じ形）。1 つの挙動につき 1 件。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSwHarness, PAGE_CLIENT, PAGE_CLIENT_ID, SW_SELF_ORIGIN, type SwHarness } from './sw-harness';
 import { createContext, type Context, type JobState } from '../../src/context';
@@ -114,7 +113,7 @@ const allEntries = async (env: Env, rid: string) => {
   return out;
 };
 
-describe('estimate（§7.2・R29・R30）', () => {
+describe('estimate', () => {
   it('タイルの枚数は countTiles と Resource の範囲の交差に一致する', async () => {
     const env = await setup();
     await ok(env, 'register', SOURCE);
@@ -155,7 +154,7 @@ describe('estimate（§7.2・R29・R30）', () => {
   });
 });
 
-describe('fetchRange のタイルと固定（§7.2・R24・R46）', () => {
+describe('fetchRange のタイルと固定', () => {
   it('範囲のタイルを全部取り、pinned === 1・pinnedBytes === bytes。応答は running の RegionInfo', async () => {
     const env = await setup();
     await ok(env, 'register', SOURCE);
@@ -197,7 +196,7 @@ describe('fetchRange のタイルと固定（§7.2・R24・R46）', () => {
     expect((await env.store.getEntry(tileKey(TPL, 2, 1, 1)))!.meta.pinned).toBe(1);
   });
 
-  it('固定の抜け (a): ページの要求が上流を待つ間にジョブが同じキーを取る（inflight の相乗り）→ pinned === 1（第 1 回 S2）', async () => {
+  it('固定の抜け (a): ページの要求が上流を待つ間にジョブが同じキーを取る（inflight の相乗り）→ pinned === 1', async () => {
     const env = await setup();
     await ok(env, 'register', SOURCE);
     let release!: () => void;
@@ -229,7 +228,7 @@ describe('fetchRange のタイルと固定（§7.2・R24・R46）', () => {
     expect((await env.store.getEntry(tileKey(TPL, 1, 0, 0)))!.meta.pinned).toBe(1);
   });
 
-  it('tms の座標（第 1 回 M9）: {y}+tms・{-y}+xyz・{-y}+tms で、範囲取得の URL とキーが捕捉と同じ（y を 2 回反転しない）', async () => {
+  it('tms の座標: {y}+tms・{-y}+xyz・{-y}+tms で、範囲取得の URL とキーが捕捉と同じ（y を 2 回反転しない）', async () => {
     const env = await setup();
     const cases = [
       { id: 'a', url: 'https://a.example/{z}/{x}/{y}.png', scheme: 'tms', want: 'https://a.example/2/2/3.png' },
@@ -265,7 +264,7 @@ describe('fetchRange のタイルと固定（§7.2・R24・R46）', () => {
   });
 });
 
-describe('イベントと終わりの順（I5c・R21・R45）', () => {
+describe('イベントと終わりの順', () => {
   it('proceed は concurrency ごと、finish に error・errors・regionId・sourceId。finish の時点で regions() は running でない', async () => {
     const env = await setup();
     await ok(env, 'register', SOURCE);
@@ -290,7 +289,7 @@ describe('イベントと終わりの順（I5c・R21・R45）', () => {
     expect(regions.result.map((r: { status: string }) => r.status)).toEqual(['complete']);
   });
 
-  it('cancel() で canceled。応答は取り消したジョブの regionId。解決の後の clean() が通る（第 2 回 M4）', async () => {
+  it('cancel() で canceled。応答は取り消したジョブの regionId。解決の後の clean() が通る', async () => {
     const env = await setup();
     await ok(env, 'register', SOURCE);
     let release!: () => void;
@@ -309,12 +308,12 @@ describe('イベントと終わりの順（I5c・R21・R45）', () => {
     await fails(env, 'cancel', { id: 's' }, 'no-fetch-process');
   });
 
-  it('stop に code・message・processed・total（Source が消えると次のバッチで source-not-found。R13）', async () => {
+  it('stop に code・message・processed・total（Source が消えると次のバッチで source-not-found）', async () => {
     const env = await setup();
     await ok(env, 'register', SOURCE);
     let n = 0;
     env.h.fetch.mockImplementation(async () => {
-      // 別スコープの SW が消した形（t5 の後は自分の remove() は fetch-busy になる）
+      // 別スコープの SW が消した形（自分の remove() は fetch-busy になる）
       if (++n === 2) await env.store.deleteSource('s');
       return png();
     });
@@ -328,7 +327,7 @@ describe('イベントと終わりの順（I5c・R21・R45）', () => {
   });
 });
 
-describe('regions() と終わりの書き込み（R5・第 1 回 M7）', () => {
+describe('regions() と終わりの書き込み', () => {
   it('complete・partial（失敗あり）・canceled。running で ctx.job が無い・別の region のジョブ中は partial（記録は書き換えない）', async () => {
     const env = await setup();
     await ok(env, 'register', SOURCE);
@@ -371,7 +370,7 @@ describe('regions() と終わりの書き込み（R5・第 1 回 M7）', () => {
     expect(env.ctx.job).toBeUndefined();
   });
 
-  it('ジョブの途中で region を消す → 書き戻さず canceled で終え、次のバッチから取らない。どの region にも属さない固定を残さない（R57・第 2 回 M3・PR #102 M2）', async () => {
+  it('ジョブの途中で region を消す → 書き戻さず canceled で終え、次のバッチから取らない。どの region にも属さない固定を残さない（PR #102）', async () => {
     const env = await setup();
     await ok(env, 'register', SOURCE);
     let id = '';
@@ -393,7 +392,7 @@ describe('regions() と終わりの書き込み（R5・第 1 回 M7）', () => {
     expect((await env.store.getResource(TPL))!.pinnedBytes).toBe(0);
   });
 
-  it('最後のバッチの途中で region を消す → finish でなく canceled で終え、固定を残さない（R57・m4 区切り L4）', async () => {
+  it('最後のバッチの途中で region を消す → finish でなく canceled で終え、固定を残さない', async () => {
     const env = await setup();
     await ok(env, 'register', SOURCE);
     let id = '';
@@ -428,7 +427,7 @@ describe('regions() と終わりの書き込み（R5・第 1 回 M7）', () => {
   });
 });
 
-describe('job/resume（§7.2・R45・R57）', () => {
+describe('job/resume', () => {
   const crafted = (id = 'g'): RegionRecord => ({
     id, sourceId: 's', range: RANGE, status: 'running', pinned: true, total: 5, error: 0,
     errors: { network: 0, upstream: 0, quota: 0, storage: 0 }, createdAt: 1, updatedAt: 1,
@@ -453,7 +452,7 @@ describe('job/resume（§7.2・R45・R57）', () => {
     await settle(env);
     expect(env.h.fetch).toHaveBeenCalledTimes(4);
     expect(messages(env, 'finish')).toMatchObject([{ regionId: 'g', processed: 5, total: 5 }]);
-    // concurrency は保存した指定を使う（R-t3-3）
+    // concurrency は保存した指定を使う
     expect(messages(env, 'proceed').map((m) => m.processed)).toEqual([2, 4, 5]);
     expect((await env.store.getRegion('g'))!.status).toBe('complete');
   });
@@ -491,7 +490,7 @@ describe('job/resume（§7.2・R45・R57）', () => {
     await fails(env, 'job/resume', { id: 't', regionId: 'g' }, 'attribute-invalid');
   });
 
-  it('終わった（complete の）他の Source の region も attribute-invalid で、その RegionInfo を返さない（m4 区切り L4）', async () => {
+  it('終わった（complete の）他の Source の region も attribute-invalid で、その RegionInfo を返さない', async () => {
     const env = await restarted();
     await ok(env, 'register', { ...SOURCE, id: 't', url: 'https://u.example/{z}/{x}/{y}.png' });
     await env.store.patchRegion('g', (r) => ({ ...r, status: 'complete' }));
@@ -500,7 +499,7 @@ describe('job/resume（§7.2・R45・R57）', () => {
     expect(env.jobs).toHaveLength(0);
   });
 
-  it('clean() が直列で進んでいる最中の job/resume はジョブを始めず、clean() の後に attribute-invalid（第 2 回 M3）', async () => {
+  it('clean() が直列で進んでいる最中の job/resume はジョブを始めず、clean() の後に attribute-invalid', async () => {
     const env = await restarted();
     const [cleaned, resumed] = await Promise.all([
       env.post('clean', { id: 's' }),
@@ -514,7 +513,7 @@ describe('job/resume（§7.2・R45・R57）', () => {
   });
 });
 
-describe('1 度に 1 ジョブ・code（R23・R30）', () => {
+describe('1 度に 1 ジョブ・code', () => {
   it('別の Source のジョブ中・旧 API の fetchAll 中は fetch-busy。region を書かない', async () => {
     const env = await setup();
     await ok(env, 'register', SOURCE);
@@ -553,7 +552,7 @@ describe('1 度に 1 ジョブ・code（R23・R30）', () => {
   });
 });
 
-describe('固定分の上限（§7.1・R55・第 1 回 M8）', () => {
+describe('固定分の上限', () => {
   it('cacheMaxBytes が 3 枚分の Source で 20 枚の範囲 → 3 枚目のバッチの後で stop（quota）', async () => {
     const env = await setup();
     await ok(env, 'register', { ...SOURCE, cacheMaxBytes: 9 });
@@ -566,7 +565,7 @@ describe('固定分の上限（§7.1・R55・第 1 回 M8）', () => {
     expect(region).toMatchObject({ status: 'stopped', code: 'quota' });
   });
 
-  it('固定がすでに cacheMaxBytes に届いていれば、最初のバッチを取らずに stop（quota）（開始のときの判定。m4 区切り L3）', async () => {
+  it('固定がすでに cacheMaxBytes に届いていれば、最初のバッチを取らずに stop（quota）（開始のときの判定）', async () => {
     const env = await setup();
     await ok(env, 'register', { ...SOURCE, cacheMaxBytes: 9 });
     // 3 枚（9 byte）を固定して上限に届かせる
@@ -613,7 +612,7 @@ describe('直列の外・range の写し・asset・資格情報', () => {
     expect((await env.store.getRegion(info.id))!.range).toEqual(RANGE);
   });
 
-  it("kind: 'asset' の fetchRange('all') で Resource が固定され、'all' 以外は attribute-invalid。estimate は 0（R52）", async () => {
+  it("kind: 'asset' の fetchRange('all') で Resource が固定され、'all' 以外は attribute-invalid。estimate は 0", async () => {
     const env = await setup();
     const D = 'https://d.example/a.json';
     env.h.fetch.mockImplementation(async () => new Response('{}', { headers: { 'content-type': 'application/json' } }));
@@ -628,7 +627,7 @@ describe('直列の外・range の写し・asset・資格情報', () => {
     expect(messages(env, 'finish')).toMatchObject([{ percent: 100, processed: 1, total: 0 }]);
   });
 
-  it('資格情報: 上流の URL に access_token が付き、キー・regions()・イベントに無い。足さない相手のミラーには付かない（R3）', async () => {
+  it('資格情報: 上流の URL に access_token が付き、キー・regions()・イベントに無い。足さない相手のミラーには付かない', async () => {
     const env = await setup();
     const A = 'https://a.example/{z}/{x}/{y}.png';
     const B = 'https://b.example/{z}/{x}/{y}.png';
@@ -641,7 +640,7 @@ describe('直列の外・range の写し・asset・資格情報', () => {
     for (const e of await env.store.entriesAtZoom(A, 1)) expect(e.key).not.toContain('pk.secret');
     expect(JSON.stringify(await ok(env, 'regions', { id: 'A' }))).not.toContain('pk.secret');
     expect(JSON.stringify(messages(env))).not.toContain('pk.secret');
-    // B の b.example のミラーを選ぶ（m3 R5: そのオリジンの Source は資格情報を持たない）。Resource は A と共有なので別のタイルで見る
+    // B の b.example のミラーを選ぶ（そのオリジンの Source は資格情報を持たない）。Resource は A と共有なので別のタイルで見る
     env.h.fetch.mockClear();
     vi.spyOn(Math, 'random').mockReturnValue(0.99);
     await ok(env, 'fetchRange', { id: 'B', range: { box: { minX: 0, maxX: 1, minY: 1, maxY: 1 }, minZoom: 1, maxZoom: 1 } });
@@ -650,7 +649,7 @@ describe('直列の外・range の写し・asset・資格情報', () => {
   });
 });
 
-describe('opaque イベントの送り先（R20・m4 区切り L2）', () => {
+describe('opaque イベントの送り先', () => {
   it('スタイルの子の Resource の opaque は親の sourceId で、map: は送らず、全 window の client に 1 回ずつ届く', async () => {
     const env = await setup();
     const policy = { cacheTtl: 1, store: true, outOfRange: { extent: 'transparent' as const, zoom: 'transparent' as const }, credentialParams: [] };
@@ -678,7 +677,7 @@ describe('opaque イベントの送り先（R20・m4 区切り L2）', () => {
   });
 });
 
-describe('enumerate・tileAt（R-tms・第 1 回 L）', () => {
+describe('enumerate・tileAt', () => {
   /** 種を固定した乱数（mulberry32） */
   const rng = (seed: number) => () => {
     seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
@@ -728,8 +727,8 @@ describe('enumerate・tileAt（R-tms・第 1 回 L）', () => {
   });
 });
 
-// ---- m4-t6 PR #107 レビュー L3（追記のみ） ----
-describe('固定分の上限: 全体上限（m4-t6・PR #107 L3）', () => {
+// ---- PR #107（追記のみ） ----
+describe('固定分の上限: 全体上限', () => {
   it('setLimits の maxBytes が 3 枚分のとき、固定が上限に届いた後の fetchRange は stop（quota）', async () => {
     const env = await setup();
     await ok(env, 'register', SOURCE);

@@ -1,4 +1,4 @@
-// src/store.ts の試験（m2-t2・#37）。仕様 §5.2・§5.4・§9・§13、計画 docs/superpowers/plans/2026-11-03-m2-core.md の m2-t2。
+// src/store.ts の試験（#37）。
 // IndexedDB は試験ごとに新しい fake-indexeddb の IDBFactory（store.ts は大域の indexedDB・IDBKeyRange を使う）。
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBDatabase, IDBFactory, IDBKeyRange, IDBObjectStore } from 'fake-indexeddb';
@@ -238,7 +238,7 @@ describe('往復', () => {
     await s.putSource({ ...base, id: 'b', order: 2 });
     await s.putCredentials('a', { headers: { authorization: 'x' } });
     await s.putCredentials('b', { headers: { authorization: 'y' } });
-    // regions の API は m4。ここでは直接書く
+    // regions の API を使わず、ここでは直接書く
     const db = await new Promise<IDBDatabase>((resolve) => {
       const req = factory.open(STORE_DB_NAME);
       req.onsuccess = () => resolve(req.result as unknown as IDBDatabase);
@@ -326,7 +326,7 @@ describe('数の一致', () => {
   });
 });
 
-describe('交互の更新（第 1 回 S2）', () => {
+describe('交互の更新', () => {
   it('2 つの patchResource を同時に出しても両方の変更が残る', async () => {
     const s = await open();
     await s.createResource(resource('r', { sourceIds: ['s1'] }));
@@ -440,14 +440,14 @@ describe('退避（putItemWithEviction と同じ規則）', () => {
     await expectCountsConsistent(s);
   });
 
-  it('maxBytes が 0 の上限では保存しない（第 2 回 O16）', async () => {
+  it('maxBytes が 0 の上限では保存しない', async () => {
     const s = await open();
     await s.createResource(resource('r'));
     expect(await put(s, entry('r', 'a', 1, 1), [{ resourceIds: ['r'], maxBytes: 0 }])).toEqual({ saved: false });
     expect(await s.getResource('r')).toMatchObject({ count: 0, bytes: 0 });
   });
 
-  it('maxBytes が 0 の上限では大きさ 0 の応答も保存しない（m2-t2 水準 1 Minor 3）', async () => {
+  it('maxBytes が 0 の上限では大きさ 0 の応答も保存しない', async () => {
     const s = await open();
     await s.createResource(resource('r'));
     expect(await put(s, entry('r', 'z', 0, 1), [{ resourceIds: ['r'], maxBytes: 0 }])).toEqual({ saved: false });
@@ -455,7 +455,7 @@ describe('退避（putItemWithEviction と同じ規則）', () => {
     expect(await s.getResource('r')).toMatchObject({ count: 0, bytes: 0 });
   });
 
-  it('別の Resource に同じ accessedAt の Entry があり 1 つの要素にまとめたとき、キー昇順で消す（m2-t2 水準 1 Minor 2）', async () => {
+  it('別の Resource に同じ accessedAt の Entry があり 1 つの要素にまとめたとき、キー昇順で消す', async () => {
     const s = await open();
     for (const id of ['A', 'B']) await s.createResource(resource(id));
     await put(s, entry('B', 'x', 10, 5));
@@ -466,7 +466,7 @@ describe('退避（putItemWithEviction と同じ規則）', () => {
     await expectCountsConsistent(s);
   });
 
-  it('上限 2 つ（第 1 回 S4）: 1 つの Resource を 2 つの Source が上限つきで参照するとき、両方の上限を満たすまで消える', async () => {
+  it('上限 2 つ: 1 つの Resource を 2 つの Source が上限つきで参照するとき、両方の上限を満たすまで消える', async () => {
     const s = await open();
     // 共有 R を、S1（R と A・上限 30）と S2（R と B・上限 25）が参照する
     for (const id of ['R', 'A', 'B']) await s.createResource(resource(id));
@@ -501,7 +501,7 @@ describe('退避（putItemWithEviction と同じ規則）', () => {
   });
 });
 
-describe('消された Resource（第 1 回 O-7）', () => {
+describe('消された Resource', () => {
   it('putEntry は、同じ tx の前に消された Resource には書かない（saved: false・entries が増えない）', async () => {
     const s = await open();
     await s.createResource(resource('r'));
@@ -519,7 +519,7 @@ describe('消された Resource（第 1 回 O-7）', () => {
   });
 });
 
-describe('putEntry のキーの守り（m2-t2 水準 1 Info 1）', () => {
+describe('putEntry のキーの守り', () => {
   it.each([
     ['別の Resource の前置き', 'other\0a'],
     ['区切りが無い', 'ra'],
@@ -550,7 +550,7 @@ describe('putEntry のキーの守り（m2-t2 水準 1 Info 1）', () => {
   });
 });
 
-describe('touch（第 1 回 O-6）', () => {
+describe('touch', () => {
   it('entries の accessedAt だけを直し、bodies へ書かない', async () => {
     const s = await open();
     await s.createResource(resource('r'));
@@ -581,7 +581,7 @@ describe('touch（第 1 回 O-6）', () => {
   });
 });
 
-describe('reject の値（仕様 §9）', () => {
+describe('reject の値', () => {
   it('保存の abort で、reject の値が name === QuotaExceededError の DOMException（Event ではない）', async () => {
     const s = await open();
     await s.createResource(resource('r'));
@@ -609,7 +609,7 @@ describe('reject の値（仕様 §9）', () => {
   });
 });
 
-describe('toResourceInfo（第 2 回 O6）', () => {
+describe('toResourceInfo', () => {
   const meta = resource('r', {
     rangeOnlySourceIds: ['s9'], corsOk: true, corslessUntil: 1000, provider: 'mapbox', count: 3, bytes: 30, pinnedBytes: 10,
   });
@@ -633,7 +633,7 @@ describe('toResourceInfo（第 2 回 O6）', () => {
   });
 });
 
-describe('別の接続（仕様 §13 の :553・:563 に当たる 2 件）', () => {
+describe('別の接続（2 件）', () => {
   /** WeiwudiStore を version 1 で開いたまま、versionchange でも閉じない接続（古い版の SW などの代わり） */
   const holdOpen = () => new Promise<IDBDatabase>((resolve, reject) => {
     const req = factory.open(STORE_DB_NAME, 1);
@@ -676,7 +676,7 @@ describe('別の接続（仕様 §13 の :553・:563 に当たる 2 件）', () 
   });
 });
 
-describe('putGlyphPart（m3-t4・仕様 §11）', () => {
+describe('putGlyphPart', () => {
   const G = 'https://g.example/{fontstack}/{range}.pbf';
   const gmeta = (fetchedAt: number): EntryMeta => ({
     key: key(G, 'Noto'), resourceId: G, size: 0, fetchedAt, accessedAt: fetchedAt, pinned: 0,
@@ -688,7 +688,7 @@ describe('putGlyphPart（m3-t4・仕様 §11）', () => {
     await s.createResource(resource(G, { type: 'glyph', templates: [G] }));
     await s.putGlyphPart(gmeta(1), '0-255', blob(4, 1), { 'content-type': 'application/x-protobuf' }, []);
     const txSpy = vi.spyOn(IDBDatabase.prototype, 'transaction');
-    // 本体を ArrayBuffer にしてから tx を作る（m3-t10）ので、tx は呼び出しの後に 1 つだけ
+    // 本体を ArrayBuffer にしてから tx を作るので、tx は呼び出しの後に 1 つだけ
     const p = s.putGlyphPart(gmeta(2), '256-511', blob(3, 2), { 'content-type': 'application/x-protobuf' }, []);
     expect(await p).toEqual({ saved: true });
     expect(txSpy).toHaveBeenCalledTimes(1);
@@ -743,7 +743,7 @@ describe('putGlyphPart（m3-t4・仕様 §11）', () => {
   });
 });
 
-describe('putGlyphParts（m3-t7・仕様 §11 の「1 fontstack 分を溜めてから 1 回で書く」。t4 の申し送り）', () => {
+describe('putGlyphParts（「1 fontstack 分を溜めてから 1 回で書く」）', () => {
   const G = 'https://g.example/{fontstack}/{range}.pbf';
   const gmeta = (fetchedAt: number): EntryMeta => ({
     key: key(G, 'Noto'), resourceId: G, size: 0, fetchedAt, accessedAt: fetchedAt, pinned: 0,
@@ -791,7 +791,7 @@ describe('putGlyphParts（m3-t7・仕様 §11 の「1 fontstack 分を溜めて�
   });
 });
 
-describe('本体の保存の形（m3-t10。WebKit の非永続の保存領域は Blob を put できない）', () => {
+describe('本体の保存の形（WebKit の非永続の保存領域は Blob を put できない）', () => {
   /** bodies へ直接書く（古い形のレコードを作る） */
   const rawPut = async (storeName: string, value: unknown): Promise<void> => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -995,7 +995,7 @@ describe('本体の保存の形（m3-t10。WebKit の非永続の保存領域は
   });
 });
 
-// ---- m4-t1（計画 docs/superpowers/plans/2026-11-07-m4-range-release-migration.md の m4-t1）。追記のみ ----
+// ---- 追記のみ ----
 // 既存の行を変えないため、import はここに足す（import 宣言は巻き上げられる）
 import { IDBIndex } from 'fake-indexeddb';
 import type { RegionRecord } from '../../src/store';
@@ -1013,7 +1013,7 @@ const glyphBlob = (size: number, fill: number) => new Blob([new Uint8Array(size)
 const glyphMeta = (rid: string, fontstack: string, t: number, over: Partial<EntryMeta> = {}): EntryMeta =>
   ({ key: key(rid, fontstack), resourceId: rid, size: 0, fetchedAt: t, accessedAt: t, pinned: 0, ...over });
 
-describe('固定の競合（m4-t1・L1・R6）', () => {
+describe('固定の競合', () => {
   it('上流を待つ間に setPinned で固定したキーは、pinned: 0 の putEntry の後も固定のまま（pinnedBytes は本体の大きさ）', async () => {
     const s = await open();
     await s.createResource(resource('r'));
@@ -1048,7 +1048,7 @@ describe('固定の競合（m4-t1・L1・R6）', () => {
   });
 });
 
-describe('上限を超えた結合レコード（m4-t1・L3・R7）', () => {
+describe('上限を超えた結合レコード', () => {
   const G = 'https://g.example/{fontstack}/{range}.pbf';
   const setup = async () => {
     const s = await open();
@@ -1071,7 +1071,7 @@ describe('上限を超えた結合レコード（m4-t1・L3・R7）', () => {
     await expectCountsConsistent(s);
   });
 
-  it('本体の前が新しく後ろが古いときも、fetchedAt の古い部分（後ろ）から落とす（レビュー L1）', async () => {
+  it('本体の前が新しく後ろが古いときも、fetchedAt の古い部分（後ろ）から落とす（レビュー）', async () => {
     const s = await setup();
     // 1 回の putGlyphParts で、本体の前に新しい部分（t=20）・後ろに古い部分（t=10）を置く
     await s.putGlyphParts(glyphMeta(G, 'Noto', 20), [
@@ -1108,7 +1108,7 @@ describe('上限を超えた結合レコード（m4-t1・L3・R7）', () => {
   });
 });
 
-/** 今の getAll の実装（m3 まで）を写した参照の関数。保存の前の entries の全件から、消える Entry のキーを返す */
+/** 今の getAll の実装（以前の実装）を写した参照の関数。保存の前の entries の全件から、消える Entry のキーを返す */
 const referenceEviction = (all: readonly EntryMeta[], meta: EntryMeta, evict: { resourceIds: string[]; maxBytes: number }[]): Set<string> => {
   const newSize = meta.size;
   const willSave = evict.every((e) => e.maxBytes > 0 && newSize <= e.maxBytes);
@@ -1128,7 +1128,7 @@ const referenceEviction = (all: readonly EntryMeta[], meta: EntryMeta, evict: { 
   return gone;
 };
 
-describe('退避の走査の省略（m4-t1・P7・R7\'・R42）', () => {
+describe('退避の走査の省略', () => {
   it('予算内の保存では IDBIndex.getAll を呼ばない', async () => {
     const s = await open();
     await s.createResource(resource('r'));
@@ -1212,7 +1212,7 @@ describe('退避の走査の省略（m4-t1・P7・R7\'・R42）', () => {
   });
 });
 
-describe('store の新しい操作（m4-t1）', () => {
+describe('store の新しい操作', () => {
   it('deleteEntries・setPinned・pruneGlyphParts の後も count・bytes・pinnedBytes が全件の集計と一致する（種を固定した 100 回）', async () => {
     const G = 'https://g.example/{fontstack}/{range}.pbf';
     const s = await open();
@@ -1327,7 +1327,7 @@ describe('store の新しい操作（m4-t1）', () => {
     expect((await s.listUnpinnedBefore(10, 10)).metas.map((m) => m.key)).toEqual([key('r', 'c'), key('r', 'a'), key('r', 'b')]);
   });
 
-  it('listUnpinnedBefore は同じ fetchedAt の途中から続きを読み、続きの位置のキーが消えても欠けも重複もない（レビュー L2）', async () => {
+  it('listUnpinnedBefore は同じ fetchedAt の途中から続きを読み、続きの位置のキーが消えても欠けも重複もない（レビュー）', async () => {
     const s = await open();
     await s.createResource(resource('r'));
     for (const x of ['a', 'b', 'c', 'd']) await put(s, entry('r', x, 1, 5));
@@ -1391,7 +1391,7 @@ describe('store の新しい操作（m4-t1）', () => {
     expect(await s.getRegion('g3')).toEqual(r3);
   });
 
-  it('hasEntries（I12）: 古い形の本体を持つキーでも true。本体を読まない（bodies の get が 0 回）', async () => {
+  it('hasEntries: 古い形の本体を持つキーでも true。本体を読まない（bodies の get が 0 回）', async () => {
     const s = await open();
     await s.createResource(resource('r1'));
     const e = entry('r1', '1_0_0', 4, 10);
@@ -1414,8 +1414,8 @@ describe('store の新しい操作（m4-t1）', () => {
   });
 });
 
-// ---- m4-t6: 全体の数と全体 LRU の退避（R15・R16）（追記のみ） ----
-describe('getTotals・evictGlobal（m4-t6）', () => {
+// ---- 全体の数と全体 LRU の退避（追記のみ） ----
+describe('getTotals・evictGlobal', () => {
   it('evictGlobal は固定でない Entry を Resource をまたいで [accessedAt, key] の古い順に、bytes 以上になるまで消す', async () => {
     const s = await open();
     await s.createResource(resource('r1'));

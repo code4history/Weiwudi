@@ -42,7 +42,7 @@ async function upstreamCount(request) {
     return (await res.json()).count;
 }
 
-// 外へ出た要求を数える（range.spec.js と同じ。C-O8）。localhost:5173・5174 以外と疑似ホストへ出たものが 0 件であることを
+// 外へ出た要求を数える（range.spec.js と同じ）。localhost:5173・5174 以外と疑似ホストへ出たものが 0 件であることを
 // 試験の最後に確かめる（この describe は Chromium だけ）
 async function guardNetwork(context) {
     const external = [];
@@ -65,8 +65,8 @@ function expectNoLeaks(guard) {
     expect(guard.pseudo).toEqual([]);
 }
 
-// どの試験も context.setOffline を使う。SW の fetch まで切るのは Chromium でだけ確かめた（仕様 §2 の 7。WebKit は
-// ページの fetch が先に失敗し SW 到達を測れない）ので、WebKit・Firefox では走らせない（m3-t10）
+// どの試験も context.setOffline を使う。SW の fetch まで切るのは Chromium でだけ確かめた（WebKit は
+// ページの fetch が先に失敗し SW 到達を測れない）ので、WebKit・Firefox では走らせない
 test.describe('Weiwudi offline', { tag: '@chromium-only' }, () => {
 
     test('setOffline cuts the service worker network', async ({ page, context, request }) => {
@@ -154,7 +154,7 @@ test.describe('Weiwudi offline', { tag: '@chromium-only' }, () => {
         const stats = await page.evaluate(() => window.map.stats());
         expect(stats.count).toBe(21);
         expect(stats.percent).toBe(100);
-        // 旧 API の地図も usage() に入る（m4-t10）
+        // 旧 API の地図も usage() に入る
         const report = await page.evaluate(() => window.Weiwudi.usage());
         expect(report.count).toBe(21);
         expectNoLeaks(guard);
