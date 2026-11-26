@@ -41,7 +41,7 @@ Weiwudi は MIT License のオープンソースソフトウェアです。
 ## クイックスタート
 
 <!-- release-pinned:start -->
-> **現在のリリース: `1.1.1`**。下のインストール手順と旧 API の例はこのリリース向けです。
+> **現在のリリース: `1.2.0-rc.1`**。下のインストール手順と旧 API の例はこのリリース向けです。
 > 機能一覧と API 文書には、このブランチで実装済みの変更も記載しています。
 > [Unreleased](CHANGELOG.md#unreleased) に載せた変更は、現在の npm リリースには含まれません。
 > npm: [`@c4h/weiwudi`](https://www.npmjs.com/package/@c4h/weiwudi)
@@ -108,7 +108,7 @@ try {
 
 ```html
 <!-- Weiwudi メインライブラリ -->
-<script src="https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.1.1/dist/weiwudi.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.2.0-rc.1/dist/weiwudi.umd.js"></script>
 ```
 
 サービスワーカーファイルでは以下のように使用します:
@@ -117,7 +117,7 @@ try {
 // サービスワーカー内 (sw.js)
 importScripts("https://cdn.jsdelivr.net/npm/workbox-core@7.4.0/build/workbox-core.prod.js");
 importScripts("https://cdn.jsdelivr.net/npm/workbox-routing@7.4.0/build/workbox-routing.prod.js");
-importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.1.1/dist/weiwudi-sw.umd.js");
+importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.2.0-rc.1/dist/weiwudi-sw.umd.js");
 ```
 
 ### 1.1.x からの更新

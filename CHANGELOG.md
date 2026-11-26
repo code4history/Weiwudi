@@ -2,7 +2,7 @@
 
 このプロジェクトの主な変更を記録します。版数は [Semantic Versioning](https://semver.org/) に従います。
 
-## [Unreleased]
+## [1.2.0-rc.1] - 2026-11-26
 
 ### Added
 - 実 URL を捕捉する Source API（`Weiwudi.register`・`sources`・`source`、Source の `update`・`stats`・`clean`・`remove`）を追加。ラスタ・ベクタ・スタイル・単体ファイルを登録できる

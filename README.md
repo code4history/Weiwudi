@@ -44,7 +44,7 @@ Weiwudi is open-source under the MIT License.
 ## Quick Start
 
 <!-- release-pinned:start -->
-> **Current release: `1.1.1`**. The installation instructions and legacy API examples
+> **Current release: `1.2.0-rc.1`**. The installation instructions and legacy API examples
 > below target this release. The feature list and API documentation also describe changes
 > implemented on this branch; changes listed in [Unreleased](CHANGELOG.md#unreleased)
 > are not included in the current npm release.
@@ -113,7 +113,7 @@ For browser usage without a build tool, load Weiwudi via CDN:
 
 ```html
 <!-- Weiwudi main library -->
-<script src="https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.1.1/dist/weiwudi.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.2.0-rc.1/dist/weiwudi.umd.js"></script>
 ```
 
 For the service worker file:
@@ -122,7 +122,7 @@ For the service worker file:
 // In your service worker (sw.js)
 importScripts("https://cdn.jsdelivr.net/npm/workbox-core@7.4.0/build/workbox-core.prod.js");
 importScripts("https://cdn.jsdelivr.net/npm/workbox-routing@7.4.0/build/workbox-routing.prod.js");
-importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.1.1/dist/weiwudi-sw.umd.js");
+importScripts("https://cdn.jsdelivr.net/npm/@c4h/weiwudi@1.2.0-rc.1/dist/weiwudi-sw.umd.js");
 ```
 
 ### Upgrading from 1.1.x
